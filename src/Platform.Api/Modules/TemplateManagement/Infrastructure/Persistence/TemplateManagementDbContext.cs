@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 
@@ -7,6 +8,10 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persiste
 /// </summary>
 public sealed class TemplateManagementDbContext(DbContextOptions<TemplateManagementDbContext> options) : DbContext(options)
 {
+    public DbSet<Template> Templates => Set<Template>();
+
+    public DbSet<TemplateVersion> TemplateVersions => Set<TemplateVersion>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("templatemanagement");
