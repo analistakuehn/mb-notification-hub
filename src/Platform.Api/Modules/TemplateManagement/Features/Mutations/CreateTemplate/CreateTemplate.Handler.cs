@@ -75,7 +75,7 @@ internal static partial class CreateTemplate
                 return Conflict(key.Value!);
             }
 
-            Response response = Response.From(template.Value!);
+            var response = Response.From(template.Value!);
             logger.TemplateCreated(response.Key, response.Application, response.Class);
             return Result.Success(response);
         }

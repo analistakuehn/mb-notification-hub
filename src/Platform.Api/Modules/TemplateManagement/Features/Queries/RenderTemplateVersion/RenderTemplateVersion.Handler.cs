@@ -61,7 +61,7 @@ internal static partial class RenderTemplateVersion
                     $"Template '{templateKey.Value!.Value}' has no version {versionNumber}."));
             }
 
-            List<TemplateContent> channelContents = version.Contents
+            var channelContents = version.Contents
                 .Where(content => content.Channel == channel.Value)
                 .ToList();
             if (channelContents.Count == 0)
@@ -72,7 +72,7 @@ internal static partial class RenderTemplateVersion
                     + $"for channel '{channel.Value!.Value}'."));
             }
 
-            List<Locale> availableLocales = channelContents.Select(content => content.Locale).ToList();
+            var availableLocales = channelContents.Select(content => content.Locale).ToList();
             Locale? resolved = LocaleResolution.Resolve(locale.Value!, availableLocales, template.DefaultLocale);
             if (resolved is null)
             {

@@ -34,7 +34,7 @@ internal static partial class GetTemplate
                 .WhereTemplateKey(templateKey.Value!)
                 .OrderBy(version => version.Version)
                 .ToListAsync(cancellationToken);
-            List<VersionSummary> summaries = versions
+            var summaries = versions
                 .Select(version => new VersionSummary(
                     version.Version,
                     version.Status.Canonical(),

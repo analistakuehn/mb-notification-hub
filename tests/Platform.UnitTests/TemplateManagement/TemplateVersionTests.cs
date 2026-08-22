@@ -14,7 +14,7 @@ public sealed class TemplateVersionTests
     [Fact]
     public void A_new_draft_is_empty_and_records_its_author()
     {
-        TemplateVersion draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
 
         draft.Status.ShouldBe(TemplateVersionStatus.Draft);
         draft.Version.ShouldBe(1);
@@ -30,7 +30,7 @@ public sealed class TemplateVersionTests
     [Fact]
     public void Editing_content_stores_it_and_registers_the_editor_once()
     {
-        TemplateVersion draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
 
         draft.SetContent(new ContentEdit(Email, PtBr, "Seu código", "<p>{{code}}</p>", "{{code}}"), "editor-1")
             .IsSuccess.ShouldBeTrue();
@@ -45,7 +45,7 @@ public sealed class TemplateVersionTests
     [Fact]
     public void Every_edit_rotates_the_entity_tag_and_refreshes_the_content_hash()
     {
-        TemplateVersion draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
         string initialTag = draft.EntityTag;
         string initialHash = draft.ContentHash;
 
@@ -59,8 +59,8 @@ public sealed class TemplateVersionTests
     [Fact]
     public void The_content_hash_does_not_depend_on_edit_order()
     {
-        TemplateVersion first = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
-        TemplateVersion second = TemplateVersion.CreateDraft(Key, 1, "author-2", CreatedAt);
+        var first = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var second = TemplateVersion.CreateDraft(Key, 1, "author-2", CreatedAt);
 
         first.SetContent(new ContentEdit(Email, PtBr, "Assunto", "corpo-email", "texto"), "editor-1");
         first.SetContent(new ContentEdit(Sms, PtBr, null, "corpo-sms", null), "editor-1");
@@ -73,8 +73,8 @@ public sealed class TemplateVersionTests
     [Fact]
     public void The_content_hash_distinguishes_an_absent_subject_from_an_empty_one()
     {
-        TemplateVersion withNull = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
-        TemplateVersion withEmpty = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var withNull = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var withEmpty = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
 
         withNull.SetContent(new ContentEdit(Sms, PtBr, null, "corpo", null), "editor-1");
         withEmpty.SetContent(new ContentEdit(Sms, PtBr, string.Empty, "corpo", null), "editor-1");
@@ -85,7 +85,7 @@ public sealed class TemplateVersionTests
     [Fact]
     public void Replacing_the_variables_schema_refreshes_the_content_hash()
     {
-        TemplateVersion draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
         string initialHash = draft.ContentHash;
 
         Result result = draft.SetVariablesSchema("""{"type":"object"}""", "editor-2");
@@ -99,8 +99,8 @@ public sealed class TemplateVersionTests
     [Fact]
     public void The_content_hash_ignores_schema_whitespace_and_key_order()
     {
-        TemplateVersion first = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
-        TemplateVersion second = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var first = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var second = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
 
         first.SetVariablesSchema("""{"type":"object","required":["code"]}""", "editor-1");
         second.SetVariablesSchema("""{ "required": ["code"], "type": "object" }""", "editor-1");
@@ -111,11 +111,11 @@ public sealed class TemplateVersionTests
     [Fact]
     public void Cloning_copies_schema_and_contents_and_preserves_the_content_hash()
     {
-        TemplateVersion source = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var source = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
         source.SetContent(new ContentEdit(Email, PtBr, "Assunto", "corpo", "texto"), "author-1");
         source.SetVariablesSchema("""{"type":"object"}""", "author-1");
 
-        TemplateVersion clone = TemplateVersion.CreateDraftFrom(source, 2, "author-2", CreatedAt.AddDays(1));
+        var clone = TemplateVersion.CreateDraftFrom(source, 2, "author-2", CreatedAt.AddDays(1));
 
         clone.Version.ShouldBe(2);
         clone.Status.ShouldBe(TemplateVersionStatus.Draft);
@@ -157,7 +157,7 @@ public sealed class TemplateVersionTests
     [Fact]
     public void Rejects_blank_content_bodies()
     {
-        TemplateVersion draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+        var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
 
         Result result = draft.SetContent(new ContentEdit(Sms, PtBr, null, "   ", null), "editor-1");
 

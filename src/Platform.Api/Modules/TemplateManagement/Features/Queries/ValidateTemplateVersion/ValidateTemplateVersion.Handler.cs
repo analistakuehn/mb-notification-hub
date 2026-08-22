@@ -47,7 +47,7 @@ internal static partial class ValidateTemplateVersion
                     $"Template '{templateKey.Value!.Value}' has no version {versionNumber}."));
             }
 
-            List<ContentAnalysis> analyses = version.Contents
+            var analyses = version.Contents
                 .Select(content => new ContentAnalysis(content.Channel, content.Locale, AnalyzeFields(content)))
                 .ToList();
 

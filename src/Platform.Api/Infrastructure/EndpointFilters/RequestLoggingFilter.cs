@@ -14,7 +14,7 @@ public sealed class RequestLoggingFilter(ILogger<RequestLoggingFilter> logger) :
         EndpointFilterDelegate next)
     {
         string endpoint = context.HttpContext.GetEndpoint()?.DisplayName ?? "(unknown)";
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
 
         logger.EndpointInvocationStarted(endpoint);
 

@@ -271,7 +271,7 @@ public sealed class TemplateValidationTests
     public void A_version_without_content_fails_completeness()
     {
         Template template = MakeTemplate();
-        TemplateVersion version = TemplateVersion.CreateDraft(Key, 1, "author-1", DateTimeOffset.UtcNow);
+        var version = TemplateVersion.CreateDraft(Key, 1, "author-1", DateTimeOffset.UtcNow);
 
         ValidationReport report = TemplateValidation.Validate(template, version, []);
 
