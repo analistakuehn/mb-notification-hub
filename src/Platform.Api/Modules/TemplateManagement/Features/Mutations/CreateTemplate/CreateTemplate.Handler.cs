@@ -9,7 +9,7 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 
 internal static partial class CreateTemplate
 {
-    internal sealed partial class Handler(
+    internal sealed class Handler(
         TemplateManagementDbContext dbContext,
         ILogger<Handler> logger)
     {
@@ -27,12 +27,29 @@ internal static partial class CreateTemplate
                 return notificationClass.AsFailure<NotificationClass, Response>();
             }
 
-            Result<Template> template = Template.Create(key.Value!, new TemplateMetadata(
-                command.Application,
-                notificationClass.Value,
-                command.OwnerTeam,
-                command.Purpose,
-                command.LegalBasis));
+            Locale? defaultLocale = null;
+            if (command.DefaultLocale is not null)
+            {
+                Result<Locale> parsed = Locale.Create(command.DefaultLocale);
+                if (parsed.IsFailure)
+                {
+                    return parsed.AsFailure<Locale, Response>();
+                }
+
+                defaultLocale = parsed.Value;
+            }
+
+            Result<Template> template = Template.Create(key.Value!, new TemplateMetadata
+            {
+                Application = command.Application,
+                Class = notificationClass.Value,
+                OwnerTeam = command.OwnerTeam,
+                Purpose = command.Purpose,
+                LegalBasis = command.LegalBasis,
+                DefaultLocale = defaultLocale,
+                LinkDomainsAllowed = command.LinkDomainsAllowed ?? [],
+                SensitiveVariables = command.SensitiveVariables ?? [],
+            });
             if (template.IsFailure)
             {
                 return template.AsFailure<Template, Response>();
@@ -59,7 +76,7 @@ internal static partial class CreateTemplate
             }
 
             Response response = Response.From(template.Value!);
-            TemplateCreated(response.Key, response.Application, response.Class);
+            logger.TemplateCreated(response.Key, response.Application, response.Class);
             return Result.Success(response);
         }
 

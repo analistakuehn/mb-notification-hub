@@ -13,4 +13,7 @@ public static class ErrorCodes
     public const string DraftAlreadyExists = "draft-already-exists";
     public const string PreconditionFailed = "precondition-failed";
     public const string ActorUnidentified = "actor-unidentified";
+    public const string TemplateContentNotFound = "template-content-not-found";
+    public const string TemplateRenderFailed = "template-render-failed";
+    public const string UrlDomainNotAllowed = "url-domain-not-allowed";
 }

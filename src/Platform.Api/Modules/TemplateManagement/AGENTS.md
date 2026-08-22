@@ -26,6 +26,38 @@
 - Return `Result<T>` for expected outcomes; reserve exceptions for unexpected system failures.
 - Raise a Domain Event when behavior inside this context reacts to a fact. Map it to a versioned Integration Event only when another context consumes it.
 
+## Error axis
+
+- This module has exactly one error axis: `Result`/`Result<T>` from the
+  SharedKernel carrying a `DomainError`-encoded string (stable code plus scalar
+  detail, unit-separator framing). The string is decoded once, at the HTTP
+  boundary (`Infrastructure/Http/ApiResults.cs`); handlers and domain code
+  never parse it back.
+- Hard rule: a structured or list-shaped payload never travels in the error
+  string. When a use case produces a report, a collection, or any composite
+  outcome, model it as a response value returned through `Result.Success`,
+  even when the outcome describes failures (the validation report is the
+  canonical example: failed checks are data, not errors).
+- Review trigger: the moment a second module needs coded errors, promote a
+  typed `Error` to the SharedKernel through an accepted ADR instead of copying
+  the `DomainError` encoding dialect.
+
+## Logging
+
+- Each use case ships a dedicated `<UseCase>.Handler.Logger.cs` file holding a
+  top-level `internal static partial class <UseCase>Logger` (extension methods
+  do not compile in nested classes, so the logger class sits beside the slice
+  container, not inside it).
+- Log methods are source-generated: `[LoggerMessage] internal static partial
+  void Evento(this ILogger logger, ...)`; handlers call `logger.Evento(...)` on
+  the injected `ILogger`.
+- Identifiers stay in English (`TemplateCreated`, `EndpointInvocationStarted`);
+  pt-BR appears only in log message text and user-facing text, with proper
+  diacritics. Placeholders carry real domain names (template key, version,
+  channel, locale), never personal data, variables, or rendered content.
+- The dialect covers every `.Logger.cs` in the repository, including the host's
+  `Infrastructure/EndpointFilters/RequestLoggingFilter.Logger.cs`.
+
 ## Security and tests
 
 - Require named authorization and rate-limiting policies on state-changing endpoints.

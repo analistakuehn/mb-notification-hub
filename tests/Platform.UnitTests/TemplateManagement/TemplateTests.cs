@@ -10,12 +10,7 @@ public sealed class TemplateTests
     [Fact]
     public void A_new_template_starts_active_with_its_metadata_preserved()
     {
-        Result<Template> result = Template.Create(Key, new TemplateMetadata(
-            "araia-cambio",
-            NotificationClass.Critical,
-            "identity-squad",
-            "authentication",
-            "execucao-de-contrato"));
+        Result<Template> result = Template.Create(Key, Metadata());
 
         result.IsSuccess.ShouldBeTrue();
         Template template = result.Value!;
@@ -26,17 +21,21 @@ public sealed class TemplateTests
         template.Purpose.ShouldBe("authentication");
         template.LegalBasis.ShouldBe("execucao-de-contrato");
         template.Status.ShouldBe(TemplateStatus.Active);
+        template.DefaultLocale.ShouldBeNull();
+        template.LinkDomainsAllowed.ShouldBeEmpty();
+        template.SensitiveVariables.ShouldBeEmpty();
     }
 
     [Fact]
     public void Metadata_text_fields_are_trimmed()
     {
-        Result<Template> result = Template.Create(Key, new TemplateMetadata(
-            " araia-cambio ",
-            NotificationClass.Operational,
-            " ops ",
-            " reminders ",
-            " legitimo-interesse "));
+        Result<Template> result = Template.Create(Key, Metadata() with
+        {
+            Application = " araia-cambio ",
+            OwnerTeam = " ops ",
+            Purpose = " reminders ",
+            LegalBasis = " legitimo-interesse ",
+        });
 
         result.IsSuccess.ShouldBeTrue();
         result.Value!.Application.ShouldBe("araia-cambio");
@@ -50,12 +49,7 @@ public sealed class TemplateTests
     [InlineData("araia_cambio")]
     public void Rejects_applications_outside_the_naming_convention(string application)
     {
-        Result<Template> result = Template.Create(Key, new TemplateMetadata(
-            application,
-            NotificationClass.Critical,
-            "identity-squad",
-            "authentication",
-            "execucao-de-contrato"));
+        Result<Template> result = Template.Create(Key, Metadata() with { Application = application });
 
         result.IsFailure.ShouldBeTrue();
         result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
@@ -67,14 +61,77 @@ public sealed class TemplateTests
     [InlineData("owners", "authentication", "")]
     public void Rejects_blank_governance_fields(string ownerTeam, string purpose, string legalBasis)
     {
-        Result<Template> result = Template.Create(Key, new TemplateMetadata(
-            "araia-cambio",
-            NotificationClass.Critical,
-            ownerTeam,
-            purpose,
-            legalBasis));
+        Result<Template> result = Template.Create(Key, Metadata() with
+        {
+            OwnerTeam = ownerTeam,
+            Purpose = purpose,
+            LegalBasis = legalBasis,
+        });
 
         result.IsFailure.ShouldBeTrue();
         result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
     }
+
+    [Fact]
+    public void Link_domains_are_normalized_to_lowercase_and_deduplicated()
+    {
+        Result<Template> result = Template.Create(Key, Metadata() with
+        {
+            LinkDomainsAllowed = [" MonteBravo.com.br ", "montebravo.com.br", "example.com"],
+        });
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value!.LinkDomainsAllowed.ShouldBe(["montebravo.com.br", "example.com"]);
+    }
+
+    [Theory]
+    [InlineData("https://montebravo.com.br")]
+    [InlineData("montebravo.com.br/path")]
+    [InlineData("montebravo")]
+    [InlineData("")]
+    public void Rejects_link_domains_that_are_not_bare_host_names(string domain)
+    {
+        Result<Template> result = Template.Create(Key, Metadata() with { LinkDomainsAllowed = [domain] });
+
+        result.IsFailure.ShouldBeTrue();
+        result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+    }
+
+    [Theory]
+    [InlineData("1code")]
+    [InlineData("with space")]
+    [InlineData("with-dash")]
+    [InlineData("")]
+    public void Rejects_sensitive_variables_that_are_not_variable_names(string variable)
+    {
+        Result<Template> result = Template.Create(Key, Metadata() with { SensitiveVariables = [variable] });
+
+        result.IsFailure.ShouldBeTrue();
+        result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+    }
+
+    [Fact]
+    public void A_host_is_allowed_when_it_matches_an_allowed_domain_or_one_of_its_subdomains()
+    {
+        Template template = Template.Create(Key, Metadata() with
+        {
+            LinkDomainsAllowed = ["montebravo.com.br"],
+        }).Value!;
+
+        template.IsLinkDomainAllowed("montebravo.com.br").ShouldBeTrue();
+        template.IsLinkDomainAllowed("app.montebravo.com.br").ShouldBeTrue();
+        template.IsLinkDomainAllowed("MONTEBRAVO.com.br").ShouldBeTrue();
+        template.IsLinkDomainAllowed("evilmontebravo.com.br").ShouldBeFalse();
+        template.IsLinkDomainAllowed("montebravo.com.br.evil.io").ShouldBeFalse();
+        template.IsLinkDomainAllowed("example.com").ShouldBeFalse();
+    }
+
+    private static TemplateMetadata Metadata() => new()
+    {
+        Application = "araia-cambio",
+        Class = NotificationClass.Critical,
+        OwnerTeam = "identity-squad",
+        Purpose = "authentication",
+        LegalBasis = "execucao-de-contrato",
+    };
 }

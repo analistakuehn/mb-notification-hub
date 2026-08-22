@@ -1,0 +1,25 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
+
+/// <summary>
+/// Execution limits of the template sandbox. Defaults are deliberate ceilings
+/// for authoring-time compilation and preview rendering; configuration can
+/// tighten or relax them per environment without a deploy of code.
+/// </summary>
+public sealed class TemplatingOptions
+{
+    public const string SectionName = "Modules:TemplateManagement:Templating";
+
+    [Range(1, 1_000_000)]
+    public int LoopLimit { get; init; } = 1000;
+
+    [Range(1, 1000)]
+    public int RecursionLimit { get; init; } = 64;
+
+    [Range(1, 4_000_000)]
+    public int MaxTemplateSizeChars { get; init; } = 131_072;
+
+    [Range(1, 60_000)]
+    public int RenderTimeoutMilliseconds { get; init; } = 2000;
+}

@@ -5,9 +5,9 @@ namespace NotificationHub.Api.Infrastructure.EndpointFilters;
 /// <summary>
 /// Endpoint filter that emits start/complete/failed structured logs around
 /// the inner handler call. Logging methods live in
-/// <c>RequestLoggingFilter.Logger.cs</c> as source-generated partials.
+/// <c>RequestLoggingFilter.Logger.cs</c> as source-generated extension methods.
 /// </summary>
-public sealed partial class RequestLoggingFilter(ILogger<RequestLoggingFilter> logger) : IEndpointFilter
+public sealed class RequestLoggingFilter(ILogger<RequestLoggingFilter> logger) : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(
         EndpointFilterInvocationContext context,
@@ -16,17 +16,17 @@ public sealed partial class RequestLoggingFilter(ILogger<RequestLoggingFilter> l
         string endpoint = context.HttpContext.GetEndpoint()?.DisplayName ?? "(unknown)";
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        EndpointInvocationStarted(endpoint);
+        logger.EndpointInvocationStarted(endpoint);
 
         try
         {
             object? result = await next(context);
-            EndpointInvocationCompleted(endpoint, stopwatch.ElapsedMilliseconds);
+            logger.EndpointInvocationCompleted(endpoint, stopwatch.ElapsedMilliseconds);
             return result;
         }
         catch (Exception exception)
         {
-            EndpointInvocationFailed(endpoint, stopwatch.ElapsedMilliseconds, exception);
+            logger.EndpointInvocationFailed(exception, endpoint, stopwatch.ElapsedMilliseconds);
             throw;
         }
     }

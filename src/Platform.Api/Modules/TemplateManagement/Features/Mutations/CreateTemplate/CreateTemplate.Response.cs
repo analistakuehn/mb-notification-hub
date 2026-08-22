@@ -20,6 +20,12 @@ internal static partial class CreateTemplate
 
         public required string Status { get; init; }
 
+        public string? DefaultLocale { get; init; }
+
+        public required IReadOnlyList<string> LinkDomainsAllowed { get; init; }
+
+        public required IReadOnlyList<string> SensitiveVariables { get; init; }
+
         internal static Response From(Template template) => new()
         {
             Key = template.Key.Value,
@@ -29,6 +35,9 @@ internal static partial class CreateTemplate
             Purpose = template.Purpose,
             LegalBasis = template.LegalBasis,
             Status = template.Status.Canonical(),
+            DefaultLocale = template.DefaultLocale?.Value,
+            LinkDomainsAllowed = template.LinkDomainsAllowed,
+            SensitiveVariables = template.SensitiveVariables,
         };
     }
 }

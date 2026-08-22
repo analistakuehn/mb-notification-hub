@@ -1,10 +1,7 @@
 namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 
-internal static partial class PutTemplateVersionContent
+internal static partial class PutTemplateVersionContentLogger
 {
-    internal sealed partial class Handler
-    {
-        [LoggerMessage(EventId = 2020, Level = LogLevel.Information, Message = "Template {TemplateKey} draft version {Version} content updated for ({Channel}, {Locale})")]
-        private partial void ContentUpdated(string templateKey, int version, string channel, string locale);
-    }
+    [LoggerMessage(EventId = 2020, Level = LogLevel.Information, Message = "Conteúdo do rascunho {Version} do template {TemplateKey} atualizado para ({Channel}, {Locale}).")]
+    internal static partial void ContentUpdated(this ILogger logger, string templateKey, int version, string channel, string locale);
 }

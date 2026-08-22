@@ -9,7 +9,7 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 
 internal static partial class PutTemplateVersionVariablesSchema
 {
-    internal sealed partial class Handler(
+    internal sealed class Handler(
         TemplateManagementDbContext dbContext,
         ILogger<Handler> logger)
     {
@@ -55,7 +55,7 @@ internal static partial class PutTemplateVersionVariablesSchema
                     + "Fetch it again and retry with the current entity tag."));
             }
 
-            VariablesSchemaReplaced(version.TemplateKey.Value, version.Version);
+            logger.VariablesSchemaReplaced(version.TemplateKey.Value, version.Version);
             return Result.Success(Response.From(version));
         }
     }

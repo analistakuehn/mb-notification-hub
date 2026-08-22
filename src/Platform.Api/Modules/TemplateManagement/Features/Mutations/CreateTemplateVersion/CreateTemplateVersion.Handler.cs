@@ -9,7 +9,7 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 
 internal static partial class CreateTemplateVersion
 {
-    internal sealed partial class Handler(
+    internal sealed class Handler(
         TemplateManagementDbContext dbContext,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
@@ -90,11 +90,11 @@ internal static partial class CreateTemplateVersion
 
             if (command.FromVersion is int clonedFrom)
             {
-                DraftCloned(draft.TemplateKey.Value, draft.Version, clonedFrom);
+                logger.DraftCloned(draft.TemplateKey.Value, draft.Version, clonedFrom);
             }
             else
             {
-                DraftOpened(draft.TemplateKey.Value, draft.Version);
+                logger.DraftOpened(draft.TemplateKey.Value, draft.Version);
             }
 
             return Result.Success(Response.From(draft));

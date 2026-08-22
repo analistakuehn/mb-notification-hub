@@ -110,6 +110,12 @@
           "Npgsql": "10.0.3"
         }
       },
+      "Scriban": {
+        "type": "Direct",
+        "requested": "[7.2.6, )",
+        "resolved": "7.2.6",
+        "contentHash": "k6DvaRY83jtigNudMoYlN5Zg42JEDDOCSeKrnpHiE5Gthkd9Fr+6VnYFnL3DqtkZTtPezJJdoX3ZfOTTFpQEMg=="
+      },
       "StackExchange.Redis": {
         "type": "Direct",
         "requested": "[2.8.16, )",

@@ -41,6 +41,21 @@ internal sealed class TemplateConfiguration : IEntityTypeConfiguration<Template>
             .HasColumnName("legal_basis")
             .HasMaxLength(Template.MaxTextLength);
 
+        builder.Property(template => template.DefaultLocale)
+            .HasColumnName("default_locale")
+            .HasMaxLength(5)
+            .HasConversion(
+                value => value!.Value,
+                value => Locale.Trusted(value));
+
+        builder.PrimitiveCollection(template => template.LinkDomainsAllowed)
+            .HasField("_linkDomainsAllowed")
+            .HasColumnName("link_domains_allowed");
+
+        builder.PrimitiveCollection(template => template.SensitiveVariables)
+            .HasField("_sensitiveVariables")
+            .HasColumnName("sensitive_variables");
+
         builder.Property(template => template.Status)
             .HasColumnName("status")
             .HasMaxLength(20)

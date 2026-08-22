@@ -9,7 +9,14 @@ internal static class TemplateApi
     internal static string NewKey(string prefix = "it")
         => $"{prefix}.{Guid.NewGuid():N}";
 
-    internal static object TemplateBody(string key, string application = "araia-cambio", string @class = "transactional", string ownerTeam = "growth-squad")
+    internal static object TemplateBody(
+        string key,
+        string application = "araia-cambio",
+        string @class = "transactional",
+        string ownerTeam = "growth-squad",
+        string? defaultLocale = null,
+        string[]? linkDomainsAllowed = null,
+        string[]? sensitiveVariables = null)
         => new
         {
             key,
@@ -18,11 +25,25 @@ internal static class TemplateApi
             ownerTeam,
             purpose = "order-updates",
             legalBasis = "execucao-de-contrato",
+            defaultLocale,
+            linkDomainsAllowed,
+            sensitiveVariables,
         };
 
-    internal static async Task<string> CreateTemplateAsync(HttpClient client, string key)
+    internal static async Task<string> CreateTemplateAsync(
+        HttpClient client,
+        string key,
+        string? defaultLocale = null,
+        string[]? linkDomainsAllowed = null,
+        string[]? sensitiveVariables = null)
     {
-        HttpResponseMessage response = await client.PostAsJsonAsync("/v1/templates", TemplateBody(key));
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/v1/templates",
+            TemplateBody(
+                key,
+                defaultLocale: defaultLocale,
+                linkDomainsAllowed: linkDomainsAllowed,
+                sensitiveVariables: sensitiveVariables));
         response.EnsureSuccessStatusCode();
         return key;
     }
@@ -33,6 +54,33 @@ internal static class TemplateApi
         response.EnsureSuccessStatusCode();
         JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return (body.GetProperty("version").GetInt32(), response.Headers.ETag!.ToString());
+    }
+
+    internal static async Task<string> PutContentAsync(
+        HttpClient client,
+        string key,
+        int version,
+        string channelLocalePath,
+        object content,
+        string etag)
+    {
+        HttpResponseMessage response = await client.SendAsync(PutJson(
+            $"/v1/templates/{key}/versions/{version}/content/{channelLocalePath}", content, etag));
+        response.EnsureSuccessStatusCode();
+        return response.Headers.ETag!.ToString();
+    }
+
+    internal static async Task<string> PutSchemaAsync(
+        HttpClient client,
+        string key,
+        int version,
+        object schema,
+        string etag)
+    {
+        HttpResponseMessage response = await client.SendAsync(PutJson(
+            $"/v1/templates/{key}/versions/{version}/variables-schema", schema, etag));
+        response.EnsureSuccessStatusCode();
+        return response.Headers.ETag!.ToString();
     }
 
     internal static HttpRequestMessage PutJson(string url, object body, string? ifMatch)

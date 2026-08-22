@@ -7,6 +7,7 @@ using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorizatio
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Caching;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.RateLimiting;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
 
 namespace NotificationHub.Api.Modules.TemplateManagement;
 
@@ -20,6 +21,7 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddRedis(configuration);
         services.AddTemplateManagementAuthorization();
         services.AddTemplateManagementRateLimiting();
+        services.AddTemplateManagementTemplating(configuration);
         services.AddValidatorsFromAssembly(typeof(TemplateManagementModule).Assembly, includeInternalTypes: true);
         services.TryAddSingleton(TimeProvider.System);
 
@@ -30,6 +32,8 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<ListTemplates.Handler>();
         services.AddScoped<GetTemplate.Handler>();
         services.AddScoped<GetTemplateVersion.Handler>();
+        services.AddScoped<ValidateTemplateVersion.Handler>();
+        services.AddScoped<RenderTemplateVersion.Handler>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)
@@ -42,5 +46,7 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         ListTemplates.MapEndpoint(templates);
         GetTemplate.MapEndpoint(templates);
         GetTemplateVersion.MapEndpoint(templates);
+        ValidateTemplateVersion.MapEndpoint(templates);
+        RenderTemplateVersion.MapEndpoint(templates);
     }
 }

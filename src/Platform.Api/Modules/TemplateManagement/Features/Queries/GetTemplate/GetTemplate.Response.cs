@@ -27,6 +27,12 @@ internal static partial class GetTemplate
 
         public required string Status { get; init; }
 
+        public string? DefaultLocale { get; init; }
+
+        public required IReadOnlyList<string> LinkDomainsAllowed { get; init; }
+
+        public required IReadOnlyList<string> SensitiveVariables { get; init; }
+
         public required IReadOnlyList<VersionSummary> Versions { get; init; }
 
         internal static Response From(Template template, IReadOnlyList<VersionSummary> versions) => new()
@@ -38,6 +44,9 @@ internal static partial class GetTemplate
             Purpose = template.Purpose,
             LegalBasis = template.LegalBasis,
             Status = template.Status.Canonical(),
+            DefaultLocale = template.DefaultLocale?.Value,
+            LinkDomainsAllowed = template.LinkDomainsAllowed,
+            SensitiveVariables = template.SensitiveVariables,
             Versions = versions,
         };
     }

@@ -1,10 +1,7 @@
 namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 
-internal static partial class PutTemplateVersionVariablesSchema
+internal static partial class PutTemplateVersionVariablesSchemaLogger
 {
-    internal sealed partial class Handler
-    {
-        [LoggerMessage(EventId = 2030, Level = LogLevel.Information, Message = "Template {TemplateKey} draft version {Version} variables schema replaced")]
-        private partial void VariablesSchemaReplaced(string templateKey, int version);
-    }
+    [LoggerMessage(EventId = 2030, Level = LogLevel.Information, Message = "Esquema de variáveis do rascunho {Version} do template {TemplateKey} substituído.")]
+    internal static partial void VariablesSchemaReplaced(this ILogger logger, string templateKey, int version);
 }

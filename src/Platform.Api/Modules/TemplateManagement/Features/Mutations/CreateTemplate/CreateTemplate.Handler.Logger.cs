@@ -1,10 +1,7 @@
 namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 
-internal static partial class CreateTemplate
+internal static partial class CreateTemplateLogger
 {
-    internal sealed partial class Handler
-    {
-        [LoggerMessage(EventId = 2000, Level = LogLevel.Information, Message = "Template {TemplateKey} created for application {Application} with class {Class}")]
-        private partial void TemplateCreated(string templateKey, string application, string @class);
-    }
+    [LoggerMessage(EventId = 2000, Level = LogLevel.Information, Message = "Template {TemplateKey} criado para a aplicação {Application} com a classe {Class}.")]
+    internal static partial void TemplateCreated(this ILogger logger, string templateKey, string application, string @class);
 }

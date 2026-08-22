@@ -1,13 +1,10 @@
 namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 
-internal static partial class CreateTemplateVersion
+internal static partial class CreateTemplateVersionLogger
 {
-    internal sealed partial class Handler
-    {
-        [LoggerMessage(EventId = 2010, Level = LogLevel.Information, Message = "Template {TemplateKey} draft version {Version} opened")]
-        private partial void DraftOpened(string templateKey, int version);
+    [LoggerMessage(EventId = 2010, Level = LogLevel.Information, Message = "Rascunho {Version} do template {TemplateKey} aberto.")]
+    internal static partial void DraftOpened(this ILogger logger, string templateKey, int version);
 
-        [LoggerMessage(EventId = 2011, Level = LogLevel.Information, Message = "Template {TemplateKey} draft version {Version} opened as a clone of version {FromVersion}")]
-        private partial void DraftCloned(string templateKey, int version, int fromVersion);
-    }
+    [LoggerMessage(EventId = 2011, Level = LogLevel.Information, Message = "Rascunho {Version} do template {TemplateKey} aberto como clone da versão {FromVersion}.")]
+    internal static partial void DraftCloned(this ILogger logger, string templateKey, int version, int fromVersion);
 }
