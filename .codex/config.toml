@@ -1,0 +1,65 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+# Safe project seed distributed by Araia.
+#
+# Approval policy, sandbox mode, network access, model selection, context size,
+# compaction thresholds, and platform elevation are intentionally absent. They
+# remain owned by the user or organization and must never be broadened merely
+# because Araia was installed in a project. Araia-managed skills and bounded
+# multi-agent settings are inserted below in a fenced managed block.
+
+# BEGIN araia-framework-base (managed by /araia; edit ~/.araia/framework, not here)
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 6
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-backlog-builder"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-code-review"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-discovery"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-implementation"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-round-table"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-runtime-diagnostics"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-scaffold"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-solution-inspection"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-specification"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-system-design"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-test-driven-development"
+
+[[skills.config]]
+enabled = true
+path = ".codex/skills/dotnet-testing"
+
+# hooks: see .codex/hooks.json (PostToolUse writes + PreToolUse Bash)
+# END araia-framework-base
