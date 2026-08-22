@@ -13,8 +13,8 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
     [RequiresDockerFact]
     public async Task A_distinct_publisher_publishes_a_valid_draft_recording_approval_and_audit_together()
     {
-        var author = fixture.CreateAuthorClient("author-pub-1");
-        var publisher = fixture.CreatePublisherClient("publisher-pub-1");
+        HttpClient author = fixture.CreateAuthorClient("author-pub-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-pub-1");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await publisher.PostAsync(
@@ -50,8 +50,8 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
     [RequiresDockerFact]
     public async Task Publishing_the_next_version_supersedes_the_previous_one()
     {
-        var author = fixture.CreateAuthorClient("author-pub-2");
-        var publisher = fixture.CreatePublisherClient("publisher-pub-2");
+        HttpClient author = fixture.CreateAuthorClient("author-pub-2");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-pub-2");
         (var key, var first) = await TemplateApi.CreatePublishableDraftAsync(author);
         await TemplateApi.PublishAsync(publisher, key, first);
         HttpResponseMessage draftResponse = await author.PostAsJsonAsync(
@@ -74,8 +74,8 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
     [RequiresDockerFact]
     public async Task A_draft_failing_validation_returns_422_with_the_full_report_in_checks()
     {
-        var author = fixture.CreateAuthorClient("author-pub-3");
-        var publisher = fixture.CreatePublisherClient("publisher-pub-3");
+        HttpClient author = fixture.CreateAuthorClient("author-pub-3");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-pub-3");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
         await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
@@ -112,7 +112,7 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
     [RequiresDockerFact]
     public async Task The_author_cannot_publish_their_own_draft_even_with_the_publisher_role()
     {
-        var authorPublisher = fixture.CreateClientWithToken(
+        HttpClient authorPublisher = fixture.CreateClientWithToken(
             "author-pub-4",
             AuthorizationSetup.AuthorRole,
             AuthorizationSetup.PublisherRole);
@@ -132,8 +132,8 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
     [RequiresDockerFact]
     public async Task A_deprecated_template_does_not_publish()
     {
-        var author = fixture.CreateAuthorClient("author-pub-5");
-        var publisher = fixture.CreatePublisherClient("publisher-pub-5");
+        HttpClient author = fixture.CreateAuthorClient("author-pub-5");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-pub-5");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
             $"/v1/templates/{key}/deprecate", new { reason = "substituído pelo fluxo novo" });
@@ -151,7 +151,7 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
     [RequiresDockerFact]
     public async Task An_author_only_token_cannot_reach_the_publish_endpoint()
     {
-        var author = fixture.CreateAuthorClient("author-pub-6");
+        HttpClient author = fixture.CreateAuthorClient("author-pub-6");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await author.PostAsync(

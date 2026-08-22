@@ -6,9 +6,9 @@ public sealed class HealthCheckSmokeTests(TestApplicationFactory factory)
     [Fact]
     public async Task Health_endpoint_returns_success()
     {
-        var client = factory.CreateClient();
+        HttpClient client = factory.CreateClient();
 
-        var response = await client.GetAsync("/health");
+        HttpResponseMessage response = await client.GetAsync("/health");
 
         response.IsSuccessStatusCode.ShouldBeTrue();
     }

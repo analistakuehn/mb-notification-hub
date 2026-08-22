@@ -10,7 +10,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     [RequiresDockerFact]
     public async Task Creating_a_template_returns_201_with_its_location_and_metadata()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = TemplateApi.NewKey();
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
@@ -31,7 +31,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     [RequiresDockerFact]
     public async Task Reusing_a_template_key_returns_409_template_already_exists()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsJsonAsync("/v1/templates", TemplateApi.TemplateBody(key));
@@ -44,7 +44,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     [RequiresDockerFact]
     public async Task An_unsupported_class_fails_structural_validation_with_400()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
             "/v1/templates",
@@ -56,7 +56,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     [RequiresDockerFact]
     public async Task A_malformed_key_is_rejected_with_400()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
             "/v1/templates",
@@ -70,7 +70,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     [RequiresDockerFact]
     public async Task Without_a_bearer_token_the_endpoint_returns_401()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
             "/v1/templates",
@@ -82,7 +82,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     [RequiresDockerFact]
     public async Task Without_the_author_role_the_endpoint_returns_403()
     {
-        var client = fixture.CreateClientWithToken("author-1", "Some.Other.Role");
+        HttpClient client = fixture.CreateClientWithToken("author-1", "Some.Other.Role");
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
             "/v1/templates",

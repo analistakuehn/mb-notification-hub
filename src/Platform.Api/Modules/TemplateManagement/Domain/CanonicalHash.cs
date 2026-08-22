@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -18,13 +19,31 @@ internal static class CanonicalHash
     internal static string OfFields(params string?[] fields)
         => Hash(AppendFields(new StringBuilder(), fields).ToString());
 
-    internal static string OfVersion(string? variablesSchemaJson, IEnumerable<TemplateContent> contents)
+    internal static string OfVersion(
+        string? variablesSchemaJson,
+        string? layoutKey,
+        int? layoutVersion,
+        IEnumerable<TemplateContent> contents)
     {
         var builder = new StringBuilder();
         var canonicalSchema = variablesSchemaJson is null
             ? null
             : CanonicalJson.Normalize(variablesSchemaJson);
-        AppendFields(builder, canonicalSchema).Append(RecordSeparator);
+
+        // The layout fields join the header record only when a layout is
+        // pinned, so versions without one keep their historical hash bytes.
+        if (layoutKey is null)
+        {
+            AppendFields(builder, canonicalSchema).Append(RecordSeparator);
+        }
+        else
+        {
+            AppendFields(
+                builder,
+                canonicalSchema,
+                layoutKey,
+                layoutVersion!.Value.ToString(CultureInfo.InvariantCulture)).Append(RecordSeparator);
+        }
 
         IOrderedEnumerable<TemplateContent> ordered = contents
             .OrderBy(content => content.Channel.Value, StringComparer.Ordinal)
@@ -36,6 +55,25 @@ internal static class CanonicalHash
                 content.Channel.Value,
                 content.Locale.Value,
                 content.Subject,
+                content.Body,
+                content.BodyText).Append(RecordSeparator);
+        }
+
+        return Hash(builder.ToString());
+    }
+
+    internal static string OfLayoutVersion(IEnumerable<LayoutContent> contents)
+    {
+        var builder = new StringBuilder();
+        IOrderedEnumerable<LayoutContent> ordered = contents
+            .OrderBy(content => content.Channel.Value, StringComparer.Ordinal)
+            .ThenBy(content => content.Locale.Value, StringComparer.Ordinal);
+        foreach (LayoutContent content in ordered)
+        {
+            AppendFields(
+                builder,
+                content.Channel.Value,
+                content.Locale.Value,
                 content.Body,
                 content.BodyText).Append(RecordSeparator);
         }

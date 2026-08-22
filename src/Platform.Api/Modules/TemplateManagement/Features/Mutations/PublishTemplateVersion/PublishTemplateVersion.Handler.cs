@@ -63,7 +63,10 @@ internal static partial class PublishTemplateVersion
 
             // Same validation catalog the authoring endpoints expose: a version
             // only publishes after passing it again, in full, right now.
-            ValidationReport report = TemplateValidation.Validate(template, version, analyzer.Analyze(version));
+            LayoutReferenceFacts? layoutReference =
+                await dbContext.LoadLayoutReferenceAsync(version, cancellationToken);
+            ValidationReport report = TemplateValidation.Validate(
+                template, version, analyzer.Analyze(version), layoutReference);
             if (!report.Passed)
             {
                 var failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);

@@ -29,6 +29,7 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<CreateTemplateVersion.Handler>();
         services.AddScoped<PutTemplateVersionContent.Handler>();
         services.AddScoped<PutTemplateVersionVariablesSchema.Handler>();
+        services.AddScoped<PutTemplateVersionLayout.Handler>();
         services.AddScoped<PublishTemplateVersion.Handler>();
         services.AddScoped<DeprecateTemplate.Handler>();
         services.AddScoped<DisableTemplate.Handler>();
@@ -38,11 +39,24 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<GetTemplateVersion.Handler>();
         services.AddScoped<ValidateTemplateVersion.Handler>();
         services.AddScoped<RenderTemplateVersion.Handler>();
+        services.AddScoped<DiffTemplateVersions.Handler>();
+        services.AddScoped<CreateLayout.Handler>();
+        services.AddScoped<CreateLayoutVersion.Handler>();
+        services.AddScoped<PutLayoutVersionContent.Handler>();
+        services.AddScoped<PublishLayoutVersion.Handler>();
+        services.AddScoped<DeprecateLayout.Handler>();
+        services.AddScoped<DisableLayout.Handler>();
+        services.AddScoped<RollbackLayout.Handler>();
+        services.AddScoped<ListLayouts.Handler>();
+        services.AddScoped<GetLayout.Handler>();
+        services.AddScoped<GetLayoutVersion.Handler>();
+        services.AddScoped<ValidateLayoutVersion.Handler>();
+        services.AddScoped<DiffLayoutVersions.Handler>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)
     {
-        var templates = app.MapGroup("/v1/templates");
+        RouteGroupBuilder templates = app.MapGroup("/v1/templates");
         CreateTemplate.MapEndpoint(templates);
         CreateTemplateVersion.MapEndpoint(templates);
         PutTemplateVersionContent.MapEndpoint(templates);
@@ -56,5 +70,21 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         GetTemplateVersion.MapEndpoint(templates);
         ValidateTemplateVersion.MapEndpoint(templates);
         RenderTemplateVersion.MapEndpoint(templates);
+        PutTemplateVersionLayout.MapEndpoint(templates);
+        DiffTemplateVersions.MapEndpoint(templates);
+
+        RouteGroupBuilder layouts = app.MapGroup("/v1/layouts");
+        CreateLayout.MapEndpoint(layouts);
+        CreateLayoutVersion.MapEndpoint(layouts);
+        PutLayoutVersionContent.MapEndpoint(layouts);
+        PublishLayoutVersion.MapEndpoint(layouts);
+        DeprecateLayout.MapEndpoint(layouts);
+        DisableLayout.MapEndpoint(layouts);
+        RollbackLayout.MapEndpoint(layouts);
+        ListLayouts.MapEndpoint(layouts);
+        GetLayout.MapEndpoint(layouts);
+        GetLayoutVersion.MapEndpoint(layouts);
+        ValidateLayoutVersion.MapEndpoint(layouts);
+        DiffLayoutVersions.MapEndpoint(layouts);
     }
 }

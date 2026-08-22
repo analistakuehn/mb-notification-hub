@@ -36,6 +36,13 @@ internal sealed class TemplateVersionConfiguration : IEntityTypeConfiguration<Te
             .HasColumnName("variables_schema")
             .HasColumnType("jsonb");
 
+        builder.Property(version => version.LayoutKey)
+            .HasColumnName("layout_key")
+            .HasMaxLength(LayoutKey.MaxLength);
+
+        builder.Property(version => version.LayoutVersion)
+            .HasColumnName("layout_version");
+
         builder.Property(version => version.ContentHash)
             .HasColumnName("content_hash")
             .HasMaxLength(64);

@@ -11,7 +11,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task Opening_the_first_draft_returns_201_with_an_entity_tag_and_the_author()
     {
-        var client = fixture.CreateAuthorClient("author-42");
+        HttpClient client = fixture.CreateAuthorClient("author-42");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsync($"/v1/templates/{key}/versions", content: null);
@@ -32,7 +32,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task A_second_draft_for_the_same_template_returns_409_draft_already_exists()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         await TemplateApi.CreateDraftAsync(client, key);
 
@@ -46,7 +46,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task Cloning_from_a_published_version_copies_contents_schema_and_content_hash()
     {
-        var client = fixture.CreateAuthorClient("author-2");
+        HttpClient client = fixture.CreateAuthorClient("author-2");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         var sourceHash = await SeedPublishedVersionAsync(key);
 
@@ -70,7 +70,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task Cloning_from_a_missing_version_returns_404()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
@@ -85,7 +85,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task Opening_a_draft_for_an_unknown_template_returns_404()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
 
         HttpResponseMessage response = await client.PostAsync(
             $"/v1/templates/{TemplateApi.NewKey()}/versions",

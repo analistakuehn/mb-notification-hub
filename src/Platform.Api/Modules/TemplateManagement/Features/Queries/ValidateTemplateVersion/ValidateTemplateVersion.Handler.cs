@@ -50,7 +50,10 @@ internal static partial class ValidateTemplateVersion
             // The report is the value this use case produces: running the
             // validation succeeds even when checks fail, so failed checks
             // travel in the response, never in the error string.
-            ValidationReport report = TemplateValidation.Validate(template, version, analyzer.Analyze(version));
+            LayoutReferenceFacts? layoutReference =
+                await dbContext.LoadLayoutReferenceAsync(version, cancellationToken);
+            ValidationReport report = TemplateValidation.Validate(
+                template, version, analyzer.Analyze(version), layoutReference);
             var failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);
             logger.VersionValidated(version.TemplateKey.Value, version.Version, report.Passed, failed);
             return Result.Success(Response.From(report));

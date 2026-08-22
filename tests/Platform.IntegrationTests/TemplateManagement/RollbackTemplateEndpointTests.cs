@@ -13,9 +13,9 @@ public sealed class RollbackTemplateEndpointTests(TemplateManagementApiFixture f
     [RequiresDockerFact]
     public async Task A_rollback_republishes_the_source_content_as_a_new_version_with_provenance()
     {
-        var author = fixture.CreateAuthorClient("author-rb-1");
-        var publisher = fixture.CreatePublisherClient("publisher-rb-1");
-        var rollbackCaller = fixture.CreatePublisherClient("publisher-rb-2");
+        HttpClient author = fixture.CreateAuthorClient("author-rb-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-rb-1");
+        HttpClient rollbackCaller = fixture.CreatePublisherClient("publisher-rb-2");
         (var key, var first) = await TemplateApi.CreatePublishableDraftAsync(author);
         await TemplateApi.PublishAsync(publisher, key, first);
         var firstHash = await ContentHashOfAsync(author, key, first);
@@ -53,11 +53,11 @@ public sealed class RollbackTemplateEndpointTests(TemplateManagementApiFixture f
     [RequiresDockerFact]
     public async Task The_author_of_the_source_version_cannot_roll_back_to_it()
     {
-        var authorPublisher = fixture.CreateClientWithToken(
+        HttpClient authorPublisher = fixture.CreateClientWithToken(
             "author-rb-3",
             AuthorizationSetup.AuthorRole,
             AuthorizationSetup.PublisherRole);
-        var publisher = fixture.CreatePublisherClient("publisher-rb-3");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-rb-3");
         (var key, var first) = await TemplateApi.CreatePublishableDraftAsync(authorPublisher);
         await TemplateApi.PublishAsync(publisher, key, first);
         var second = await CreateEditedDraftAsync(authorPublisher, key, first);
@@ -79,8 +79,8 @@ public sealed class RollbackTemplateEndpointTests(TemplateManagementApiFixture f
     [RequiresDockerFact]
     public async Task A_version_never_published_cannot_be_a_rollback_target()
     {
-        var author = fixture.CreateAuthorClient("author-rb-4");
-        var publisher = fixture.CreatePublisherClient("publisher-rb-4");
+        HttpClient author = fixture.CreateAuthorClient("author-rb-4");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-rb-4");
         (var key, var draft) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
@@ -95,8 +95,8 @@ public sealed class RollbackTemplateEndpointTests(TemplateManagementApiFixture f
     [RequiresDockerFact]
     public async Task Rolling_back_to_an_unknown_version_returns_404()
     {
-        var author = fixture.CreateAuthorClient("author-rb-5");
-        var publisher = fixture.CreatePublisherClient("publisher-rb-5");
+        HttpClient author = fixture.CreateAuthorClient("author-rb-5");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-rb-5");
         (var key, _) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(

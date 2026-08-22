@@ -12,6 +12,7 @@ public static class TemplatingSetup
             .ValidateOnStart();
         services.AddSingleton<ScribanTemplateEngine>();
         services.AddSingleton<TemplateVersionAnalyzer>();
+        services.AddSingleton<LayoutVersionAnalyzer>();
         return services;
     }
 }

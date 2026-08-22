@@ -12,8 +12,8 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
     [RequiresDockerFact]
     public async Task Deprecating_an_active_template_records_the_reason_in_the_audit_trail()
     {
-        var author = fixture.CreateAuthorClient("author-lc-1");
-        var publisher = fixture.CreatePublisherClient("publisher-lc-1");
+        HttpClient author = fixture.CreateAuthorClient("author-lc-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-1");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
@@ -38,8 +38,8 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
     [RequiresDockerFact]
     public async Task Deprecating_without_a_reason_returns_400()
     {
-        var author = fixture.CreateAuthorClient("author-lc-2");
-        var publisher = fixture.CreatePublisherClient("publisher-lc-2");
+        HttpClient author = fixture.CreateAuthorClient("author-lc-2");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-2");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
@@ -51,8 +51,8 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
     [RequiresDockerFact]
     public async Task Deprecating_twice_returns_409_with_the_remaining_transitions()
     {
-        var author = fixture.CreateAuthorClient("author-lc-3");
-        var publisher = fixture.CreatePublisherClient("publisher-lc-3");
+        HttpClient author = fixture.CreateAuthorClient("author-lc-3");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-3");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
         (await publisher.PostAsJsonAsync($"/v1/templates/{key}/deprecate", new { reason = "primeira" }))
             .EnsureSuccessStatusCode();
@@ -72,8 +72,8 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
     [RequiresDockerFact]
     public async Task Disabling_a_deprecated_template_is_audited_as_its_own_event()
     {
-        var author = fixture.CreateAuthorClient("author-lc-4");
-        var publisher = fixture.CreatePublisherClient("publisher-lc-4");
+        HttpClient author = fixture.CreateAuthorClient("author-lc-4");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-4");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
         (await publisher.PostAsJsonAsync($"/v1/templates/{key}/deprecate", new { reason = "aposentando" }))
             .EnsureSuccessStatusCode();
@@ -95,7 +95,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
     [RequiresDockerFact]
     public async Task An_author_only_token_cannot_deprecate()
     {
-        var author = fixture.CreateAuthorClient("author-lc-5");
+        HttpClient author = fixture.CreateAuthorClient("author-lc-5");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         HttpResponseMessage response = await author.PostAsJsonAsync(
@@ -107,7 +107,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
     [RequiresDockerFact]
     public async Task Deprecating_an_unknown_template_returns_404()
     {
-        var publisher = fixture.CreatePublisherClient("publisher-lc-6");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-6");
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
             $"/v1/templates/{TemplateApi.NewKey()}/deprecate", new { reason = "não existe" });
@@ -120,7 +120,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
     [RequiresDockerFact]
     public async Task Creating_a_template_writes_its_creation_to_the_audit_trail()
     {
-        var author = fixture.CreateAuthorClient("author-lc-7");
+        HttpClient author = fixture.CreateAuthorClient("author-lc-7");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         await fixture.ExecuteDbAsync(async db =>

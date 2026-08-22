@@ -11,7 +11,7 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     [RequiresDockerFact]
     public async Task A_clean_draft_returns_200_with_a_fully_passed_report()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(
             client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
@@ -43,7 +43,7 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     [RequiresDockerFact]
     public async Task Failing_checks_come_back_as_a_200_report_not_as_an_error()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
@@ -77,7 +77,7 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     [RequiresDockerFact]
     public async Task An_unknown_version_returns_404()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsync(
@@ -91,7 +91,7 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     [RequiresDockerFact]
     public async Task An_unknown_template_returns_404()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
 
         HttpResponseMessage response = await client.PostAsync(
             $"/v1/templates/{TemplateApi.NewKey()}/versions/1/validate", content: null);
@@ -104,7 +104,7 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     [RequiresDockerFact]
     public async Task Without_a_bearer_token_the_endpoint_returns_401()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
         HttpResponseMessage response = await client.PostAsync(
             "/v1/templates/any.key/versions/1/validate", content: null);

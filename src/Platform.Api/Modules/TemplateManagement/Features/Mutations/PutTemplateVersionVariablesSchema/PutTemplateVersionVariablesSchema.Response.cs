@@ -31,6 +31,10 @@ internal static partial class PutTemplateVersionVariablesSchema
 
         public required IReadOnlyList<string> Editors { get; init; }
 
+        public string? LayoutKey { get; init; }
+
+        public int? LayoutVersion { get; init; }
+
         public JsonElement? VariablesSchema { get; init; }
 
         public required IReadOnlyList<ContentEntry> Contents { get; init; }
@@ -48,6 +52,8 @@ internal static partial class PutTemplateVersionVariablesSchema
             CreatedBy = version.CreatedBy,
             CreatedAt = version.CreatedAt,
             Editors = version.Editors,
+            LayoutKey = version.LayoutKey,
+            LayoutVersion = version.LayoutVersion,
             VariablesSchema = JsonProjections.ParseOrNull(version.VariablesSchemaJson),
             Contents = version.Contents
                 .Select(content => new ContentEntry(

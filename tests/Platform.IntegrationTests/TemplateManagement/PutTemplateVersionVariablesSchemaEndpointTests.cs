@@ -18,7 +18,7 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     [RequiresDockerFact]
     public async Task Replacing_the_schema_with_the_current_entity_tag_returns_200_and_stores_it()
     {
-        var client = fixture.CreateAuthorClient("editor-1");
+        HttpClient client = fixture.CreateAuthorClient("editor-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
@@ -36,7 +36,7 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     [RequiresDockerFact]
     public async Task Replacing_the_schema_changes_the_version_content_hash()
     {
-        var client = fixture.CreateAuthorClient("editor-1");
+        HttpClient client = fixture.CreateAuthorClient("editor-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
@@ -53,7 +53,7 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     [RequiresDockerFact]
     public async Task A_schema_that_is_not_a_json_object_is_rejected_with_400()
     {
-        var client = fixture.CreateAuthorClient("editor-1");
+        HttpClient client = fixture.CreateAuthorClient("editor-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
@@ -69,7 +69,7 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     [RequiresDockerFact]
     public async Task A_stale_entity_tag_returns_412()
     {
-        var client = fixture.CreateAuthorClient("editor-1");
+        HttpClient client = fixture.CreateAuthorClient("editor-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         var url = $"/v1/templates/{key}/versions/{version}/variables-schema";

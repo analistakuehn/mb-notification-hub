@@ -39,6 +39,32 @@
 - `details` carries compact JSON evidence (content hash, validation outcome,
   reason). Never personal data, variables, or rendered content.
 
+## Layouts
+
+- Layouts follow the same essential cycle as templates: immutable versions
+  with a canonical content hash, one open draft at a time, version lifecycle
+  `draft -> published -> superseded`, identity status
+  `active | deprecated | disabled`, author and editors recorded on the
+  version, four-eyes publication evaluated against the resource, transitions
+  audited under the `layout.*` action vocabulary in the same transaction.
+- **Layout reference is pinned.** A template version stores `layout_key` plus
+  `layout_version` (both or neither), set on the draft through
+  `PUT /v1/templates/{key}/versions/{v}/layout` with `If-Match`. The pin joins
+  the version's canonical content hash, so approving a template also approves
+  the exact layout version it renders inside. The template validation check
+  `layout-reference` requires the pinned layout version to exist, to be
+  published, and to resolve content for every (channel, locale) entry of the
+  template version; a template without a reference stays valid.
+- **Content placeholder contract.** Layout content is Scriban per
+  (channel, locale) with a mandatory `body` and an optional `body_text`
+  wrapper. Each wrapper MUST read the `content` variable: rendering first
+  renders the template field with the caller's variables, then renders the
+  layout wrapper with `content` bound to that finished text as its only
+  variable. The subject never wraps; `body_text` wraps only when the layout
+  ships a text wrapper. Layout locale resolution starts from the locale the
+  template resolution landed on and follows exact -> base language -> layout
+  default locale.
+
 ## Error axis
 
 - This module has exactly one error axis: `Result`/`Result<T>` from the

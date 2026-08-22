@@ -76,7 +76,10 @@ internal static partial class RollbackTemplate
 
             // Same validation catalog as publish: template metadata or the
             // catalog itself may have changed since the source went out.
-            ValidationReport report = TemplateValidation.Validate(template, published, analyzer.Analyze(published));
+            LayoutReferenceFacts? layoutReference =
+                await dbContext.LoadLayoutReferenceAsync(published, cancellationToken);
+            ValidationReport report = TemplateValidation.Validate(
+                template, published, analyzer.Analyze(published), layoutReference);
             if (!report.Passed)
             {
                 var failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);

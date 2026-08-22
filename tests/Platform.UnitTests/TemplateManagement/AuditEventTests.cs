@@ -9,7 +9,7 @@ public sealed class AuditEventTests
     [Fact]
     public void A_recorded_event_preserves_actor_action_entity_and_evidence()
     {
-        AuditEvent auditEvent = AuditEvent.Record(Entry());
+        var auditEvent = AuditEvent.Record(Entry());
 
         auditEvent.Id.ShouldNotBe(Guid.Empty);
         auditEvent.ActorType.ShouldBe("user");
@@ -25,7 +25,7 @@ public sealed class AuditEventTests
     [Fact]
     public void The_application_is_optional_and_preserved_as_absent()
     {
-        AuditEvent auditEvent = AuditEvent.Record(Entry() with { Application = null });
+        var auditEvent = AuditEvent.Record(Entry() with { Application = null });
 
         auditEvent.Application.ShouldBeNull();
     }

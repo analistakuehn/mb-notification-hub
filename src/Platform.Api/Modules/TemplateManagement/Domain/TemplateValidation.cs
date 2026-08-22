@@ -21,6 +21,8 @@ public static class ValidationCheckNames
     public const string SensitiveVariables = "sensitive-variables";
     public const string ChannelLimits = "channel-limits";
     public const string DefaultLocale = "default-locale";
+    public const string LayoutReference = "layout-reference";
+    public const string ContentPlaceholder = "content-placeholder";
 }
 
 /// <summary>Sandbox analysis of one field of a content entry.</summary>
@@ -50,11 +52,18 @@ public static partial class TemplateValidation
     public static ValidationReport Validate(
         Template template,
         TemplateVersion version,
-        IReadOnlyList<ContentAnalysis> analyses)
+        IReadOnlyList<ContentAnalysis> analyses,
+        LayoutReferenceFacts? layoutReference = null)
     {
         ArgumentNullException.ThrowIfNull(template);
         ArgumentNullException.ThrowIfNull(version);
         ArgumentNullException.ThrowIfNull(analyses);
+        if (version.LayoutKey is not null && layoutReference is null)
+        {
+            throw new ArgumentException(
+                "The version pins a layout; the caller must supply the layout-reference facts.",
+                nameof(layoutReference));
+        }
 
         List<ValidationCheck> checks = [];
         AddCompilationChecks(checks, analyses);
@@ -72,6 +81,7 @@ public static partial class TemplateValidation
         AddSensitiveVariableChecks(checks, template, version);
         AddChannelLimitChecks(checks, version);
         AddDefaultLocaleChecks(checks, template, version);
+        AddLayoutReferenceChecks(checks, version, layoutReference);
         return new ValidationReport(checks);
     }
 
@@ -371,6 +381,75 @@ public static partial class TemplateValidation
             checks.Add(Passed(
                 ValidationCheckNames.DefaultLocale,
                 "Every active channel has content for the default locale."));
+        }
+    }
+
+    private static void AddLayoutReferenceChecks(
+        List<ValidationCheck> checks,
+        TemplateVersion version,
+        LayoutReferenceFacts? facts)
+    {
+        // A version without a layout reference is valid on its own; the check
+        // only exists when there is a pin to verify (mirrors the schema check).
+        if (version.LayoutKey is null || facts is null)
+        {
+            return;
+        }
+
+        if (!facts.LayoutExists)
+        {
+            checks.Add(Failed(
+                ValidationCheckNames.LayoutReference,
+                $"Layout '{facts.LayoutKey}' does not exist.",
+                null));
+            return;
+        }
+
+        if (!facts.VersionExists)
+        {
+            checks.Add(Failed(
+                ValidationCheckNames.LayoutReference,
+                $"Layout '{facts.LayoutKey}' has no version {facts.LayoutVersion}.",
+                null));
+            return;
+        }
+
+        if (!string.Equals(facts.VersionStatus, LayoutVersionStatuses.Published, StringComparison.Ordinal))
+        {
+            checks.Add(Failed(
+                ValidationCheckNames.LayoutReference,
+                $"Version {facts.LayoutVersion} of layout '{facts.LayoutKey}' is "
+                + $"'{facts.VersionStatus}', not published.",
+                null));
+            return;
+        }
+
+        var before = checks.Count;
+        foreach (TemplateContent content in version.Contents)
+        {
+            var available = facts.Contents
+                .Where(unit => string.Equals(unit.Channel, content.Channel.Value, StringComparison.Ordinal))
+                .Select(unit => Locale.Trusted(unit.Locale))
+                .ToList();
+            Locale? resolved = LocaleResolution.Resolve(
+                content.Locale,
+                available,
+                facts.DefaultLocale is null ? null : Locale.Trusted(facts.DefaultLocale));
+            if (resolved is null)
+            {
+                checks.Add(Failed(
+                    ValidationCheckNames.LayoutReference,
+                    $"Layout '{facts.LayoutKey}' version {facts.LayoutVersion} has no content "
+                    + $"that resolves for ({content.Channel.Value}, {content.Locale.Value}).",
+                    $"{content.Channel.Value}/{content.Locale.Value}"));
+            }
+        }
+
+        if (checks.Count == before)
+        {
+            checks.Add(Passed(
+                ValidationCheckNames.LayoutReference,
+                "The pinned layout version is published and covers every content entry."));
         }
     }
 

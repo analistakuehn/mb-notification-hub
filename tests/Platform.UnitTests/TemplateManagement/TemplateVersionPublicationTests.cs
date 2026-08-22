@@ -103,7 +103,7 @@ public sealed class TemplateVersionPublicationTests
     [Fact]
     public void The_content_hash_verification_rejects_content_that_no_longer_matches_the_stored_hash()
     {
-        TemplateVersion tampered = TemplateVersion.Rehydrate(new TemplateVersionState
+        var tampered = TemplateVersion.Rehydrate(new TemplateVersionState
         {
             TemplateKey = Key.Value,
             Version = 1,
@@ -186,7 +186,7 @@ public sealed class TemplateVersionPublicationTests
 
     private static TemplateVersion DraftWithContent(string author, string editor)
     {
-        TemplateVersion draft = TemplateVersion.CreateDraft(Key, 1, author, CreatedAt);
+        var draft = TemplateVersion.CreateDraft(Key, 1, author, CreatedAt);
         draft.SetContent(new ContentEdit(Email, PtBr, "Seu código", "<p>{{code}}</p>", "{{code}}"), editor)
             .IsSuccess.ShouldBeTrue();
         return draft;

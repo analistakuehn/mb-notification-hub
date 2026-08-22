@@ -11,7 +11,7 @@ public sealed class ApprovalTests
     [Fact]
     public void A_publication_approval_binds_the_approver_to_the_exact_content_hash()
     {
-        Approval approval = Approval.ForTemplateVersion(Key, 3, ContentHash, "publisher-1", ApprovedAt);
+        var approval = Approval.ForTemplateVersion(Key, 3, ContentHash, "publisher-1", ApprovedAt);
 
         approval.Id.ShouldNotBe(Guid.Empty);
         approval.SubjectType.ShouldBe("template_version");

@@ -12,6 +12,8 @@ public static class AuditEntityTypes
 {
     public const string Template = "template";
     public const string TemplateVersion = "template_version";
+    public const string Layout = "layout";
+    public const string LayoutVersion = "layout_version";
 }
 
 /// <summary>Canonical action names this module records.</summary>
@@ -22,6 +24,11 @@ public static class AuditActions
     public const string TemplateDeprecated = "template.deprecated";
     public const string TemplateDisabled = "template.disabled";
     public const string TemplateRollback = "template.rollback";
+    public const string LayoutCreated = "layout.created";
+    public const string LayoutVersionPublished = "layout.version.published";
+    public const string LayoutDeprecated = "layout.deprecated";
+    public const string LayoutDisabled = "layout.disabled";
+    public const string LayoutRollback = "layout.rollback";
 }
 
 /// <summary>Everything an audit event must capture about one governed effect.</summary>

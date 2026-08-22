@@ -10,7 +10,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task The_template_detail_includes_metadata_and_version_history()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         await TemplateApi.CreateDraftAsync(client, key);
 
@@ -30,7 +30,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task An_unknown_template_returns_404()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
 
         HttpResponseMessage response = await client.GetAsync($"/v1/templates/{TemplateApi.NewKey()}");
 
@@ -42,7 +42,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task The_version_detail_returns_contents_and_sets_the_entity_tag_header()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await client.SendAsync(TemplateApi.PutJson(
@@ -63,7 +63,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task An_unknown_version_returns_404()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.GetAsync($"/v1/templates/{key}/versions/9");
@@ -74,7 +74,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task The_catalog_filters_by_application_owner_and_status()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var application = $"app-{Guid.NewGuid():N}"[..20];
         var key = TemplateApi.NewKey();
         await client.PostAsJsonAsync("/v1/templates", TemplateApi.TemplateBody(key, application));
@@ -93,7 +93,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task The_catalog_pages_with_an_opaque_cursor_without_repeating_items()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var application = $"app-{Guid.NewGuid():N}"[..20];
         for (var i = 0; i < 3; i++)
         {
@@ -122,7 +122,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task An_unsupported_status_filter_is_rejected_with_400()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
 
         HttpResponseMessage response = await client.GetAsync("/v1/templates?status=archived");
 
@@ -132,7 +132,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     [RequiresDockerFact]
     public async Task A_malformed_cursor_is_rejected_with_400()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
 
         HttpResponseMessage response = await client.GetAsync("/v1/templates?cursor=%2Fnot-valid%2F");
 

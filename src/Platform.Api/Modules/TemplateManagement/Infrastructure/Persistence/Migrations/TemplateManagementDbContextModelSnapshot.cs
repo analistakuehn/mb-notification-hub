@@ -140,6 +140,98 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persiste
                     b.ToTable("audit_event", "templatemanagement");
                 });
 
+            modelBuilder.Entity("NotificationHub.Api.Modules.TemplateManagement.Domain.Layout", b =>
+                {
+                    b.Property<string>("_key")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("DefaultLocale")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("default_locale");
+
+                    b.Property<string>("OwnerTeam")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("owner_team");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("_key");
+
+                    b.ToTable("layout", "templatemanagement");
+                });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.TemplateManagement.Domain.LayoutVersion", b =>
+                {
+                    b.Property<string>("_layoutKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("layout_key");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by");
+
+                    b.PrimitiveCollection<string[]>("Editors")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("editors");
+
+                    b.Property<string>("EntityTag")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("etag");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<int?>("RolledBackFrom")
+                        .HasColumnType("integer")
+                        .HasColumnName("rolled_back_from");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("_layoutKey", "Version");
+
+                    b.HasIndex("_layoutKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_layout_version_single_draft")
+                        .HasFilter("status = 'draft'");
+
+                    b.ToTable("layout_version", "templatemanagement");
+                });
+
             modelBuilder.Entity("NotificationHub.Api.Modules.TemplateManagement.Domain.Template", b =>
                 {
                     b.Property<string>("_key")
@@ -245,6 +337,15 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persiste
                         .HasColumnType("character varying(64)")
                         .HasColumnName("etag");
 
+                    b.Property<string>("LayoutKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("layout_key");
+
+                    b.Property<int?>("LayoutVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("layout_version");
+
                     b.Property<DateTimeOffset?>("PublishedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("published_at");
@@ -271,6 +372,61 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persiste
                         .HasFilter("status = 'draft'");
 
                     b.ToTable("template_version", "templatemanagement");
+                });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.TemplateManagement.Domain.LayoutVersion", b =>
+                {
+                    b.HasOne("NotificationHub.Api.Modules.TemplateManagement.Domain.Layout", null)
+                        .WithMany()
+                        .HasForeignKey("_layoutKey")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.OwnsMany("NotificationHub.Api.Modules.TemplateManagement.Domain.LayoutContent", "Contents", b1 =>
+                        {
+                            b1.Property<string>("LayoutKey")
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("layout_key");
+
+                            b1.Property<int>("Version")
+                                .HasColumnType("integer")
+                                .HasColumnName("version");
+
+                            b1.Property<string>("Channel")
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("channel");
+
+                            b1.Property<string>("Locale")
+                                .HasMaxLength(5)
+                                .HasColumnType("character varying(5)")
+                                .HasColumnName("locale");
+
+                            b1.Property<string>("Body")
+                                .IsRequired()
+                                .HasColumnType("text")
+                                .HasColumnName("body");
+
+                            b1.Property<string>("BodyHash")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("character varying(64)")
+                                .HasColumnName("body_hash");
+
+                            b1.Property<string>("BodyText")
+                                .HasColumnType("text")
+                                .HasColumnName("body_text");
+
+                            b1.HasKey("LayoutKey", "Version", "Channel", "Locale");
+
+                            b1.ToTable("layout_content", "templatemanagement");
+
+                            b1.WithOwner()
+                                .HasForeignKey("LayoutKey", "Version");
+                        });
+
+                    b.Navigation("Contents");
                 });
 
             modelBuilder.Entity("NotificationHub.Api.Modules.TemplateManagement.Domain.TemplateVersion", b =>

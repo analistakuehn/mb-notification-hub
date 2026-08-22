@@ -10,7 +10,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task Rendering_an_email_draft_returns_the_substituted_fields()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey(), defaultLocale: "pt-BR");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
@@ -42,7 +42,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task A_regional_locale_falls_back_to_its_base_language_content()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey(), defaultLocale: "en");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "sms/pt", new
@@ -64,7 +64,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task An_unmatched_locale_falls_back_to_the_template_default()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey(), defaultLocale: "pt-BR");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "sms/pt-BR", new
@@ -85,7 +85,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task A_locale_that_resolves_nowhere_returns_404_content_not_found()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "sms/pt", new { body = "Código {{ code }}" }, etag);
@@ -102,7 +102,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task A_channel_without_content_returns_404_content_not_found()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey(), defaultLocale: "pt-BR");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "sms/pt-BR", new { body = "Código {{ code }}" }, etag);
@@ -119,7 +119,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task An_unknown_version_returns_404()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
@@ -134,7 +134,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task A_url_variable_outside_the_allowlist_returns_400_problem_details()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(
             client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
@@ -169,7 +169,7 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     [RequiresDockerFact]
     public async Task A_missing_variable_returns_400_render_failed()
     {
-        var client = fixture.CreateAuthorClient("author-1");
+        HttpClient client = fixture.CreateAuthorClient("author-1");
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey(), defaultLocale: "pt-BR");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "sms/pt-BR", new { body = "Olá {{ nome }}" }, etag);

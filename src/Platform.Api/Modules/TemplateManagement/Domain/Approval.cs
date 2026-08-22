@@ -4,6 +4,7 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 public static class ApprovalSubjectTypes
 {
     public const string TemplateVersion = "template_version";
+    public const string LayoutVersion = "layout_version";
 }
 
 /// <summary>Canonical roles under which an approval is granted.</summary>
@@ -73,6 +74,22 @@ public sealed class Approval
         ArgumentException.ThrowIfNullOrWhiteSpace(approverOid);
 
         var subject = new ApprovalSubject(ApprovalSubjectTypes.TemplateVersion, templateKey.Value, version, contentHash);
+        return new Approval(subject, ApprovalRoles.Publisher, approverOid, approvedAt);
+    }
+
+    public static Approval ForLayoutVersion(
+        LayoutKey layoutKey,
+        int version,
+        string contentHash,
+        string approverOid,
+        DateTimeOffset approvedAt)
+    {
+        ArgumentNullException.ThrowIfNull(layoutKey);
+        ArgumentOutOfRangeException.ThrowIfLessThan(version, 1);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentHash);
+        ArgumentException.ThrowIfNullOrWhiteSpace(approverOid);
+
+        var subject = new ApprovalSubject(ApprovalSubjectTypes.LayoutVersion, layoutKey.Value, version, contentHash);
         return new Approval(subject, ApprovalRoles.Publisher, approverOid, approvedAt);
     }
 

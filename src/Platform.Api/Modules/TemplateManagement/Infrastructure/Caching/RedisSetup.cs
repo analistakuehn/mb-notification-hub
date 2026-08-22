@@ -16,13 +16,13 @@ public static class RedisSetup
 
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {
-            var options = sp.GetRequiredService<IOptions<RedisOptions>>().Value;
+            RedisOptions options = sp.GetRequiredService<IOptions<RedisOptions>>().Value;
             return ConnectionMultiplexer.Connect(options.ConnectionString);
         });
 
         services.AddStackExchangeRedisCache(redisOptions =>
         {
-            var section = configuration.GetRequiredSection(RedisOptions.SectionName);
+            IConfigurationSection section = configuration.GetRequiredSection(RedisOptions.SectionName);
             redisOptions.Configuration = section[nameof(RedisOptions.ConnectionString)];
             redisOptions.InstanceName = section[nameof(RedisOptions.InstanceName)];
         });

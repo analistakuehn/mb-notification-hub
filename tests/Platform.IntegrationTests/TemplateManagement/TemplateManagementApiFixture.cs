@@ -53,7 +53,7 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
 
     public HttpClient CreateClientWithToken(string subject, params string[] roles)
     {
-        var client = CreateClient();
+        HttpClient client = CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", CreateToken(subject, roles));
         return client;

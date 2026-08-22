@@ -12,6 +12,10 @@ public sealed class TemplateManagementDbContext(DbContextOptions<TemplateManagem
 
     public DbSet<TemplateVersion> TemplateVersions => Set<TemplateVersion>();
 
+    public DbSet<Layout> Layouts => Set<Layout>();
+
+    public DbSet<LayoutVersion> LayoutVersions => Set<LayoutVersion>();
+
     public DbSet<Approval> Approvals => Set<Approval>();
 
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();

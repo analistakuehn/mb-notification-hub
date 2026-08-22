@@ -19,4 +19,9 @@ public static class ErrorCodes
     public const string FourEyesViolation = "four-eyes-violation";
     public const string ContentHashMismatch = "content-hash-mismatch";
     public const string TemplateValidationFailed = "template-validation-failed";
+    public const string LayoutAlreadyExists = "layout-already-exists";
+    public const string LayoutNotFound = "layout-not-found";
+    public const string LayoutVersionNotFound = "layout-version-not-found";
+    public const string LayoutContentNotFound = "layout-content-not-found";
+    public const string LayoutValidationFailed = "layout-validation-failed";
 }

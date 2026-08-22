@@ -17,7 +17,7 @@ public sealed class AuditTrailGuaranteesTests(TemplateManagementApiFixture fixtu
     [RequiresDockerFact]
     public async Task A_failure_on_the_audit_insert_rolls_back_the_whole_publication()
     {
-        var author = fixture.CreateAuthorClient("author-at-1");
+        HttpClient author = fixture.CreateAuthorClient("author-at-1");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         // Same handler the endpoint uses, over a connection that fails exactly
@@ -58,7 +58,7 @@ public sealed class AuditTrailGuaranteesTests(TemplateManagementApiFixture fixtu
     [RequiresDockerFact]
     public async Task The_append_only_trigger_rejects_updates_on_audit_events()
     {
-        var author = fixture.CreateAuthorClient("author-at-2");
+        HttpClient author = fixture.CreateAuthorClient("author-at-2");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         await fixture.ExecuteDbAsync(async db =>
@@ -73,7 +73,7 @@ public sealed class AuditTrailGuaranteesTests(TemplateManagementApiFixture fixtu
     [RequiresDockerFact]
     public async Task The_append_only_trigger_rejects_deletes_on_audit_events()
     {
-        var author = fixture.CreateAuthorClient("author-at-3");
+        HttpClient author = fixture.CreateAuthorClient("author-at-3");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         await fixture.ExecuteDbAsync(async db =>

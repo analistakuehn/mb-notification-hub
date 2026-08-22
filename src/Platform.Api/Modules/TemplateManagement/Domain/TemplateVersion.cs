@@ -27,7 +27,7 @@ public sealed class TemplateVersion
         Status = TemplateVersionStatus.Draft;
         CreatedBy = createdBy;
         CreatedAt = createdAt;
-        ContentHash = CanonicalHash.OfVersion(null, _contents);
+        ContentHash = CanonicalHash.OfVersion(null, null, null, _contents);
         EntityTag = NewEntityTag();
     }
 
@@ -47,6 +47,12 @@ public sealed class TemplateVersion
     public TemplateVersionStatus Status { get; private set; }
 
     public string? VariablesSchemaJson { get; private set; }
+
+    /// <summary>Key of the layout this version pins for reproducible rendering, when any.</summary>
+    public string? LayoutKey { get; private set; }
+
+    /// <summary>Layout version pinned together with <see cref="LayoutKey"/>.</summary>
+    public int? LayoutVersion { get; private set; }
 
     public string ContentHash { get; private set; }
 
@@ -76,8 +82,10 @@ public sealed class TemplateVersion
     public static TemplateVersion CreateDraftFrom(TemplateVersion source, int version, string createdBy, DateTimeOffset createdAt)
     {
         ArgumentNullException.ThrowIfNull(source);
-        var draft = CreateDraft(source.TemplateKey, version, createdBy, createdAt);
+        TemplateVersion draft = CreateDraft(source.TemplateKey, version, createdBy, createdAt);
         draft.VariablesSchemaJson = source.VariablesSchemaJson;
+        draft.LayoutKey = source.LayoutKey;
+        draft.LayoutVersion = source.LayoutVersion;
         foreach (TemplateContent content in source._contents)
         {
             draft._contents.Add(new TemplateContent(
@@ -88,7 +96,7 @@ public sealed class TemplateVersion
                 content.BodyText));
         }
 
-        draft.ContentHash = CanonicalHash.OfVersion(draft.VariablesSchemaJson, draft._contents);
+        draft.ContentHash = draft.ComputeContentHash();
         return draft;
     }
 
@@ -108,6 +116,8 @@ public sealed class TemplateVersion
         {
             Status = TemplateVersionStatuses.Trusted(state.Status),
             VariablesSchemaJson = state.VariablesSchemaJson,
+            LayoutKey = state.LayoutKey,
+            LayoutVersion = state.LayoutVersion,
             PublishedAt = state.PublishedAt,
             RolledBackFrom = state.RolledBackFrom,
         };
@@ -124,8 +134,7 @@ public sealed class TemplateVersion
 
         // A caller-supplied hash mirrors the persisted column so integrity
         // verification can compare the stored value against the content.
-        version.ContentHash = state.ContentHash
-            ?? CanonicalHash.OfVersion(version.VariablesSchemaJson, version._contents);
+        version.ContentHash = state.ContentHash ?? version.ComputeContentHash();
         return version;
     }
 
@@ -229,7 +238,7 @@ public sealed class TemplateVersion
     public Result VerifyContentHash()
         => string.Equals(
             ContentHash,
-            CanonicalHash.OfVersion(VariablesSchemaJson, _contents),
+            ComputeContentHash(),
             StringComparison.Ordinal)
             ? Result.Success()
             : Result.BusinessRuleViolation(DomainError.Format(
@@ -306,6 +315,38 @@ public sealed class TemplateVersion
         return Result.Success();
     }
 
+    /// <summary>
+    /// Pins (or clears) the layout this draft renders inside. The pin names an
+    /// exact layout version so the render stays reproducible after publication;
+    /// whether that version exists and is published is the job of the
+    /// layout-reference validation check, not of this edit.
+    /// </summary>
+    public Result SetLayoutReference(LayoutKey? layoutKey, int? layoutVersion, string editor)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(editor);
+
+        Result guard = EnsureDraft("the layout reference");
+        if (guard.IsFailure)
+        {
+            return guard;
+        }
+
+        if (layoutKey is null != layoutVersion is null)
+        {
+            return ValidationFailure("A layout reference requires both layoutKey and layoutVersion, or neither.");
+        }
+
+        if (layoutVersion is < 1)
+        {
+            return ValidationFailure("layoutVersion must be a positive version number.");
+        }
+
+        LayoutKey = layoutKey?.Value;
+        LayoutVersion = layoutVersion;
+        RegisterEdit(editor);
+        return Result.Success();
+    }
+
     private Result EnsureDraft(string editTarget)
         => Status == TemplateVersionStatus.Draft
             ? Result.Success()
@@ -321,9 +362,12 @@ public sealed class TemplateVersion
             _editors.Add(editor);
         }
 
-        ContentHash = CanonicalHash.OfVersion(VariablesSchemaJson, _contents);
+        ContentHash = ComputeContentHash();
         EntityTag = NewEntityTag();
     }
+
+    private string ComputeContentHash()
+        => CanonicalHash.OfVersion(VariablesSchemaJson, LayoutKey, LayoutVersion, _contents);
 
     private static Result ValidationFailure(string detail)
         => new(false, ResultErrorKind.Validation, DomainError.Format(ErrorCodes.InvalidRequest, detail));
@@ -344,6 +388,10 @@ internal sealed record TemplateVersionState
     public required string Status { get; init; }
 
     public string? VariablesSchemaJson { get; init; }
+
+    public string? LayoutKey { get; init; }
+
+    public int? LayoutVersion { get; init; }
 
     public required string CreatedBy { get; init; }
 

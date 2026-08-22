@@ -88,9 +88,16 @@ internal static partial class RenderTemplateVersion
                 return urlGuard.AsFailure<Response>();
             }
 
+            Result<LayoutWrapper?> wrapper = await ResolveLayoutWrapperAsync(
+                version, channel.Value!, resolved, cancellationToken);
+            if (wrapper.IsFailure)
+            {
+                return wrapper.AsFailure<LayoutWrapper?, Response>();
+            }
+
             TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
             Result<Response> rendered = await RenderContentAsync(
-                content, locale.Value!, resolved, request.Variables, cancellationToken);
+                content, locale.Value!, resolved, request.Variables, wrapper.Value, cancellationToken);
             if (rendered.IsSuccess)
             {
                 logger.VersionRendered(
@@ -108,6 +115,7 @@ internal static partial class RenderTemplateVersion
             Locale requested,
             Locale resolved,
             JsonElement? variables,
+            LayoutWrapper? wrapper,
             CancellationToken cancellationToken)
         {
             Result<string?> subject = await RenderFieldAsync(
@@ -131,13 +139,114 @@ internal static partial class RenderTemplateVersion
                 return bodyText.AsFailure<string?, Response>();
             }
 
+            // The subject never wraps: the layout only frames the body, and the
+            // text variant only when the layout ships a text wrapper of its own.
+            var wrappedBody = body.Value!;
+            var wrappedBodyText = bodyText.Value;
+            if (wrapper is not null)
+            {
+                Result<string> framed = await WrapInLayoutAsync(
+                    TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
+                if (framed.IsFailure)
+                {
+                    return framed.AsFailure<string, Response>();
+                }
+
+                wrappedBody = framed.Value!;
+                if (wrappedBodyText is not null && wrapper.BodyText is not null)
+                {
+                    Result<string> framedText = await WrapInLayoutAsync(
+                        TemplateContentFields.BodyText, wrapper.BodyText, wrappedBodyText, cancellationToken);
+                    if (framedText.IsFailure)
+                    {
+                        return framedText.AsFailure<string, Response>();
+                    }
+
+                    wrappedBodyText = framedText.Value!;
+                }
+            }
+
             return Result.Success(new Response(
                 content.Channel.Value,
                 requested.Value,
                 resolved.Value,
                 subject.Value,
-                body.Value!,
-                bodyText.Value));
+                wrappedBody,
+                wrappedBodyText));
+        }
+
+        /// <summary>
+        /// Resolves the layout content the pinned layout version provides for
+        /// the rendered channel and the locale the template resolution landed
+        /// on, following the layout's own fallback chain.
+        /// </summary>
+        private async Task<Result<LayoutWrapper?>> ResolveLayoutWrapperAsync(
+            TemplateVersion version,
+            Channel channel,
+            Locale resolved,
+            CancellationToken cancellationToken)
+        {
+            if (version.LayoutKey is not string layoutKey)
+            {
+                return Result.Success<LayoutWrapper?>(null);
+            }
+
+            var key = LayoutKey.Trusted(layoutKey);
+            var pinnedNumber = version.LayoutVersion!.Value;
+            LayoutVersion? pinned = await dbContext.LayoutVersions
+                .AsNoTracking()
+                .WhereLayoutKey(key)
+                .FirstOrDefaultAsync(candidate => candidate.Version == pinnedNumber, cancellationToken);
+            if (pinned is null)
+            {
+                return Result.NotFound<LayoutWrapper?>(DomainError.Format(
+                    ErrorCodes.LayoutVersionNotFound,
+                    $"The version pins layout '{layoutKey}' version {pinnedNumber}, which does not exist."));
+            }
+
+            Layout? layout = await dbContext.Layouts
+                .AsNoTracking()
+                .WhereKey(key)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            var channelContents = pinned.Contents
+                .Where(candidate => candidate.Channel == channel)
+                .ToList();
+            var availableLocales = channelContents.Select(candidate => candidate.Locale).ToList();
+            Locale? layoutLocale = LocaleResolution.Resolve(resolved, availableLocales, layout?.DefaultLocale);
+            if (layoutLocale is null)
+            {
+                return Result.NotFound<LayoutWrapper?>(DomainError.Format(
+                    ErrorCodes.LayoutContentNotFound,
+                    $"Layout '{layoutKey}' version {pinnedNumber} has no content that resolves "
+                    + $"for ({channel.Value}, {resolved.Value})."));
+            }
+
+            LayoutContent content = channelContents.First(candidate => candidate.Locale == layoutLocale);
+            return Result.Success<LayoutWrapper?>(new LayoutWrapper(content.Body, content.BodyText));
+        }
+
+        /// <summary>
+        /// Renders the layout wrapper with the already-rendered template field
+        /// exposed as the single <c>content</c> variable: the layout sees no
+        /// template variable and no template source, only the finished text.
+        /// </summary>
+        private async Task<Result<string>> WrapInLayoutAsync(
+            string field,
+            string layoutSource,
+            string renderedContent,
+            CancellationToken cancellationToken)
+        {
+            JsonElement globals = JsonSerializer.SerializeToElement(new Dictionary<string, string>
+            {
+                [LayoutValidation.ContentPlaceholderVariable] = renderedContent,
+            });
+            Result<string> wrapped = await engine.RenderAsync(layoutSource, globals, cancellationToken);
+            return wrapped.IsFailure
+                ? Result.ValidationError<string>(DomainError.Format(
+                    ErrorCodes.TemplateRenderFailed,
+                    $"Layout wrapper for field '{field}': {wrapped.Error}"))
+                : wrapped;
         }
 
         private async Task<Result<string?>> RenderFieldAsync(
@@ -200,4 +309,7 @@ internal static partial class RenderTemplateVersion
                 && (url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps)
                 && template.IsLinkDomainAllowed(url.Host);
     }
+
+    /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
+    private sealed record LayoutWrapper(string Body, string? BodyText);
 }
