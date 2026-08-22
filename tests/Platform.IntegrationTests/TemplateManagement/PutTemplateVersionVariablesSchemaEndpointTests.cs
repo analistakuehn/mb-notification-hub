@@ -19,9 +19,9 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     public async Task Replacing_the_schema_with_the_current_entity_tag_returns_200_and_stores_it()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/variables-schema";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
 
         HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, Schema, etag));
 
@@ -37,9 +37,9 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     public async Task Replacing_the_schema_changes_the_version_content_hash()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/variables-schema";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
         HttpResponseMessage before = await client.GetAsync($"/v1/templates/{key}/versions/{version}");
         JsonElement beforeBody = await TemplateApi.ReadJsonAsync(before);
 
@@ -54,9 +54,9 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     public async Task A_schema_that_is_not_a_json_object_is_rejected_with_400()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/variables-schema";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
 
         HttpResponseMessage response = await client.SendAsync(
             TemplateApi.PutJson(url, NotAnObject, etag));
@@ -70,9 +70,9 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
     public async Task A_stale_entity_tag_returns_412()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/variables-schema";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
         await client.SendAsync(TemplateApi.PutJson(url, Schema, etag));
 
         HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, Schema, etag));

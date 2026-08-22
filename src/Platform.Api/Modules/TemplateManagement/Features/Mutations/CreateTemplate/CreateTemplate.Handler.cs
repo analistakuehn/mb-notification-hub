@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
@@ -11,9 +12,13 @@ internal static partial class CreateTemplate
 {
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
+        TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
-        public async Task<Result<Response>> HandleAsync(Command command, CancellationToken cancellationToken)
+        public async Task<Result<Response>> HandleAsync(
+            Command command,
+            string actor,
+            CancellationToken cancellationToken)
         {
             Result<TemplateKey> key = TemplateKey.Create(command.Key);
             if (key.IsFailure)
@@ -55,7 +60,7 @@ internal static partial class CreateTemplate
                 return template.AsFailure<Template, Response>();
             }
 
-            bool exists = await dbContext.Templates
+            var exists = await dbContext.Templates
                 .AsNoTracking()
                 .WhereKey(key.Value!)
                 .AnyAsync(cancellationToken);
@@ -65,6 +70,22 @@ internal static partial class CreateTemplate
             }
 
             dbContext.Templates.Add(template.Value!);
+            dbContext.AuditEvents.Add(AuditEvent.Record(new AuditEntry
+            {
+                ActorType = AuditActorTypes.User,
+                ActorId = actor,
+                Application = template.Value!.Application,
+                Action = AuditActions.TemplateCreated,
+                EntityType = AuditEntityTypes.Template,
+                EntityId = key.Value!.Value,
+                DetailsJson = JsonSerializer.Serialize(new
+                {
+                    application = template.Value!.Application,
+                    @class = template.Value!.Class.Canonical(),
+                    ownerTeam = template.Value!.OwnerTeam,
+                }),
+                OccurredAt = timeProvider.GetUtcNow(),
+            }));
             try
             {
                 await dbContext.SaveChangesAsync(cancellationToken);

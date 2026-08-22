@@ -38,7 +38,7 @@ public sealed class TemplateKeyTests
     [Fact]
     public void Rejects_keys_longer_than_the_limit()
     {
-        string value = string.Join('.', Enumerable.Repeat("segment", 40));
+        var value = string.Join('.', Enumerable.Repeat("segment", 40));
 
         TemplateKey.Create(value).IsFailure.ShouldBeTrue();
     }

@@ -74,7 +74,7 @@ public sealed partial class Template
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(metadata);
 
-        string application = metadata.Application?.Trim() ?? string.Empty;
+        var application = metadata.Application?.Trim() ?? string.Empty;
         if (application.Length == 0
             || application.Length > MaxApplicationLength
             || !ApplicationPattern().IsMatch(application))
@@ -129,19 +129,67 @@ public sealed partial class Template
         return Result.Success(new Template(key, normalized));
     }
 
+    /// <summary>
+    /// Marks the template as deprecated: existing versions stay reproducible,
+    /// but new notification requests are rejected by the runtime.
+    /// </summary>
+    public Result Deprecate()
+    {
+        if (Status != TemplateStatus.Active)
+        {
+            return InvalidTransition(TemplateStatuses.Deprecated);
+        }
+
+        Status = TemplateStatus.Deprecated;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Marks the template as disabled: the terminal state of the identity.
+    /// Nothing renders, nothing publishes, and there is no way back via the API.
+    /// </summary>
+    public Result Disable()
+    {
+        if (Status == TemplateStatus.Disabled)
+        {
+            return InvalidTransition(TemplateStatuses.Disabled);
+        }
+
+        Status = TemplateStatus.Disabled;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Publication guard: a deprecated or disabled template accepts no new
+    /// published versions, including republications through rollback.
+    /// </summary>
+    public Result EnsureAcceptsPublication()
+        => Status == TemplateStatus.Active
+            ? Result.Success()
+            : Result.BusinessRuleViolation(DomainError.StateTransition(
+                Status.Canonical(),
+                TemplateStatuses.AllowedTransitions(Status),
+                $"Template '{_key}' is '{Status.Canonical()}' and does not accept publications."));
+
     /// <summary>True when the host equals an allowed domain or is one of its subdomains.</summary>
     public bool IsLinkDomainAllowed(string host)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
-        string candidate = host.Trim().ToLowerInvariant();
+        var candidate = host.Trim().ToLowerInvariant();
         return _linkDomainsAllowed.Any(domain =>
             string.Equals(candidate, domain, StringComparison.Ordinal)
             || candidate.EndsWith("." + domain, StringComparison.Ordinal));
     }
 
+    private Result InvalidTransition(string target)
+        => Result.BusinessRuleViolation(DomainError.StateTransition(
+            Status.Canonical(),
+            TemplateStatuses.AllowedTransitions(Status),
+            $"Cannot change template '{_key}' to '{target}': current status is '{Status.Canonical()}'."));
+
     private static Result<string> RequiredText(string? value, string fieldName)
     {
-        string candidate = value?.Trim() ?? string.Empty;
+        var candidate = value?.Trim() ?? string.Empty;
         return candidate.Length == 0 || candidate.Length > MaxTextLength
             ? Result.ValidationError<string>(DomainError.Format(
                 ErrorCodes.InvalidRequest,
@@ -159,9 +207,9 @@ public sealed partial class Template
         }
 
         List<string> normalized = [];
-        foreach (string domain in domains)
+        foreach (var domain in domains)
         {
-            string candidate = domain?.Trim().ToLowerInvariant() ?? string.Empty;
+            var candidate = domain?.Trim().ToLowerInvariant() ?? string.Empty;
             if (candidate.Length == 0
                 || candidate.Length > MaxLinkDomainLength
                 || !LinkDomainPattern().IsMatch(candidate))
@@ -191,9 +239,9 @@ public sealed partial class Template
         }
 
         List<string> normalized = [];
-        foreach (string variable in variables)
+        foreach (var variable in variables)
         {
-            string candidate = variable?.Trim() ?? string.Empty;
+            var candidate = variable?.Trim() ?? string.Empty;
             if (candidate.Length == 0
                 || candidate.Length > MaxVariableNameLength
                 || !VariableNamePattern().IsMatch(candidate))

@@ -46,8 +46,8 @@ public sealed class TemplateVersionTests
     public void Every_edit_rotates_the_entity_tag_and_refreshes_the_content_hash()
     {
         var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
-        string initialTag = draft.EntityTag;
-        string initialHash = draft.ContentHash;
+        var initialTag = draft.EntityTag;
+        var initialHash = draft.ContentHash;
 
         draft.SetContent(new ContentEdit(Sms, PtBr, null, "Código: {{code}}", null), "editor-1")
             .IsSuccess.ShouldBeTrue();
@@ -86,7 +86,7 @@ public sealed class TemplateVersionTests
     public void Replacing_the_variables_schema_refreshes_the_content_hash()
     {
         var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
-        string initialHash = draft.ContentHash;
+        var initialHash = draft.ContentHash;
 
         Result result = draft.SetVariablesSchema("""{"type":"object"}""", "editor-2");
 

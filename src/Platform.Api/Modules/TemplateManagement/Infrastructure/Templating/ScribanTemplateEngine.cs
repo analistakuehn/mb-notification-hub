@@ -39,7 +39,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options)
         var template = Template.Parse(source, sourcePath);
         if (template.HasErrors)
         {
-            string messages = string.Join(" ", template.Messages.Select(message => message.ToString()));
+            var messages = string.Join(" ", template.Messages.Select(message => message.ToString()));
             return new TemplateSourceAnalysis(false, messages, []);
         }
 
@@ -152,7 +152,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options)
             case JsonValueKind.String:
                 return element.GetString();
             case JsonValueKind.Number:
-                return element.TryGetInt64(out long integer) ? integer : element.GetDouble();
+                return element.TryGetInt64(out var integer) ? integer : element.GetDouble();
             case JsonValueKind.True:
                 return true;
             case JsonValueKind.False:

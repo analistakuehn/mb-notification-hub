@@ -12,9 +12,9 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     public async Task A_clean_draft_returns_200_with_a_fully_passed_report()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(
+        var key = await TemplateApi.CreateTemplateAsync(
             client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
         {
             subject = "Pedido {{ orderId }}",
@@ -44,8 +44,8 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     public async Task Failing_checks_come_back_as_a_200_report_not_as_an_error()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
         {
             subject = "Oi",
@@ -78,7 +78,7 @@ public sealed class ValidateTemplateVersionEndpointTests(TemplateManagementApiFi
     public async Task An_unknown_version_returns_404()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsync(
             $"/v1/templates/{key}/versions/99/validate", content: null);

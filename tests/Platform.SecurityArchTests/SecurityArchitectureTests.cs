@@ -18,7 +18,7 @@ public sealed partial class SecurityArchitectureTests
     [Fact]
     public void Source_must_not_use_known_dangerous_apis()
     {
-        string[] findings = SourceFiles()
+        var findings = SourceFiles()
             .SelectMany(path => File.ReadLines(path).Select((line, index) => (path, line, number: index + 1)))
             .Where(item => DangerousApi().IsMatch(item.line))
             .Select(item => $"{item.path}:{item.number}")
@@ -30,7 +30,7 @@ public sealed partial class SecurityArchitectureTests
     [Fact]
     public void State_changing_endpoints_must_declare_authorization_and_rate_limiting()
     {
-        string[] findings = SourceFiles()
+        var findings = SourceFiles()
             .SelectMany(path => Regex.Split(File.ReadAllText(path), @";\s*")
                 .Where(statement => StateChangingEndpoint().IsMatch(statement))
                 .Where(statement => !statement.Contains("RequireAuthorization", StringComparison.Ordinal)
@@ -44,14 +44,14 @@ public sealed partial class SecurityArchitectureTests
     [Fact]
     public void Endpoint_inputs_must_not_bind_domain_types()
     {
-        string[] domainTypeNames = Production
+        var domainTypeNames = Production
             .SelectMany(assembly => assembly.GetTypes())
             .Where(type => type.Namespace is string value && DomainNamespace().IsMatch(value))
             .Select(type => type.Name.Split('`')[0])
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-        string[] findings = SourceFiles()
+        var findings = SourceFiles()
             .SelectMany(path => Regex.Split(File.ReadAllText(path), @";\s*")
                 .Where(statement => EndpointRegistration().IsMatch(statement))
                 .Where(statement => domainTypeNames.Any(name =>
@@ -65,7 +65,7 @@ public sealed partial class SecurityArchitectureTests
     [Fact]
     public void Personal_data_names_must_not_appear_in_logger_templates()
     {
-        string[] personalNames = Production
+        var personalNames = Production
             .SelectMany(assembly => assembly.GetTypes())
             .SelectMany(type => type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
             .Where(property => property.IsDefined(typeof(PersonalDataAttribute), inherit: true))
@@ -80,14 +80,14 @@ public sealed partial class SecurityArchitectureTests
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        string[] messages = Production
+        var messages = Production
             .SelectMany(assembly => assembly.GetTypes())
             .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
             .Select(method => method.GetCustomAttribute<LoggerMessageAttribute>()?.Message)
             .OfType<string>()
             .ToArray();
 
-        string[] findings = personalNames
+        var findings = personalNames
             .Where(name => messages.Any(message =>
                 message.Contains("{" + name + "}", StringComparison.OrdinalIgnoreCase)))
             .ToArray();
@@ -98,7 +98,7 @@ public sealed partial class SecurityArchitectureTests
     [Fact]
     public void Security_paths_must_not_use_pseudo_random_generators()
     {
-        string[] findings = SourceFiles()
+        var findings = SourceFiles()
             .Where(path => SecurityPath().IsMatch(path))
             .SelectMany(path => File.ReadLines(path).Select((line, index) => (path, line, number: index + 1)))
             .Where(item => PseudoRandom().IsMatch(item.line))

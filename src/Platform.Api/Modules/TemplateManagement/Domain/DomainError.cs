@@ -36,20 +36,20 @@ public static class DomainError
             return new DomainErrorInfo(FallbackCode(kind), "The request could not be completed.", null, []);
         }
 
-        string[] fields = error.Split(FieldSeparator);
+        var fields = error.Split(FieldSeparator);
         if (fields.Length == 1)
         {
             return new DomainErrorInfo(FallbackCode(kind), error, null, []);
         }
 
-        string code = fields[0];
-        string detail = fields[1];
+        var code = fields[0];
+        var detail = fields[1];
         if (fields.Length < 4 || !string.Equals(code, ErrorCodes.InvalidStateTransition, StringComparison.Ordinal))
         {
             return new DomainErrorInfo(code, detail, null, []);
         }
 
-        string[] allowed = fields[3].Length == 0 ? [] : fields[3].Split(',');
+        var allowed = fields[3].Length == 0 ? [] : fields[3].Split(',');
         return new DomainErrorInfo(code, detail, fields[2], allowed);
     }
 

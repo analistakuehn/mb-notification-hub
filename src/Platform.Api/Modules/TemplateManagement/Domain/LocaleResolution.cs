@@ -18,7 +18,7 @@ public static class LocaleResolution
             return exact;
         }
 
-        int separator = requested.Value.IndexOf('-', StringComparison.Ordinal);
+        var separator = requested.Value.IndexOf('-', StringComparison.Ordinal);
         if (separator > 0)
         {
             Locale? baseLanguage = Find(available, requested.Value[..separator]);

@@ -44,6 +44,13 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
     public HttpClient CreateAuthorClient(string subject)
         => CreateClientWithToken(subject, AuthorizationSetup.AuthorRole);
 
+    /// <summary>Client authenticated as a publisher with the given stable subject id.</summary>
+    public HttpClient CreatePublisherClient(string subject)
+        => CreateClientWithToken(subject, AuthorizationSetup.PublisherRole);
+
+    /// <summary>Connection string of the disposable Postgres container.</summary>
+    public string PostgresConnectionString => _postgres.GetConnectionString();
+
     public HttpClient CreateClientWithToken(string subject, params string[] roles)
     {
         var client = CreateClient();

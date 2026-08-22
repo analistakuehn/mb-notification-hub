@@ -11,7 +11,7 @@ internal static partial class ValidateTemplateVersion
 {
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
-        ScribanTemplateEngine engine,
+        TemplateVersionAnalyzer analyzer,
         ILogger<Handler> logger)
     {
         public async Task<Result<Response>> HandleAsync(
@@ -47,40 +47,13 @@ internal static partial class ValidateTemplateVersion
                     $"Template '{templateKey.Value!.Value}' has no version {versionNumber}."));
             }
 
-            var analyses = version.Contents
-                .Select(content => new ContentAnalysis(content.Channel, content.Locale, AnalyzeFields(content)))
-                .ToList();
-
             // The report is the value this use case produces: running the
             // validation succeeds even when checks fail, so failed checks
             // travel in the response, never in the error string.
-            ValidationReport report = TemplateValidation.Validate(template, version, analyses);
-            int failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);
+            ValidationReport report = TemplateValidation.Validate(template, version, analyzer.Analyze(version));
+            var failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);
             logger.VersionValidated(version.TemplateKey.Value, version.Version, report.Passed, failed);
             return Result.Success(Response.From(report));
-        }
-
-        private List<ContentFieldAnalysis> AnalyzeFields(TemplateContent content)
-        {
-            List<ContentFieldAnalysis> fields = [];
-            if (!string.IsNullOrEmpty(content.Subject))
-            {
-                fields.Add(Analyze(TemplateContentFields.Subject, content.Subject));
-            }
-
-            fields.Add(Analyze(TemplateContentFields.Body, content.Body));
-            if (!string.IsNullOrEmpty(content.BodyText))
-            {
-                fields.Add(Analyze(TemplateContentFields.BodyText, content.BodyText));
-            }
-
-            return fields;
-        }
-
-        private ContentFieldAnalysis Analyze(string field, string source)
-        {
-            TemplateSourceAnalysis analysis = engine.Analyze(source, field);
-            return new ContentFieldAnalysis(field, analysis.ParseSucceeded, analysis.ParseError, analysis.UsedVariables);
         }
     }
 }

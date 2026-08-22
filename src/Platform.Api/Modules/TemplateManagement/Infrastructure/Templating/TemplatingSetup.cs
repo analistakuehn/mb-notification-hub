@@ -11,6 +11,7 @@ public static class TemplatingSetup
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<ScribanTemplateEngine>();
+        services.AddSingleton<TemplateVersionAnalyzer>();
         return services;
     }
 }

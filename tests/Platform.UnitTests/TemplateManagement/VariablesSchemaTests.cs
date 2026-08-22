@@ -19,7 +19,7 @@ public sealed class VariablesSchemaTests
             }
             """;
 
-        bool parsed = VariablesSchema.TryParse(schema, out IReadOnlyList<VariableDeclaration> declarations);
+        var parsed = VariablesSchema.TryParse(schema, out IReadOnlyList<VariableDeclaration> declarations);
 
         parsed.ShouldBeTrue();
         declarations.ShouldBe([
@@ -32,7 +32,7 @@ public sealed class VariablesSchemaTests
     [Fact]
     public void A_missing_schema_yields_no_declarations()
     {
-        bool parsed = VariablesSchema.TryParse(null, out IReadOnlyList<VariableDeclaration> declarations);
+        var parsed = VariablesSchema.TryParse(null, out IReadOnlyList<VariableDeclaration> declarations);
 
         parsed.ShouldBeTrue();
         declarations.ShouldBeEmpty();
@@ -41,7 +41,7 @@ public sealed class VariablesSchemaTests
     [Fact]
     public void Broken_json_is_reported_instead_of_throwing()
     {
-        bool parsed = VariablesSchema.TryParse("{ not json", out IReadOnlyList<VariableDeclaration> declarations);
+        var parsed = VariablesSchema.TryParse("{ not json", out IReadOnlyList<VariableDeclaration> declarations);
 
         parsed.ShouldBeFalse();
         declarations.ShouldBeEmpty();
@@ -50,7 +50,7 @@ public sealed class VariablesSchemaTests
     [Fact]
     public void A_schema_without_properties_yields_no_declarations()
     {
-        bool parsed = VariablesSchema.TryParse("""{ "type": "object" }""", out IReadOnlyList<VariableDeclaration> declarations);
+        var parsed = VariablesSchema.TryParse("""{ "type": "object" }""", out IReadOnlyList<VariableDeclaration> declarations);
 
         parsed.ShouldBeTrue();
         declarations.ShouldBeEmpty();

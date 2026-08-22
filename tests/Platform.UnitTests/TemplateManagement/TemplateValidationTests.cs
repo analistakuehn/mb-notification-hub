@@ -301,7 +301,7 @@ public sealed class TemplateValidationTests
         params (string Channel, string Locale, string? Subject, string Body, string? BodyText)[] contents)
     {
         var version = TemplateVersion.CreateDraft(Key, 1, "author-1", DateTimeOffset.UtcNow);
-        foreach ((string channel, string locale, string? subject, string body, string? bodyText) in contents)
+        foreach ((var channel, var locale, var subject, var body, var bodyText) in contents)
         {
             version.SetContent(
                 new ContentEdit(

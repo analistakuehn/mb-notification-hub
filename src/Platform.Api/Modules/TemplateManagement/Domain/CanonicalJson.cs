@@ -36,7 +36,7 @@ internal static class CanonicalJson
                     properties[property.Name] = property.Value;
                 }
 
-                foreach ((string name, JsonElement value) in properties)
+                foreach ((var name, JsonElement value) in properties)
                 {
                     writer.WritePropertyName(name);
                     WriteCanonical(value, writer);

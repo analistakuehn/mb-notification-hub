@@ -15,7 +15,7 @@ public sealed partial record Locale
 
     public static Result<Locale> Create(string? value)
     {
-        string candidate = value?.Trim() ?? string.Empty;
+        var candidate = value?.Trim() ?? string.Empty;
         Match match = Pattern().Match(candidate);
         if (!match.Success)
         {
@@ -24,9 +24,9 @@ public sealed partial record Locale
                 $"Locale '{value}' is not supported. Use a language tag such as 'pt' or 'pt-BR'."));
         }
 
-        string language = match.Groups["language"].Value.ToLowerInvariant();
-        string region = match.Groups["region"].Value;
-        string normalized = region.Length == 0 ? language : $"{language}-{region.ToUpperInvariant()}";
+        var language = match.Groups["language"].Value.ToLowerInvariant();
+        var region = match.Groups["region"].Value;
+        var normalized = region.Length == 0 ? language : $"{language}-{region.ToUpperInvariant()}";
         return Result.Success(new Locale(normalized));
     }
 

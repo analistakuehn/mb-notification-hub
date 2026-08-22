@@ -58,7 +58,7 @@ public static partial class TemplateValidation
 
         List<ValidationCheck> checks = [];
         AddCompilationChecks(checks, analyses);
-        bool schemaParsed = VariablesSchema.TryParse(
+        var schemaParsed = VariablesSchema.TryParse(
             version.VariablesSchemaJson,
             out IReadOnlyList<VariableDeclaration> declarations);
         AddSchemaChecks(checks, version.VariablesSchemaJson, schemaParsed);
@@ -77,7 +77,7 @@ public static partial class TemplateValidation
 
     private static void AddCompilationChecks(List<ValidationCheck> checks, IReadOnlyList<ContentAnalysis> analyses)
     {
-        int before = checks.Count;
+        var before = checks.Count;
         foreach (ContentAnalysis analysis in analyses)
         {
             foreach (ContentFieldAnalysis field in analysis.Fields)
@@ -116,12 +116,12 @@ public static partial class TemplateValidation
         IReadOnlyList<ContentAnalysis> analyses)
     {
         HashSet<string> declared = new(declarations.Select(declaration => declaration.Name), StringComparer.Ordinal);
-        int before = checks.Count;
+        var before = checks.Count;
         foreach (ContentAnalysis analysis in analyses)
         {
             foreach (ContentFieldAnalysis field in analysis.Fields)
             {
-                foreach (string variable in field.UsedVariables.Where(variable => !declared.Contains(variable)))
+                foreach (var variable in field.UsedVariables.Where(variable => !declared.Contains(variable)))
                 {
                     checks.Add(Failed(
                         ValidationCheckNames.VariablesDeclared,
@@ -147,7 +147,7 @@ public static partial class TemplateValidation
         HashSet<string> used = new(
             analyses.SelectMany(analysis => analysis.Fields).SelectMany(field => field.UsedVariables),
             StringComparer.Ordinal);
-        int before = checks.Count;
+        var before = checks.Count;
         foreach (VariableDeclaration declaration in declarations.Where(declaration => !used.Contains(declaration.Name)))
         {
             checks.Add(new ValidationCheck(
@@ -170,10 +170,10 @@ public static partial class TemplateValidation
         IReadOnlyList<VariableDeclaration> declarations,
         IReadOnlyList<ContentAnalysis> analyses)
     {
-        int before = checks.Count;
+        var before = checks.Count;
         foreach (TemplateContent content in version.Contents)
         {
-            foreach ((string field, string text) in Fields(content))
+            foreach ((var field, var text) in Fields(content))
             {
                 foreach (Match match in LiteralLink().Matches(text))
                 {
@@ -242,9 +242,9 @@ public static partial class TemplateValidation
         {
             foreach (ContentFieldAnalysis field in analysis.Fields)
             {
-                foreach (string variable in field.UsedVariables.Where(urlVariables.Contains))
+                foreach (var variable in field.UsedVariables.Where(urlVariables.Contains))
                 {
-                    string location = At(analysis.Channel, analysis.Locale, field.Field);
+                    var location = At(analysis.Channel, analysis.Locale, field.Field);
                     if (template.Class == NotificationClass.Critical)
                     {
                         checks.Add(Failed(
@@ -266,8 +266,8 @@ public static partial class TemplateValidation
 
     private static void AddSensitiveVariableChecks(List<ValidationCheck> checks, Template template, TemplateVersion version)
     {
-        int before = checks.Count;
-        foreach (string variable in template.SensitiveVariables)
+        var before = checks.Count;
+        foreach (var variable in template.SensitiveVariables)
         {
             var inUrlPosition = new Regex(
                 @"https?://[^\s<>""']*\{\{[^{}]*\b" + Regex.Escape(variable) + @"\b",
@@ -275,7 +275,7 @@ public static partial class TemplateValidation
                 TimeSpan.FromSeconds(1));
             foreach (TemplateContent content in version.Contents)
             {
-                foreach ((string field, string text) in Fields(content))
+                foreach ((var field, var text) in Fields(content))
                 {
                     if (inUrlPosition.IsMatch(text))
                     {
@@ -296,7 +296,7 @@ public static partial class TemplateValidation
 
     private static void AddChannelLimitChecks(List<ValidationCheck> checks, TemplateVersion version)
     {
-        int before = checks.Count;
+        var before = checks.Count;
         foreach (TemplateContent content in version.Contents)
         {
             if (content.Channel == Channel.Sms && content.Body.Length > SmsMaxBodyChars)
@@ -352,10 +352,10 @@ public static partial class TemplateValidation
             return;
         }
 
-        int before = checks.Count;
+        var before = checks.Count;
         foreach (Channel channel in version.Contents.Select(content => content.Channel).Distinct())
         {
-            bool covered = version.Contents.Any(content =>
+            var covered = version.Contents.Any(content =>
                 content.Channel == channel && content.Locale == template.DefaultLocale);
             if (!covered)
             {

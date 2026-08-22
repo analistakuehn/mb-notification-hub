@@ -11,7 +11,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     public async Task The_template_detail_includes_metadata_and_version_history()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         await TemplateApi.CreateDraftAsync(client, key);
 
         HttpResponseMessage response = await client.GetAsync($"/v1/templates/{key}");
@@ -43,8 +43,8 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     public async Task The_version_detail_returns_contents_and_sets_the_entity_tag_header()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
         await client.SendAsync(TemplateApi.PutJson(
             $"/v1/templates/{key}/versions/{version}/content/sms/pt",
             new { body = "oi {{name}}" },
@@ -64,7 +64,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     public async Task An_unknown_version_returns_404()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.GetAsync($"/v1/templates/{key}/versions/9");
 
@@ -75,8 +75,8 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     public async Task The_catalog_filters_by_application_owner_and_status()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string application = $"app-{Guid.NewGuid():N}"[..20];
-        string key = TemplateApi.NewKey();
+        var application = $"app-{Guid.NewGuid():N}"[..20];
+        var key = TemplateApi.NewKey();
         await client.PostAsJsonAsync("/v1/templates", TemplateApi.TemplateBody(key, application));
         await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
@@ -94,8 +94,8 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
     public async Task The_catalog_pages_with_an_opaque_cursor_without_repeating_items()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string application = $"app-{Guid.NewGuid():N}"[..20];
-        for (int i = 0; i < 3; i++)
+        var application = $"app-{Guid.NewGuid():N}"[..20];
+        for (var i = 0; i < 3; i++)
         {
             await client.PostAsJsonAsync(
                 "/v1/templates",
@@ -105,7 +105,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
         HttpResponseMessage firstPage = await client.GetAsync(
             $"/v1/templates?application={application}&limit=2");
         JsonElement firstBody = await TemplateApi.ReadJsonAsync(firstPage);
-        string cursor = firstBody.GetProperty("nextCursor").GetString()!;
+        var cursor = firstBody.GetProperty("nextCursor").GetString()!;
         HttpResponseMessage secondPage = await client.GetAsync(
             $"/v1/templates?application={application}&limit=2&cursor={cursor}");
         JsonElement secondBody = await TemplateApi.ReadJsonAsync(secondPage);
@@ -115,7 +115,7 @@ public sealed class TemplateCatalogQueryEndpointTests(TemplateManagementApiFixtu
         secondBody.GetProperty("nextCursor").ValueKind.ShouldBe(JsonValueKind.Null);
         string?[] firstKeys = [.. firstBody.GetProperty("items").EnumerateArray()
             .Select(item => item.GetProperty("key").GetString())];
-        string? lastKey = secondBody.GetProperty("items")[0].GetProperty("key").GetString();
+        var lastKey = secondBody.GetProperty("items")[0].GetProperty("key").GetString();
         firstKeys.ShouldNotContain(lastKey);
     }
 

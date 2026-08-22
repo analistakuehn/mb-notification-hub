@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using NotificationHub.Api.Infrastructure.EndpointFilters;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Http;
@@ -17,10 +18,17 @@ internal static partial class CreateTemplate
 
     private static async Task<IResult> HandleHttpAsync(
         Command command,
+        ClaimsPrincipal principal,
         Handler handler,
         CancellationToken cancellationToken)
     {
-        Result<Response> result = await handler.HandleAsync(command, cancellationToken);
+        Result<string> actor = CurrentActor.Identify(principal);
+        if (actor.IsFailure)
+        {
+            return ApiResults.Problem(actor);
+        }
+
+        Result<Response> result = await handler.HandleAsync(command, actor.Value!, cancellationToken);
         return result.IsSuccess
             ? Results.Created($"/v1/templates/{result.Value!.Key}", result.Value)
             : ApiResults.Problem(result);

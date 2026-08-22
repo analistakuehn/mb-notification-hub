@@ -29,7 +29,7 @@ internal static partial class CreateTemplateVersion
                     "fromVersion must be a positive version number."));
             }
 
-            bool templateExists = await dbContext.Templates
+            var templateExists = await dbContext.Templates
                 .AsNoTracking()
                 .WhereKey(key.Value!)
                 .AnyAsync(cancellationToken);
@@ -40,7 +40,7 @@ internal static partial class CreateTemplateVersion
                     $"Template '{key.Value!.Value}' does not exist."));
             }
 
-            int? openDraft = await dbContext.TemplateVersions
+            var openDraft = await dbContext.TemplateVersions
                 .AsNoTracking()
                 .WhereTemplateKey(key.Value!)
                 .Where(version => version.Status == TemplateVersionStatus.Draft)
@@ -51,7 +51,7 @@ internal static partial class CreateTemplateVersion
                 return DraftConflict(key.Value!, openDraft.Value);
             }
 
-            int nextVersion = (await dbContext.TemplateVersions
+            var nextVersion = (await dbContext.TemplateVersions
                 .AsNoTracking()
                 .WhereTemplateKey(key.Value!)
                 .MaxAsync(version => (int?)version.Version, cancellationToken) ?? 0) + 1;

@@ -47,6 +47,12 @@ internal sealed class TemplateVersionConfiguration : IEntityTypeConfiguration<Te
         builder.Property(version => version.CreatedAt)
             .HasColumnName("created_at");
 
+        builder.Property(version => version.PublishedAt)
+            .HasColumnName("published_at");
+
+        builder.Property(version => version.RolledBackFrom)
+            .HasColumnName("rolled_back_from");
+
         builder.PrimitiveCollection(version => version.Editors)
             .HasField("_editors")
             .HasColumnName("editors");

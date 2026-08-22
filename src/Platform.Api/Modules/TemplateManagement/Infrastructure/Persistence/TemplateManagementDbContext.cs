@@ -12,6 +12,10 @@ public sealed class TemplateManagementDbContext(DbContextOptions<TemplateManagem
 
     public DbSet<TemplateVersion> TemplateVersions => Set<TemplateVersion>();
 
+    public DbSet<Approval> Approvals => Set<Approval>();
+
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("templatemanagement");

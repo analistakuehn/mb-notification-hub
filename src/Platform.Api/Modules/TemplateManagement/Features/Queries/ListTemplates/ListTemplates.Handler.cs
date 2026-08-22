@@ -23,7 +23,7 @@ internal static partial class ListTemplates
                     $"limit must be between 1 and {MaxPageSize}."));
             }
 
-            int pageSize = query.Limit ?? DefaultPageSize;
+            var pageSize = query.Limit ?? DefaultPageSize;
             IQueryable<Template> templates = dbContext.Templates.AsNoTracking();
 
             if (!string.IsNullOrWhiteSpace(query.Application))
@@ -76,12 +76,12 @@ internal static partial class ListTemplates
                 .Take(pageSize + 1)
                 .ToListAsync(cancellationToken);
 
-            bool hasMore = page.Count > pageSize;
+            var hasMore = page.Count > pageSize;
             var items = page
                 .Take(pageSize)
                 .Select(Item.From)
                 .ToList();
-            string? nextCursor = hasMore ? PageCursor.Encode(items[^1].Key) : null;
+            var nextCursor = hasMore ? PageCursor.Encode(items[^1].Key) : null;
 
             return Result.Success(new Response(items, nextCursor));
         }

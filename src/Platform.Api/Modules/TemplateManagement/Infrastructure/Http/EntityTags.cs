@@ -20,7 +20,7 @@ internal static class EntityTags
                 + "Fetch the version to obtain its current entity tag.");
         }
 
-        string normalized = Normalize(ifMatch);
+        var normalized = Normalize(ifMatch);
         if (normalized == "*" || string.Equals(normalized, currentEntityTag, StringComparison.Ordinal))
         {
             return Result.Success();
@@ -33,7 +33,7 @@ internal static class EntityTags
 
     private static string Normalize(string ifMatch)
     {
-        string value = ifMatch.Trim();
+        var value = ifMatch.Trim();
         if (value.StartsWith("W/", StringComparison.Ordinal))
         {
             value = value[2..];

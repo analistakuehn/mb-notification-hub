@@ -11,7 +11,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     public async Task Creating_a_template_returns_201_with_its_location_and_metadata()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = TemplateApi.NewKey();
+        var key = TemplateApi.NewKey();
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
             "/v1/templates",
@@ -32,7 +32,7 @@ public sealed class CreateTemplateEndpointTests(TemplateManagementApiFixture fix
     public async Task Reusing_a_template_key_returns_409_template_already_exists()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsJsonAsync("/v1/templates", TemplateApi.TemplateBody(key));
 

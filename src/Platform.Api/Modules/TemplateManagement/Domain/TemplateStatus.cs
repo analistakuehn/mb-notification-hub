@@ -27,6 +27,19 @@ public static class TemplateStatuses
         _ => throw new InvalidOperationException($"Unsupported template status '{value}'."),
     };
 
+    /// <summary>
+    /// Lifecycle transition table for the template identity. Deprecation and
+    /// disablement are one-way: a disabled template never comes back through
+    /// the management API.
+    /// </summary>
+    public static IReadOnlyList<string> AllowedTransitions(TemplateStatus value) => value switch
+    {
+        TemplateStatus.Active => [Deprecated, Disabled],
+        TemplateStatus.Deprecated => [Disabled],
+        TemplateStatus.Disabled => [],
+        _ => throw new InvalidOperationException($"Unsupported template status '{value}'."),
+    };
+
     public static Result<TemplateStatus> Create(string? value) => value?.Trim() switch
     {
         Active => Result.Success(TemplateStatus.Active),

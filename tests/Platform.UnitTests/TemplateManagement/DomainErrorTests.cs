@@ -8,7 +8,7 @@ public sealed class DomainErrorTests
     [Fact]
     public void A_formatted_error_round_trips_code_and_detail()
     {
-        string error = DomainError.Format(ErrorCodes.TemplateNotFound, "Template 'x' does not exist.");
+        var error = DomainError.Format(ErrorCodes.TemplateNotFound, "Template 'x' does not exist.");
 
         DomainErrorInfo info = DomainError.Describe(error, ResultErrorKind.NotFound);
 
@@ -21,7 +21,7 @@ public sealed class DomainErrorTests
     [Fact]
     public void A_state_transition_error_round_trips_status_and_transitions()
     {
-        string error = DomainError.StateTransition("published", ["superseded"], "Cannot edit a published version.");
+        var error = DomainError.StateTransition("published", ["superseded"], "Cannot edit a published version.");
 
         DomainErrorInfo info = DomainError.Describe(error, ResultErrorKind.BusinessRule);
 
@@ -34,7 +34,7 @@ public sealed class DomainErrorTests
     [Fact]
     public void A_terminal_status_reports_an_empty_transition_list()
     {
-        string error = DomainError.StateTransition("superseded", [], "No transitions remain.");
+        var error = DomainError.StateTransition("superseded", [], "No transitions remain.");
 
         DomainErrorInfo info = DomainError.Describe(error, ResultErrorKind.BusinessRule);
 

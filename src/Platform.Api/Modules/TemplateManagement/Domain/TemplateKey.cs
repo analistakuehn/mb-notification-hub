@@ -17,7 +17,7 @@ public sealed partial record TemplateKey
 
     public static Result<TemplateKey> Create(string? value)
     {
-        string candidate = value?.Trim() ?? string.Empty;
+        var candidate = value?.Trim() ?? string.Empty;
         if (candidate.Length == 0 || candidate.Length > MaxLength || !Pattern().IsMatch(candidate))
         {
             return Result.ValidationError<TemplateKey>(DomainError.Format(

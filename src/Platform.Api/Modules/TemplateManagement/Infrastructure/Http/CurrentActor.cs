@@ -15,7 +15,7 @@ internal static class CurrentActor
     {
         ArgumentNullException.ThrowIfNull(principal);
 
-        string? actorId = principal.FindFirstValue("oid")
+        var actorId = principal.FindFirstValue("oid")
             ?? principal.FindFirstValue("sub")
             ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
 

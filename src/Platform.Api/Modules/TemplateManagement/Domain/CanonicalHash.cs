@@ -21,7 +21,7 @@ internal static class CanonicalHash
     internal static string OfVersion(string? variablesSchemaJson, IEnumerable<TemplateContent> contents)
     {
         var builder = new StringBuilder();
-        string? canonicalSchema = variablesSchemaJson is null
+        var canonicalSchema = variablesSchemaJson is null
             ? null
             : CanonicalJson.Normalize(variablesSchemaJson);
         AppendFields(builder, canonicalSchema).Append(RecordSeparator);
@@ -45,7 +45,7 @@ internal static class CanonicalHash
 
     private static StringBuilder AppendFields(StringBuilder builder, params string?[] fields)
     {
-        foreach (string? field in fields)
+        foreach (var field in fields)
         {
             if (field is null)
             {

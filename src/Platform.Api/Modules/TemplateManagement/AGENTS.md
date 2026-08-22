@@ -26,6 +26,19 @@
 - Return `Result<T>` for expected outcomes; reserve exceptions for unexpected system failures.
 - Raise a Domain Event when behavior inside this context reacts to a fact. Map it to a versioned Integration Event only when another context consumes it.
 
+## Audit trail (provisional ownership)
+
+- The `audit_event` and `approval` tables are provisionally owned and migrated
+  by this module until the dedicated Audit module takes ownership, together
+  with the hash-chain integrity columns and the monthly partitioning. Do not
+  add hash-chain columns here; they belong to that hand-over.
+- Both tables are append-only by construction: a database trigger rejects
+  `UPDATE` and `DELETE`. Every governed effect (create, publish, deprecate,
+  disable, rollback) inserts its `audit_event` in the same transaction as the
+  effect, through the same `SaveChanges` call; a separate save is a defect.
+- `details` carries compact JSON evidence (content hash, validation outcome,
+  reason). Never personal data, variables, or rendered content.
+
 ## Error axis
 
 - This module has exactly one error axis: `Result`/`Result<T>` from the

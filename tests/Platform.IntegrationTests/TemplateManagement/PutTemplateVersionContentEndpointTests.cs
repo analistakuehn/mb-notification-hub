@@ -18,9 +18,9 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     public async Task Editing_draft_content_with_the_current_entity_tag_returns_200_and_rotates_it()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
 
         HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, EmailContent, etag));
 
@@ -39,9 +39,9 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     public async Task Editing_content_changes_the_version_content_hash()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/content/sms/pt";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/sms/pt";
 
         HttpResponseMessage first = await client.SendAsync(
             TemplateApi.PutJson(url, new { body = "Código {{code}}" }, etag));
@@ -61,9 +61,9 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     public async Task A_stale_entity_tag_returns_412()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
         await client.SendAsync(TemplateApi.PutJson(url, EmailContent, etag));
 
         HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, EmailContent, etag));
@@ -77,9 +77,9 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     public async Task A_missing_if_match_header_returns_412()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, _) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, _) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
 
         HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, EmailContent, ifMatch: null));
 
@@ -90,9 +90,9 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     public async Task Editing_a_published_version_returns_409_with_state_and_allowed_transitions()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        string etag = await SeedPublishedVersionAsync(key);
-        string url = $"/v1/templates/{key}/versions/1/content/email/pt-BR";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var etag = await SeedPublishedVersionAsync(key);
+        var url = $"/v1/templates/{key}/versions/1/content/email/pt-BR";
 
         HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, EmailContent, etag));
 
@@ -107,9 +107,9 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     public async Task An_unknown_channel_is_rejected_with_400()
     {
         var client = fixture.CreateAuthorClient("editor-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(client, key);
-        string url = $"/v1/templates/{key}/versions/{version}/content/fax/pt-BR";
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/fax/pt-BR";
 
         HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, EmailContent, etag));
 
@@ -121,9 +121,9 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     {
         var authorClient = fixture.CreateAuthorClient("editor-a");
         var secondClient = fixture.CreateAuthorClient("editor-b");
-        string key = await TemplateApi.CreateTemplateAsync(authorClient, TemplateApi.NewKey());
-        (int version, string etag) = await TemplateApi.CreateDraftAsync(authorClient, key);
-        string url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
+        var key = await TemplateApi.CreateTemplateAsync(authorClient, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(authorClient, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
 
         HttpResponseMessage first = await authorClient.SendAsync(TemplateApi.PutJson(url, EmailContent, etag));
         HttpResponseMessage second = await secondClient.SendAsync(
@@ -136,7 +136,7 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
 
     private async Task<string> SeedPublishedVersionAsync(string key)
     {
-        string entityTag = string.Empty;
+        var entityTag = string.Empty;
         await fixture.ExecuteDbAsync(async dbContext =>
         {
             var version = TemplateVersion.Rehydrate(new TemplateVersionState

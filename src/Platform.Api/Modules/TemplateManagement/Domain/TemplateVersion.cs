@@ -54,6 +54,11 @@ public sealed class TemplateVersion
 
     public DateTimeOffset CreatedAt { get; }
 
+    public DateTimeOffset? PublishedAt { get; private set; }
+
+    /// <summary>Version this one was cloned from by a rollback, when applicable.</summary>
+    public int? RolledBackFrom { get; private set; }
+
     public string EntityTag { get; private set; }
 
     public IReadOnlyList<TemplateContent> Contents => _contents;
@@ -103,6 +108,8 @@ public sealed class TemplateVersion
         {
             Status = TemplateVersionStatuses.Trusted(state.Status),
             VariablesSchemaJson = state.VariablesSchemaJson,
+            PublishedAt = state.PublishedAt,
+            RolledBackFrom = state.RolledBackFrom,
         };
         version._editors.AddRange(state.Editors);
         foreach (TemplateContentState content in state.Contents)
@@ -115,9 +122,128 @@ public sealed class TemplateVersion
                 content.BodyText));
         }
 
-        version.ContentHash = CanonicalHash.OfVersion(version.VariablesSchemaJson, version._contents);
+        // A caller-supplied hash mirrors the persisted column so integrity
+        // verification can compare the stored value against the content.
+        version.ContentHash = state.ContentHash
+            ?? CanonicalHash.OfVersion(version.VariablesSchemaJson, version._contents);
         return version;
     }
+
+    /// <summary>
+    /// Publishes this draft. The publisher must not have created or edited it:
+    /// approval only means something when a second person grants it.
+    /// </summary>
+    public Result Publish(string publisherId, DateTimeOffset publishedAt)
+    {
+        Result eligibility = CanBePublishedBy(publisherId);
+        if (eligibility.IsFailure)
+        {
+            return eligibility;
+        }
+
+        Status = TemplateVersionStatus.Published;
+        PublishedAt = publishedAt;
+        EntityTag = NewEntityTag();
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Publication guards without the state change, so orchestration can fail
+    /// fast before running the full validation catalog.
+    /// </summary>
+    public Result CanBePublishedBy(string publisherId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(publisherId);
+
+        if (Status != TemplateVersionStatus.Draft)
+        {
+            return Result.BusinessRuleViolation(DomainError.StateTransition(
+                Status.Canonical(),
+                TemplateVersionStatuses.AllowedTransitions(Status),
+                $"Cannot publish version {Version}: it is '{Status.Canonical()}' and only a draft can be published."));
+        }
+
+        return WasAuthoredOrEditedBy(publisherId)
+            ? FourEyesFailure("publication")
+            : Result.Success();
+    }
+
+    /// <summary>Moves the previously published version aside when a newer one takes over.</summary>
+    public Result Supersede()
+    {
+        if (Status != TemplateVersionStatus.Published)
+        {
+            return Result.BusinessRuleViolation(DomainError.StateTransition(
+                Status.Canonical(),
+                TemplateVersionStatuses.AllowedTransitions(Status),
+                $"Cannot supersede version {Version}: it is '{Status.Canonical()}', not published."));
+        }
+
+        Status = TemplateVersionStatus.Superseded;
+        EntityTag = NewEntityTag();
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Creates the next version as an exact clone of a previously published one
+    /// and publishes it in the same act. Four eyes applies to the source: the
+    /// caller must not have created or edited the content being republished.
+    /// The republished content was already approved by a second person when it
+    /// was originally published.
+    /// </summary>
+    public static Result<TemplateVersion> CreateRollback(
+        TemplateVersion source,
+        int version,
+        string actor,
+        DateTimeOffset publishedAt)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(actor);
+
+        if (source.Status == TemplateVersionStatus.Draft)
+        {
+            return Result.BusinessRuleViolation<TemplateVersion>(DomainError.StateTransition(
+                source.Status.Canonical(),
+                TemplateVersionStatuses.AllowedTransitions(source.Status),
+                $"Version {source.Version} was never published and cannot be a rollback target."));
+        }
+
+        if (source.WasAuthoredOrEditedBy(actor))
+        {
+            Result forbidden = FourEyesFailure("rollback");
+            return new Result<TemplateVersion>(false, null, forbidden.ErrorKind, forbidden.Error);
+        }
+
+        TemplateVersion clone = CreateDraftFrom(source, version, actor, publishedAt);
+        clone.RolledBackFrom = source.Version;
+        clone.Status = TemplateVersionStatus.Published;
+        clone.PublishedAt = publishedAt;
+        return Result.Success(clone);
+    }
+
+    /// <summary>
+    /// Recomputes the canonical hash from the loaded content and compares it to
+    /// the stored one. A mismatch means the persisted content no longer matches
+    /// what its hash vouches for, and nothing may be approved on top of it.
+    /// </summary>
+    public Result VerifyContentHash()
+        => string.Equals(
+            ContentHash,
+            CanonicalHash.OfVersion(VariablesSchemaJson, _contents),
+            StringComparison.Ordinal)
+            ? Result.Success()
+            : Result.BusinessRuleViolation(DomainError.Format(
+                ErrorCodes.ContentHashMismatch,
+                $"The stored content of version {Version} no longer matches its content hash."));
+
+    private bool WasAuthoredOrEditedBy(string actorId)
+        => string.Equals(actorId, CreatedBy, StringComparison.Ordinal)
+            || _editors.Contains(actorId, StringComparer.Ordinal);
+
+    private static Result FourEyesFailure(string operation)
+        => new(false, ResultErrorKind.Forbidden, DomainError.Format(
+            ErrorCodes.FourEyesViolation,
+            $"This principal created or edited the version content; {operation} requires a different person."));
 
     public Result SetContent(ContentEdit edit, string editor)
     {
@@ -222,6 +348,13 @@ internal sealed record TemplateVersionState
     public required string CreatedBy { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }
+
+    public DateTimeOffset? PublishedAt { get; init; }
+
+    public int? RolledBackFrom { get; init; }
+
+    /// <summary>Persisted hash; when absent it is recomputed from the content.</summary>
+    public string? ContentHash { get; init; }
 
     public IReadOnlyList<string> Editors { get; init; } = [];
 

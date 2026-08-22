@@ -11,7 +11,7 @@ public sealed class PageCursorTests
     [InlineData("order.status-changed.v2")]
     public void A_cursor_round_trips_the_last_key(string key)
     {
-        string cursor = PageCursor.Encode(key);
+        var cursor = PageCursor.Encode(key);
 
         Result<string> decoded = PageCursor.Decode(cursor);
 
@@ -22,7 +22,7 @@ public sealed class PageCursorTests
     [Fact]
     public void The_cursor_is_opaque_and_url_safe()
     {
-        string cursor = PageCursor.Encode("auth.otp.login");
+        var cursor = PageCursor.Encode("auth.otp.login");
 
         cursor.ShouldNotContain("auth.otp.login");
         cursor.ShouldNotContain("+");

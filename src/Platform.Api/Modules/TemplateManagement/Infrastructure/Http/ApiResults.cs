@@ -13,10 +13,26 @@ internal static class ApiResults
     internal static IResult Problem<T>(Result<T> result)
         => Problem(result.ErrorKind, result.Error);
 
+    /// <summary>
+    /// Problem response for an operation blocked by the integral template
+    /// validation: 422 with the full report in the <c>checks</c> extension
+    /// member. The report is data about the content, not an error string.
+    /// </summary>
+    internal static IResult Problem(ValidationReport report, string code, string detail)
+        => Results.Problem(
+            detail: detail,
+            statusCode: StatusCodes.Status422UnprocessableEntity,
+            title: code,
+            type: code,
+            extensions: new Dictionary<string, object?>
+            {
+                ["checks"] = report.Checks,
+            });
+
     internal static IResult Problem(ResultErrorKind kind, string? error)
     {
         DomainErrorInfo info = DomainError.Describe(error, kind);
-        int statusCode = StatusCodeFor(kind, info.Code);
+        var statusCode = StatusCodeFor(kind, info.Code);
 
         Dictionary<string, object?>? extensions = null;
         if (info.CurrentStatus is not null)

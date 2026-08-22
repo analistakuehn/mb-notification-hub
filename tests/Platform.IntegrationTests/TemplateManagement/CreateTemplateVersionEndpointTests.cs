@@ -12,7 +12,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     public async Task Opening_the_first_draft_returns_201_with_an_entity_tag_and_the_author()
     {
         var client = fixture.CreateAuthorClient("author-42");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsync($"/v1/templates/{key}/versions", content: null);
 
@@ -33,7 +33,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     public async Task A_second_draft_for_the_same_template_returns_409_draft_already_exists()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
         await TemplateApi.CreateDraftAsync(client, key);
 
         HttpResponseMessage response = await client.PostAsync($"/v1/templates/{key}/versions", content: null);
@@ -47,8 +47,8 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     public async Task Cloning_from_a_published_version_copies_contents_schema_and_content_hash()
     {
         var client = fixture.CreateAuthorClient("author-2");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
-        string sourceHash = await SeedPublishedVersionAsync(key);
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var sourceHash = await SeedPublishedVersionAsync(key);
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/v1/templates/{key}/versions",
@@ -71,7 +71,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
     public async Task Cloning_from_a_missing_version_returns_404()
     {
         var client = fixture.CreateAuthorClient("author-1");
-        string key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
         HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/v1/templates/{key}/versions",
@@ -98,7 +98,7 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
 
     private async Task<string> SeedPublishedVersionAsync(string key)
     {
-        string contentHash = string.Empty;
+        var contentHash = string.Empty;
         await fixture.ExecuteDbAsync(async dbContext =>
         {
             var version = TemplateVersion.Rehydrate(new TemplateVersionState

@@ -11,8 +11,8 @@ public sealed class TemplateManagementDbContextFactory : IDesignTimeDbContextFac
 {
     public TemplateManagementDbContext CreateDbContext(string[] args)
     {
-        string currentDirectory = Directory.GetCurrentDirectory();
-        string basePath = File.Exists("appsettings.json")
+        var currentDirectory = Directory.GetCurrentDirectory();
+        var basePath = File.Exists("appsettings.json")
             ? currentDirectory
             : $"{currentDirectory}/src/Platform.Api";
 
@@ -23,7 +23,7 @@ public sealed class TemplateManagementDbContextFactory : IDesignTimeDbContextFac
             .AddEnvironmentVariables()
             .Build();
 
-        string connectionString = configuration[$"{EfOptions.SectionName}:ConnectionString"]
+        var connectionString = configuration[$"{EfOptions.SectionName}:ConnectionString"]
             ?? throw new InvalidOperationException(
                 $"Missing configuration '{EfOptions.SectionName}:ConnectionString'.");
 

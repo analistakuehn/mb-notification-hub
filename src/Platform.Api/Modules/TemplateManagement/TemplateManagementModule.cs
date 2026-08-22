@@ -29,6 +29,10 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<CreateTemplateVersion.Handler>();
         services.AddScoped<PutTemplateVersionContent.Handler>();
         services.AddScoped<PutTemplateVersionVariablesSchema.Handler>();
+        services.AddScoped<PublishTemplateVersion.Handler>();
+        services.AddScoped<DeprecateTemplate.Handler>();
+        services.AddScoped<DisableTemplate.Handler>();
+        services.AddScoped<RollbackTemplate.Handler>();
         services.AddScoped<ListTemplates.Handler>();
         services.AddScoped<GetTemplate.Handler>();
         services.AddScoped<GetTemplateVersion.Handler>();
@@ -43,6 +47,10 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         CreateTemplateVersion.MapEndpoint(templates);
         PutTemplateVersionContent.MapEndpoint(templates);
         PutTemplateVersionVariablesSchema.MapEndpoint(templates);
+        PublishTemplateVersion.MapEndpoint(templates);
+        DeprecateTemplate.MapEndpoint(templates);
+        DisableTemplate.MapEndpoint(templates);
+        RollbackTemplate.MapEndpoint(templates);
         ListTemplates.MapEndpoint(templates);
         GetTemplate.MapEndpoint(templates);
         GetTemplateVersion.MapEndpoint(templates);

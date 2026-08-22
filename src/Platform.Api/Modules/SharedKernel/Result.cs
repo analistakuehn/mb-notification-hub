@@ -66,7 +66,7 @@ public readonly record struct Result<T>(bool IsSuccess, T? Value, ResultErrorKin
             return onSuccess(Value!);
         }
 
-        string error = Error ?? "An unspecified failure occurred.";
+        var error = Error ?? "An unspecified failure occurred.";
         return ErrorKind switch
         {
             ResultErrorKind.Validation => onValidationError(error),

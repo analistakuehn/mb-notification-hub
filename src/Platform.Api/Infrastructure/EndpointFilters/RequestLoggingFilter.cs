@@ -13,14 +13,14 @@ public sealed class RequestLoggingFilter(ILogger<RequestLoggingFilter> logger) :
         EndpointFilterInvocationContext context,
         EndpointFilterDelegate next)
     {
-        string endpoint = context.HttpContext.GetEndpoint()?.DisplayName ?? "(unknown)";
+        var endpoint = context.HttpContext.GetEndpoint()?.DisplayName ?? "(unknown)";
         var stopwatch = Stopwatch.StartNew();
 
         logger.EndpointInvocationStarted(endpoint);
 
         try
         {
-            object? result = await next(context);
+            var result = await next(context);
             logger.EndpointInvocationCompleted(endpoint, stopwatch.ElapsedMilliseconds);
             return result;
         }

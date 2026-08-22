@@ -58,11 +58,11 @@ public sealed class ArchitectureTests
     [Fact]
     public void Bounded_contexts_must_not_depend_on_each_other()
     {
-        string[] modules = DiscoveredModules();
+        var modules = DiscoveredModules();
 
-        foreach (string module in modules)
+        foreach (var module in modules)
         {
-            string[] forbidden = modules
+            var forbidden = modules
                 .Where(other => !other.Equals(module, StringComparison.Ordinal))
                 .SelectMany(other => ModuleNamespaceRoots.Select(root => root + other))
                 .ToArray();
@@ -72,7 +72,7 @@ public sealed class ArchitectureTests
                 continue;
             }
 
-            foreach (string root in ModuleNamespaceRoots)
+            foreach (var root in ModuleNamespaceRoots)
             {
                 TestResult result = Types
                     .InAssemblies(Production)
@@ -99,7 +99,7 @@ public sealed class ArchitectureTests
             .OfType<MethodInfo>()
             .ToArray();
 
-        string[] invalid = handlers
+        var invalid = handlers
             .Where(method => !ReturnsResult(method.ReturnType))
             .Select(method => $"{method.DeclaringType?.FullName}.{method.Name}")
             .ToArray();
@@ -110,7 +110,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void Shared_kernel_must_remain_small()
     {
-        int publicTypeCount = typeof(Result).Assembly
+        var publicTypeCount = typeof(Result).Assembly
             .GetExportedTypes()
             .Count(type => type.Namespace == "NotificationHub.SharedKernel");
 

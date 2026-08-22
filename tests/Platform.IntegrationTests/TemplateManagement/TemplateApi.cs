@@ -83,6 +83,40 @@ internal static class TemplateApi
         return response.Headers.ETag!.ToString();
     }
 
+    private static readonly string[] RequiredOrderId = ["orderId"];
+
+    /// <summary>
+    /// Creates a template plus a draft that passes the integral validation:
+    /// email content for the default locale, plain-text version, and every
+    /// used variable declared in the schema.
+    /// </summary>
+    internal static async Task<(string Key, int Version)> CreatePublishableDraftAsync(HttpClient client)
+    {
+        var key = await CreateTemplateAsync(client, NewKey(), defaultLocale: "pt-BR");
+        (var version, var etag) = await CreateDraftAsync(client, key);
+        etag = await PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Pedido {{ orderId }}",
+            body = "<p>Pedido {{ orderId }} atualizado.</p>",
+            bodyText = "Pedido {{ orderId }} atualizado.",
+        }, etag);
+        await PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { orderId = new { type = "string" } },
+            required = RequiredOrderId,
+        }, etag);
+        return (key, version);
+    }
+
+    internal static async Task<int> PublishAsync(HttpClient publisherClient, string key, int version)
+    {
+        HttpResponseMessage response = await publisherClient.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/publish", content: null);
+        response.EnsureSuccessStatusCode();
+        return version;
+    }
+
     internal static HttpRequestMessage PutJson(string url, object body, string? ifMatch)
     {
         var request = new HttpRequestMessage(HttpMethod.Put, url) { Content = JsonContent.Create(body) };
