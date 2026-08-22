@@ -1,0 +1,27 @@
+{
+  "generator": "dotnet-scaffold",
+  "schema-version": 2,
+  "status": "verified",
+  "starter": "modular-monolith",
+  "config": {
+    "solution": "MonteBravo.NotificationHub",
+    "namespace": "NotificationHub",
+    "framework": "net10.0",
+    "architecture": "modular-monolith",
+    "template-set": "common",
+    "module": "TemplateManagement",
+    "selections": {
+      "transports": [
+        "minimal-api"
+      ],
+      "persistence": [
+        "ef"
+      ],
+      "messaging": [],
+      "cache": [
+        "redis"
+      ]
+    },
+    "profile-path": ".araia/stack-profile.yaml"
+  }
+}

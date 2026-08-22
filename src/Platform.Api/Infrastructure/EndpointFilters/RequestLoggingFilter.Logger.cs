@@ -1,0 +1,13 @@
+namespace NotificationHub.Api.Infrastructure.EndpointFilters;
+
+public sealed partial class RequestLoggingFilter
+{
+    [LoggerMessage(EventId = 1000, Level = LogLevel.Information, Message = "Endpoint {Endpoint} invocation started")]
+    private partial void EndpointInvocationStarted(string endpoint);
+
+    [LoggerMessage(EventId = 1001, Level = LogLevel.Information, Message = "Endpoint {Endpoint} completed in {ElapsedMs}ms")]
+    private partial void EndpointInvocationCompleted(string endpoint, long elapsedMs);
+
+    [LoggerMessage(EventId = 1002, Level = LogLevel.Error, Message = "Endpoint {Endpoint} failed after {ElapsedMs}ms")]
+    private partial void EndpointInvocationFailed(string endpoint, long elapsedMs, Exception exception);
+}

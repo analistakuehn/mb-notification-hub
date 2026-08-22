@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NotificationHub.PerformanceTests</RootNamespace>
+    <AssemblyName>NotificationHub.PerformanceTests</AssemblyName>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Label="Performance Framework">
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+</Project>
