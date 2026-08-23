@@ -3,12 +3,17 @@ using System.Text.RegularExpressions;
 using NetArchTest.Rules;
 using NotificationHub.Api.Composition;
 using NotificationHub.SharedKernel;
+using NotificationHub.Worker;
 
 namespace NotificationHub.ArchTests;
 
 public sealed class ArchitectureTests
 {
-    private static readonly Assembly[] Production = SolutionAssemblies.All;
+    // Both hosts are production: the API assemblies plus the worker host,
+    // composed here because a host-to-host project reference would be
+    // circular. Every rule below scans the same set.
+    private static readonly Assembly[] Production =
+        [.. SolutionAssemblies.All, typeof(AssemblyMarker).Assembly];
 
     private static readonly string[] ModuleNamespaceRoots =
     [
@@ -126,6 +131,34 @@ public sealed class ArchitectureTests
         // module's own namespaces, never the shared kernel.
         forbidden.ShouldAllBe(entry =>
             entry.StartsWith("NotificationHub.Api.Modules.Provider", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Platform_infrastructure_must_not_depend_on_modules()
+    {
+        TestResult result = Types
+            .InAssemblies(Production)
+            .That()
+            .ResideInNamespaceMatching(@"^NotificationHub\.Api\.Infrastructure(\.|$)")
+            .ShouldNot()
+            .HaveDependencyOnAny("NotificationHub.Api.Modules")
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Worker_host_must_not_depend_on_modules()
+    {
+        TestResult result = Types
+            .InAssemblies(Production)
+            .That()
+            .ResideInNamespaceMatching(@"^NotificationHub\.Worker(\.|$)")
+            .ShouldNot()
+            .HaveDependencyOnAny("NotificationHub.Api.Modules")
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue();
     }
 
     [Fact]

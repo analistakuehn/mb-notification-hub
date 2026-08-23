@@ -40,6 +40,7 @@
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.1.0" />
     <PackageVersion Include="Testcontainers.Redis" Version="4.1.0" />
+    <PackageVersion Include="Testcontainers.LocalStack" Version="4.1.0" />
     <!-- Transitive pin: Testcontainers 4.1.0 pulls SSH.NET 2024.1.0, which carries
          a known high-severity advisory; 2026.0.0 is the first patched release. -->
     <PackageVersion Include="SSH.NET" Version="2026.0.0" />
@@ -56,6 +57,10 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup Label="Araia Messaging">
+    <PackageVersion Include="AWSSDK.SQS" Version="4.0.100.10" />
   </ItemGroup>
 
   <ItemGroup Label="Araia Cache">

@@ -7,11 +7,12 @@ namespace NotificationHub.Api.Infrastructure.Messaging;
 /// <summary>
 /// Composition surface of the platform messaging infrastructure: the outbox
 /// context with its own migration history and the transactional writer every
-/// producing module appends through.
+/// producing module appends through. Public on purpose: both hosts compose
+/// it, the API for the producing modules and the worker for the relay.
 /// </summary>
-internal static class PlatformMessagingSetup
+public static class PlatformMessagingSetup
 {
-    internal static IServiceCollection AddPlatformMessaging(
+    public static IServiceCollection AddPlatformMessaging(
         this IServiceCollection services,
         IConfiguration configuration)
     {

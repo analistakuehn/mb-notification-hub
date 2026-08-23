@@ -28,6 +28,11 @@
           "Microsoft.Extensions.Primitives": "10.0.0"
         }
       },
+      "AWSSDK.Core": {
+        "type": "Transitive",
+        "resolved": "4.0.102",
+        "contentHash": "sjkYreyNPlYTnAxdnqd3MBoeTNZHXOzV9lKULS5VAn+6MJIqu87aZLlm56KhDANOBXRxwDJIW668ZlsFhaB6Zw=="
+      },
       "BenchmarkDotNet.Annotations": {
         "type": "Transitive",
         "resolved": "0.15.8",
@@ -564,6 +569,7 @@
       "NotificationHub.Api": {
         "type": "Project",
         "dependencies": {
+          "AWSSDK.SQS": "[4.0.100.10, )",
           "Asp.Versioning.Http": "[10.0.0, )",
           "FluentValidation": "[11.10.0, )",
           "FluentValidation.DependencyInjectionExtensions": "[11.10.0, )",
@@ -586,6 +592,15 @@
         "contentHash": "xmNm9FM2d20NKy7i1osEQysf7pJ4iJjWnM6e8CoeIhUREqG8nugsfC82pGpmzlatjAJL5T52ieSpyW+GFdSsSQ==",
         "dependencies": {
           "Asp.Versioning.Abstractions": "10.0.0"
+        }
+      },
+      "AWSSDK.SQS": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.100.10, )",
+        "resolved": "4.0.100.10",
+        "contentHash": "u2IjUITEZgsz2zoBL4MSgsy3TrUuvmLxiQOp0uBzqYckyMcth8XB7Td4lFVY8Be8rwygsl671Jta1GyRLE098w==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102, 5.0.0)"
         }
       },
       "FluentValidation": {

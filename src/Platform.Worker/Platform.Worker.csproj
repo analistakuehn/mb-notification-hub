@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NotificationHub.Worker</RootNamespace>
+    <AssemblyName>NotificationHub.Worker</AssemblyName>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="..\Platform.Api\Platform.Api.csproj" />
+  </ItemGroup>
+
+</Project>

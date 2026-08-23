@@ -3,16 +3,22 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using NotificationHub.Api.Composition;
 using NotificationHub.SharedKernel;
+using NotificationHub.Worker;
 
 namespace NotificationHub.SecurityArchTests;
 
 public sealed partial class SecurityArchitectureTests
 {
-    private static readonly Assembly[] Production = SolutionAssemblies.All;
+    // Both hosts are production: the API assemblies plus the worker host,
+    // composed here because a host-to-host project reference would be
+    // circular. Every rule below scans the same set.
+    private static readonly Assembly[] Production =
+        [.. SolutionAssemblies.All, typeof(AssemblyMarker).Assembly];
 
     private static readonly string[] ProductionRoots =
     [
         "src/Platform.Api",
+        "src/Platform.Worker",
     ];
 
     [Fact]

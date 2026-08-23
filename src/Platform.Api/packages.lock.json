@@ -11,6 +11,15 @@
           "Asp.Versioning.Abstractions": "10.0.0"
         }
       },
+      "AWSSDK.SQS": {
+        "type": "Direct",
+        "requested": "[4.0.100.10, )",
+        "resolved": "4.0.100.10",
+        "contentHash": "u2IjUITEZgsz2zoBL4MSgsy3TrUuvmLxiQOp0uBzqYckyMcth8XB7Td4lFVY8Be8rwygsl671Jta1GyRLE098w==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102, 5.0.0)"
+        }
+      },
       "FluentValidation": {
         "type": "Direct",
         "requested": "[11.10.0, )",
@@ -23,7 +32,8 @@
         "resolved": "11.10.0",
         "contentHash": "hIe+i6P+ZUxFh6lJOBXRs4EGE/thcub0Lpdk2FF2/JBKJUqDqE2xDnBIiqTMkpXLoekgBN0SlhJT0vpeNr1J6g==",
         "dependencies": {
-          "FluentValidation": "11.10.0"
+          "FluentValidation": "11.10.0",
+          "Microsoft.Extensions.Dependencyinjection.Abstractions": "2.1.0"
         }
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
@@ -129,6 +139,11 @@
         "type": "Transitive",
         "resolved": "10.0.0",
         "contentHash": "cMRE5nvNMfBgfkb0XFWst/7UtyXCjoAXnV0L4Scx4P9fcf0idgrj1Z0c+3ylsy01K4cOib7dKhCBfpg5z3r0Kg=="
+      },
+      "AWSSDK.Core": {
+        "type": "Transitive",
+        "resolved": "4.0.102",
+        "contentHash": "sjkYreyNPlYTnAxdnqd3MBoeTNZHXOzV9lKULS5VAn+6MJIqu87aZLlm56KhDANOBXRxwDJIW668ZlsFhaB6Zw=="
       },
       "Humanizer.Core": {
         "type": "Transitive",
@@ -434,6 +449,12 @@
           "Microsoft.IdentityModel.JsonWebTokens": "8.19.2",
           "Microsoft.IdentityModel.Tokens": "8.19.2"
         }
+      },
+      "Microsoft.Extensions.DependencyInjection.Abstractions": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "z/2xXlFw2aLGjHyEm6E0tQ+In6VfzQzTrtArbQ2c0TQE16ZbyDCMGPvaUT9I0s8rgy9sRWlU2P9waW37qV04qA=="
       },
       "Microsoft.OpenApi": {
         "type": "CentralTransitive",

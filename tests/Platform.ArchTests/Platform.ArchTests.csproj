@@ -10,6 +10,7 @@
 
   <ItemGroup Label="Project References">
     <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Worker\Platform.Worker.csproj" />
   </ItemGroup>
 
   <ItemGroup Label="Implicit Usings">

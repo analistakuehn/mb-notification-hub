@@ -35,6 +35,10 @@
       <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     </ItemGroup>
 
+  <ItemGroup Label="Araia Messaging">
+      <PackageReference Include="AWSSDK.SQS" />
+    </ItemGroup>
+
   <ItemGroup Label="Araia Cache">
       <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
       <PackageReference Include="StackExchange.Redis" />

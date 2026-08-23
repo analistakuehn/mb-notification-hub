@@ -1,0 +1,109 @@
+namespace NotificationHub.Api.Infrastructure.Messaging.Relay;
+
+/// <summary>
+/// Priority bands the relay drains in fixed order. The band is a reader-side
+/// classification: the stored <c>priority_class</c> contract does not change,
+/// the relay only decides the drain order from it and from the destination.
+/// </summary>
+internal enum OutboxBand
+{
+    /// <summary>Authentication traffic; always drained first.</summary>
+    Auth = 0,
+
+    /// <summary>Critical class outside the authentication destination.</summary>
+    Critical = 1,
+
+    Transactional = 2,
+
+    /// <summary>Operational class and any unknown priority class.</summary>
+    Operational = 3,
+}
+
+/// <summary>
+/// Band vocabulary and classification of the relay reader. The SQL of the
+/// pending store mirrors <see cref="Classify"/> so both sides pick the same
+/// band; change them together.
+/// </summary>
+internal static class OutboxBands
+{
+    /// <summary>
+    /// The one destination classified into the auth band regardless of the
+    /// stored priority class. Dispatch queues with an auth suffix join this
+    /// classification when they start receiving rows in a later phase.
+    /// </summary>
+    internal const string AuthDestination = "core-auth";
+
+    private const string CriticalClass = "critical";
+    private const string TransactionalClass = "transactional";
+
+    /// <summary>Every band, in the order a full instance drains them.</summary>
+    internal static readonly OutboxBand[] DrainOrder =
+    [
+        OutboxBand.Auth,
+        OutboxBand.Critical,
+        OutboxBand.Transactional,
+        OutboxBand.Operational,
+    ];
+
+    internal static OutboxBand Classify(string destination, string priorityClass)
+    {
+        if (string.Equals(destination, AuthDestination, StringComparison.Ordinal))
+        {
+            return OutboxBand.Auth;
+        }
+
+        return priorityClass switch
+        {
+            CriticalClass => OutboxBand.Critical,
+            TransactionalClass => OutboxBand.Transactional,
+            // Unknown classes drain with the lowest band instead of starving.
+            _ => OutboxBand.Operational,
+        };
+    }
+
+    internal static bool TryParseName(string name, out OutboxBand band)
+    {
+        switch (name)
+        {
+            case "auth":
+                band = OutboxBand.Auth;
+                return true;
+            case CriticalClass:
+                band = OutboxBand.Critical;
+                return true;
+            case TransactionalClass:
+                band = OutboxBand.Transactional;
+                return true;
+            case "operational":
+                band = OutboxBand.Operational;
+                return true;
+            default:
+                band = default;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// The drain order restricted to the configured band names; the configured
+    /// order never reorders the drain, only selects from it. An empty
+    /// configuration selects every band.
+    /// </summary>
+    internal static OutboxBand[] Restrict(IReadOnlyCollection<string> bandNames)
+    {
+        if (bandNames.Count == 0)
+        {
+            return DrainOrder;
+        }
+
+        var selected = new HashSet<OutboxBand>();
+        foreach (var name in bandNames)
+        {
+            if (TryParseName(name, out OutboxBand band))
+            {
+                selected.Add(band);
+            }
+        }
+
+        return [.. DrainOrder.Where(selected.Contains)];
+    }
+}
