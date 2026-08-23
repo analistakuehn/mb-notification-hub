@@ -4,7 +4,7 @@ namespace NotificationHub.Api.Infrastructure.Cryptography;
 
 /// <summary>
 /// Configuration of the local envelope-encryption implementation. The master
-/// key only ever derives per-application data keys; it never encrypts data
+/// key only ever derives per-scope data keys; it never encrypts data
 /// directly. A committed development key must carry a key id marked as
 /// dev-only, because the host refuses to boot with such a key outside the
 /// Development environment.

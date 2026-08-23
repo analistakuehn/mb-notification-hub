@@ -1,0 +1,110 @@
+using Microsoft.EntityFrameworkCore;
+using NotificationHub.Api.Modules.ContactConsent.Domain;
+using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Privacy;
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
+using NotificationHub.SharedKernel;
+
+namespace NotificationHub.Api.Modules.ContactConsent.Infrastructure.Reads;
+
+/// <summary>
+/// The read side of the published contract, straight over this module's own
+/// store. The snapshot never materializes a contact value; the reveal read
+/// decrypts inside this class and hands out only the plaintext string, so the
+/// envelope and the key scope never cross the module boundary.
+/// </summary>
+internal sealed class RecipientDirectory(
+    ContactConsentDbContext db,
+    ContactValueProtector protector) : IRecipientDirectory
+{
+    public async Task<Result<RecipientSnapshot>> FindAsync(
+        string recipientId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientId);
+
+        RecipientProfile? profile = await db.RecipientProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.RecipientId == recipientId, cancellationToken);
+        if (profile is null)
+        {
+            return Result.NotFound<RecipientSnapshot>(
+                $"O destinatário '{recipientId}' não possui cadastro de contatos.");
+        }
+
+        List<ContactPointSnapshot> contactPoints = await db.ContactPoints
+            .AsNoTracking()
+            .Where(point => point.RecipientId == recipientId && point.RemovedAt == null)
+            .OrderBy(point => point.Id)
+            .Select(point => new ContactPointSnapshot(point.Id, point.Channel, point.Verified))
+            .ToListAsync(cancellationToken);
+
+        var consentRecords = await db.Consents
+            .AsNoTracking()
+            .Join(
+                db.ContactPoints.AsNoTracking().Where(point => point.RecipientId == recipientId),
+                consent => consent.ContactPointId,
+                point => point.Id,
+                (consent, point) => new { consent, point.Channel })
+            .ToListAsync(cancellationToken);
+
+        List<ConsentDecision> consents = consentRecords
+            .GroupBy(record => (record.consent.Purpose, record.Channel))
+            .Select(group => group
+                .OrderByDescending(record => record.consent.RecordedAt)
+                .ThenByDescending(record => record.consent.Id)
+                .First())
+            .OrderBy(record => record.consent.Purpose, StringComparer.Ordinal)
+            .ThenBy(record => record.Channel, StringComparer.Ordinal)
+            .Select(record => new ConsentDecision(
+                record.consent.Purpose,
+                record.Channel,
+                record.consent.Granted,
+                record.consent.Source,
+                record.consent.TermsVersion,
+                record.consent.RecordedAt))
+            .ToList();
+
+        List<DeviceRegistration> devices = await db.DeviceTokens
+            .AsNoTracking()
+            .Where(device => device.RecipientId == recipientId && device.InvalidatedAt == null)
+            .OrderByDescending(device => device.LastSeenAt)
+            .Select(device => new DeviceRegistration(
+                device.Id, device.Token, device.Platform, device.AppVersion, device.LastSeenAt))
+            .ToListAsync(cancellationToken);
+
+        return Result.Success(new RecipientSnapshot
+        {
+            RecipientId = profile.RecipientId,
+            Timezone = profile.EffectiveTimezone,
+            Locale = profile.Locale,
+            ContactPoints = contactPoints,
+            Consents = consents,
+            Devices = devices,
+        });
+    }
+
+    public async Task<Result<string>> RevealContactValueAsync(
+        string recipientId,
+        Guid contactPointId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientId);
+
+        ContactPoint? point = await db.ContactPoints
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                candidate => candidate.Id == contactPointId
+                    && candidate.RecipientId == recipientId
+                    && candidate.RemovedAt == null,
+                cancellationToken);
+        if (point is null)
+        {
+            return Result.NotFound<string>(
+                "O ponto de contato não existe, foi removido ou pertence a outro destinatário.");
+        }
+
+        var value = await protector.RevealAsync(point.ValueEncrypted, cancellationToken);
+        return Result.Success(value);
+    }
+}

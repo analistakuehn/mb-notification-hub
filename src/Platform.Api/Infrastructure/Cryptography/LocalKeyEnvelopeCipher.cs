@@ -6,11 +6,11 @@ namespace NotificationHub.Api.Infrastructure.Cryptography;
 
 /// <summary>
 /// Envelope encryption backed by a locally configured master key: the data key
-/// of each application is derived with HKDF-SHA256 from the master key using
-/// the application name as info, and the payload is sealed with AES-256-GCM.
-/// The key id and the application name are bound as associated data, so an
-/// envelope only ever opens for the application and key that produced it.
-/// A managed-KMS implementation replaces this class behind the same contract.
+/// of each scope is derived with HKDF-SHA256 from the master key using the key
+/// scope as info, and the payload is sealed with AES-256-GCM. The key id and
+/// the key scope are bound as associated data, so an envelope only ever opens
+/// for the scope and key that produced it. A managed-KMS implementation
+/// replaces this class behind the same contract.
 /// </summary>
 /// <remarks>
 /// Envelope layout, version 1:
@@ -45,9 +45,9 @@ internal sealed class LocalKeyEnvelopeCipher : IEnvelopeCipher
         }
     }
 
-    public Task<byte[]> EncryptAsync(string application, byte[] plaintext, CancellationToken cancellationToken)
+    public Task<byte[]> EncryptAsync(string keyScope, byte[] plaintext, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(application);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyScope);
         ArgumentNullException.ThrowIfNull(plaintext);
 
         var envelope = new byte[2 + _keyIdBytes.Length + NonceSize + TagSize + plaintext.Length];
@@ -60,14 +60,14 @@ internal sealed class LocalKeyEnvelopeCipher : IEnvelopeCipher
         Span<byte> tag = envelope.AsSpan(2 + _keyIdBytes.Length + NonceSize, TagSize);
         Span<byte> ciphertext = envelope.AsSpan(2 + _keyIdBytes.Length + NonceSize + TagSize);
 
-        using var aes = new AesGcm(DeriveDataKey(application), TagSize);
-        aes.Encrypt(nonce, plaintext, ciphertext, tag, AssociatedData(application));
+        using var aes = new AesGcm(DeriveDataKey(keyScope), TagSize);
+        aes.Encrypt(nonce, plaintext, ciphertext, tag, AssociatedData(keyScope));
         return Task.FromResult(envelope);
     }
 
-    public Task<byte[]> DecryptAsync(string application, byte[] envelope, CancellationToken cancellationToken)
+    public Task<byte[]> DecryptAsync(string keyScope, byte[] envelope, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(application);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyScope);
         ArgumentNullException.ThrowIfNull(envelope);
 
         if (envelope.Length < 2 || envelope[0] != FormatVersion)
@@ -94,19 +94,19 @@ internal sealed class LocalKeyEnvelopeCipher : IEnvelopeCipher
         ReadOnlySpan<byte> ciphertext = envelope.AsSpan(headerLength);
 
         var plaintext = new byte[ciphertext.Length];
-        using var aes = new AesGcm(DeriveDataKey(application), TagSize);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext, AssociatedData(application));
+        using var aes = new AesGcm(DeriveDataKey(keyScope), TagSize);
+        aes.Decrypt(nonce, ciphertext, tag, plaintext, AssociatedData(keyScope));
         return Task.FromResult(plaintext);
     }
 
-    private byte[] DeriveDataKey(string application)
+    private byte[] DeriveDataKey(string keyScope)
         => HKDF.DeriveKey(
             HashAlgorithmName.SHA256,
             _masterKey,
             DataKeySize,
             salt: null,
-            info: Encoding.UTF8.GetBytes($"envelope-data-key:{application}"));
+            info: Encoding.UTF8.GetBytes($"envelope-data-key:{keyScope}"));
 
-    private byte[] AssociatedData(string application)
-        => Encoding.UTF8.GetBytes($"{_keyId}:{application}");
+    private byte[] AssociatedData(string keyScope)
+        => Encoding.UTF8.GetBytes($"{_keyId}:{keyScope}");
 }
