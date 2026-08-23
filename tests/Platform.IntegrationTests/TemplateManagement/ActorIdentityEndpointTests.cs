@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.Audit.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
@@ -16,7 +16,7 @@ public sealed class ActorIdentityEndpointTests(TemplateManagementApiFixture fixt
             AuthorizationSetup.AuthorRole);
         var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
 
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             AuditEvent audit = await db.AuditEvents
                 .AsNoTracking()

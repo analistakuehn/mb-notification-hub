@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
@@ -31,6 +32,7 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
         => builder.ConfigureAppConfiguration((_, configuration)
             => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
+                ["Modules:Audit:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = "localhost:6379",
                 ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
@@ -79,6 +81,12 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
         await action(scope.ServiceProvider.GetRequiredService<TemplateManagementDbContext>());
     }
 
+    public async Task ExecuteAuditDbAsync(Func<AuditDbContext, Task> action)
+    {
+        using IServiceScope scope = Services.CreateScope();
+        await action(scope.ServiceProvider.GetRequiredService<AuditDbContext>());
+    }
+
     async Task IAsyncLifetime.InitializeAsync()
     {
         if (!DockerEnvironment.IsAvailable)
@@ -88,8 +96,14 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
 
         await _postgres.StartAsync();
         using IServiceScope scope = Services.CreateScope();
+
+        // TemplateManagement first on purpose: its history creates the audit
+        // trail tables the Audit adoption migration takes over.
         await scope.ServiceProvider
             .GetRequiredService<TemplateManagementDbContext>()
+            .Database.MigrateAsync();
+        await scope.ServiceProvider
+            .GetRequiredService<AuditDbContext>()
             .Database.MigrateAsync();
     }
 

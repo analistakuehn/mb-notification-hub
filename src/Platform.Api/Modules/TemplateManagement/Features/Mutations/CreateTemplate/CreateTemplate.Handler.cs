@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
+using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -12,6 +14,7 @@ internal static partial class CreateTemplate
 {
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
+        IAuditTrail auditTrail,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -70,7 +73,7 @@ internal static partial class CreateTemplate
             }
 
             dbContext.Templates.Add(template.Value!);
-            dbContext.AuditEvents.Add(AuditEvent.Record(new AuditEntry
+            var entry = new AuditEntry
             {
                 ActorType = AuditActorTypes.User,
                 ActorId = actor,
@@ -85,10 +88,17 @@ internal static partial class CreateTemplate
                     ownerTeam = template.Value!.OwnerTeam,
                 }),
                 OccurredAt = timeProvider.GetUtcNow(),
-            }));
+            };
+
+            // One database transaction shared with the audit contract: the new
+            // template and its audit event land together or not at all.
+            await using IDbContextTransaction transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
             try
             {
                 await dbContext.SaveChangesAsync(cancellationToken);
+                await auditTrail.AppendAsync(transaction.GetDbTransaction(), entry, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
             catch (DbUpdateException exception)
                 when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })

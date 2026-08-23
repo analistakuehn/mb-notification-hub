@@ -5,7 +5,6 @@ using NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 using NotificationHub.Api.Modules.TemplateManagement.Features.Queries;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Caching;
-using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.RateLimiting;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
@@ -19,7 +18,6 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         IConfiguration configuration)
     {
         services.AddEntityFramework(configuration);
-        services.AddTemplateManagementPartitionManager(configuration);
         services.AddRedis(configuration);
         services.AddTemplateManagementAuthorization();
         services.AddTemplateManagementRateLimiting();

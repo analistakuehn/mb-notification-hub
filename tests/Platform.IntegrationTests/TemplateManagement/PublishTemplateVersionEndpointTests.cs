@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.Audit.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
@@ -26,7 +26,7 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
         body.GetProperty("supersededVersion").ValueKind.ShouldBe(JsonValueKind.Null);
         var contentHash = body.GetProperty("contentHash").GetString()!;
 
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             Approval approval = await db.Approvals.AsNoTracking().SingleAsync(candidate =>
                 candidate.SubjectType == "template_version"
@@ -98,7 +98,7 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
         HttpResponseMessage versionResponse = await author.GetAsync($"/v1/templates/{key}/versions/{version}");
         JsonElement versionBody = await TemplateApi.ReadJsonAsync(versionResponse);
         versionBody.GetProperty("status").GetString().ShouldBe("draft");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             (await db.Approvals.AsNoTracking().AnyAsync(candidate => candidate.SubjectId == key))
                 .ShouldBeFalse();
@@ -124,7 +124,7 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         JsonElement problem = await TemplateApi.ReadJsonAsync(response);
         problem.GetProperty("type").GetString().ShouldBe("four-eyes-violation");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
             (await db.Approvals.AsNoTracking().AnyAsync(candidate => candidate.SubjectId == key))
                 .ShouldBeFalse());
     }

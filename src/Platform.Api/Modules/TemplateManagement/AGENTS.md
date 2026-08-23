@@ -26,26 +26,32 @@
 - Return `Result<T>` for expected outcomes; reserve exceptions for unexpected system failures.
 - Raise a Domain Event when behavior inside this context reacts to a fact. Map it to a versioned Integration Event only when another context consumes it.
 
-## Audit trail (provisional ownership)
+## Audit trail (consumer)
 
-- The `audit_event` and `approval` tables are provisionally owned and migrated
-  by this module until the dedicated Audit module takes ownership, together
-  with the hash-chain integrity columns and the monthly partitioning. Do not
-  add hash-chain columns here; they belong to that hand-over.
-- Both tables are append-only by construction: a database trigger rejects
-  `UPDATE` and `DELETE`. Every governed effect (create, publish, deprecate,
-  disable, rollback) inserts its `audit_event` in the same transaction as the
-  effect, through the same `SaveChanges` call; a separate save is a defect.
+- The `audit_event` and `approval` tables, the hash-chain columns, the monthly
+  partitioning, the partition manager, and the partition health check belong
+  to the dedicated Audit module (`src/Platform.Api/Modules/Audit/`). This
+  module no longer maps those tables in its DbContext and never touches them
+  directly.
+- Every governed effect (create, publish, deprecate, disable, rollback)
+  records its trail through the published contract
+  `NotificationHub.Api.Modules.Audit.Integration.V1.IAuditTrail`, **in the
+  same database transaction** as the effect: the handler opens an explicit
+  transaction, runs its own `SaveChanges`, calls `RecordApprovalAsync` (when
+  the effect carries an approval) and `AppendAsync` with the raw
+  `DbTransaction`, and commits immediately. A separate transaction for the
+  trail is a defect; so is doing extra work between the append and the commit,
+  because the append holds the partition chain lock until the transaction
+  ends.
+- The audit vocabulary (`AuditActions`, `AuditEntityTypes`, `AuditActorTypes`,
+  `ApprovalSubjectTypes`, `ApprovalRoles`) lives in that contract. Approval
+  subject ids are composed here, in this module's naming (template key, layout
+  key, `application:class`).
 - `details` carries compact JSON evidence (content hash, validation outcome,
   reason). Never personal data, variables, or rendered content.
-- The hand-over to the dedicated Audit module MUST cover three points beyond
-  the column move: (1) the initial anchor of the hash chain accounts for the
-  partitions that pre-date the chain, so the first chained event links to a
-  recorded anchor instead of an empty predecessor; (2) the pre-chain
-  partitions receive WORM protection when they are exported, because no hash
-  chain vouches for them retroactively; (3) every retention and export date
-  calculation respects the 90-day verification criterion, counting from the
-  partition's upper boundary, not from the export moment.
+- Retention, export, and the 90-day verification criterion counted from the
+  partition's upper boundary are the Audit module's concerns; nothing in this
+  module may depend on them.
 
 ## Layouts
 

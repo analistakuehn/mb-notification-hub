@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.Audit.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
@@ -99,7 +99,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         JsonElement problem = await TemplateApi.ReadJsonAsync(response);
         problem.GetProperty("type").GetString().ShouldBe("four-eyes-violation");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
             (await db.Approvals.AsNoTracking().AnyAsync(candidate =>
                 candidate.SubjectId == $"{application}:{ClassPolicyApi.DefaultClass}"))
                 .ShouldBeFalse());
@@ -119,7 +119,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
         JsonElement body = await TemplateApi.ReadJsonAsync(response);
         body.GetProperty("status").GetString().ShouldBe("published");
         var contentHash = body.GetProperty("contentHash").GetString()!;
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             Approval approval = await db.Approvals.AsNoTracking().SingleAsync(candidate =>
                 candidate.SubjectType == "class_policy_version"

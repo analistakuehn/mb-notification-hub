@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
+using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -13,6 +15,7 @@ internal static partial class RollbackTemplate
 {
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
+        IAuditTrail auditTrail,
         TemplateVersionAnalyzer analyzer,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
@@ -112,13 +115,17 @@ internal static partial class RollbackTemplate
             }
 
             dbContext.TemplateVersions.Add(published);
-            dbContext.Approvals.Add(Approval.ForTemplateVersion(
-                key.Value!,
-                published.Version,
-                published.ContentHash,
-                command.Actor,
-                now));
-            dbContext.AuditEvents.Add(AuditEvent.Record(new AuditEntry
+            var grant = new ApprovalGrant
+            {
+                SubjectType = ApprovalSubjectTypes.TemplateVersion,
+                SubjectId = key.Value!.Value,
+                SubjectVersion = published.Version,
+                ContentHash = published.ContentHash,
+                Role = ApprovalRoles.Publisher,
+                ApproverOid = command.Actor,
+                ApprovedAt = now,
+            };
+            var entry = new AuditEntry
             {
                 ActorType = AuditActorTypes.User,
                 ActorId = command.Actor,
@@ -128,18 +135,24 @@ internal static partial class RollbackTemplate
                 EntityId = $"{key.Value!.Value}:{published.Version}",
                 DetailsJson = RollbackDetails(published, source.Version, current?.Version, report),
                 OccurredAt = now,
-            }));
+            };
 
             // Forcing the status write makes the update carry the template's
             // concurrency token: a deprecate/disable committed after the load
             // above turns this rollback into a concurrency conflict.
             dbContext.Entry(template).Property(entity => entity.Status).IsModified = true;
 
+            // One database transaction shared with the audit contract: the new
+            // version, the approval and the audit event land together or not
+            // at all.
+            await using IDbContextTransaction transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                // One SaveChanges, one transaction: the new version, the approval
-                // and the audit event land together or not at all.
                 await dbContext.SaveChangesAsync(cancellationToken);
+                await auditTrail.RecordApprovalAsync(transaction.GetDbTransaction(), grant, cancellationToken);
+                await auditTrail.AppendAsync(transaction.GetDbTransaction(), entry, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {

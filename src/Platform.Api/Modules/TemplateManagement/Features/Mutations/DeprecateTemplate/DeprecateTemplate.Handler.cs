@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -11,6 +13,7 @@ internal static partial class DeprecateTemplate
 {
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
+        IAuditTrail auditTrail,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -38,7 +41,7 @@ internal static partial class DeprecateTemplate
                 return transition.AsFailure<Response>();
             }
 
-            dbContext.AuditEvents.Add(AuditEvent.Record(new AuditEntry
+            var entry = new AuditEntry
             {
                 ActorType = AuditActorTypes.User,
                 ActorId = command.Actor,
@@ -48,13 +51,17 @@ internal static partial class DeprecateTemplate
                 EntityId = key.Value!.Value,
                 DetailsJson = JsonSerializer.Serialize(new { reason = command.Reason }),
                 OccurredAt = timeProvider.GetUtcNow(),
-            }));
+            };
 
+            // One database transaction shared with the audit contract: the
+            // transition and its audit event land together or not at all.
+            await using IDbContextTransaction transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                // One SaveChanges, one transaction: the transition and its audit
-                // event land together or not at all.
                 await dbContext.SaveChangesAsync(cancellationToken);
+                await auditTrail.AppendAsync(transaction.GetDbTransaction(), entry, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {

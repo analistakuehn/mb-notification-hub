@@ -18,10 +18,6 @@ public sealed class TemplateManagementDbContext(DbContextOptions<TemplateManagem
 
     public DbSet<ClassPolicyVersion> ClassPolicyVersions => Set<ClassPolicyVersion>();
 
-    public DbSet<Approval> Approvals => Set<Approval>();
-
-    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("templatemanagement");

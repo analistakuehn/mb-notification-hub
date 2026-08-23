@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.Audit.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
@@ -36,7 +36,7 @@ public sealed class RollbackTemplateEndpointTests(TemplateManagementApiFixture f
 
         HttpResponseMessage secondVersion = await author.GetAsync($"/v1/templates/{key}/versions/{second}");
         (await TemplateApi.ReadJsonAsync(secondVersion)).GetProperty("status").GetString().ShouldBe("superseded");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             Approval approval = await db.Approvals.AsNoTracking().SingleAsync(candidate =>
                 candidate.SubjectId == key && candidate.SubjectVersion == third);
@@ -69,7 +69,7 @@ public sealed class RollbackTemplateEndpointTests(TemplateManagementApiFixture f
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         JsonElement problem = await TemplateApi.ReadJsonAsync(response);
         problem.GetProperty("type").GetString().ShouldBe("four-eyes-violation");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
             (await db.AuditEvents.AsNoTracking().AnyAsync(candidate =>
                     candidate.Action == "template.rollback"
                     && candidate.EntityId.StartsWith($"{key}:")))

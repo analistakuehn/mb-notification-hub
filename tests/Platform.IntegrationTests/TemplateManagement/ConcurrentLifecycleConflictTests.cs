@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -34,6 +35,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
 
         HttpClient competingPublisher = fixture.CreatePublisherClient("publisher-cc-1c");
         var interceptor = new CompetingWriteInterceptor(
+            verb: "INSERT",
             batchMarker: "template_version",
             competingAction: () => competingPublisher.PostAsJsonAsync(
                 $"/v1/templates/{key}/rollback", new { toVersion = firstVersion }));
@@ -43,6 +45,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
         {
             var handler = new RollbackTemplate.Handler(
                 db,
+                new TransactionalAuditTrail(),
                 Analyzer(),
                 TimeProvider.System,
                 NullLogger<RollbackTemplate.Handler>.Instance);
@@ -79,8 +82,12 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpClient competingPublisher = fixture.CreatePublisherClient("publisher-cc-2c");
+        // The publish save issues only updates now (the approval and the
+        // audit event travel through the audit contract, outside this
+        // context), so the deterministic window is the version update batch.
         var interceptor = new CompetingWriteInterceptor(
-            batchMarker: "approval",
+            verb: "UPDATE",
+            batchMarker: "template_version",
             competingAction: () => competingPublisher.PostAsJsonAsync(
                 $"/v1/templates/{key}/disable", new { reason = "desativação concorrente" }));
 
@@ -89,6 +96,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
         {
             var handler = new PublishTemplateVersion.Handler(
                 db,
+                new TransactionalAuditTrail(),
                 Analyzer(),
                 TimeProvider.System,
                 NullLogger<PublishTemplateVersion.Handler>.Instance);
@@ -157,6 +165,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
     /// save proceed against the now-stale snapshot.
     /// </summary>
     private sealed class CompetingWriteInterceptor(
+        string verb,
         string batchMarker,
         Func<Task<HttpResponseMessage>> competingAction) : DbCommandInterceptor
     {
@@ -186,7 +195,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
 
         private async Task RunCompetingActionAsync(DbCommand command)
         {
-            var isTargetBatch = command.CommandText.Contains("INSERT", StringComparison.OrdinalIgnoreCase)
+            var isTargetBatch = command.CommandText.Contains(verb, StringComparison.OrdinalIgnoreCase)
                 && command.CommandText.Contains(batchMarker, StringComparison.Ordinal);
             if (!isTargetBatch || Interlocked.Exchange(ref _fired, 1) == 1)
             {

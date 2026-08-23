@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
+using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -12,6 +14,7 @@ internal static partial class PublishClassPolicyVersion
 {
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
+        IAuditTrail auditTrail,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -94,14 +97,17 @@ internal static partial class PublishClassPolicyVersion
                 }
             }
 
-            dbContext.Approvals.Add(Approval.ForClassPolicyVersion(
-                app,
-                notificationClass,
-                draft.Version,
-                draft.ContentHash,
-                publisher,
-                now));
-            dbContext.AuditEvents.Add(AuditEvent.Record(new AuditEntry
+            var grant = new ApprovalGrant
+            {
+                SubjectType = ApprovalSubjectTypes.ClassPolicyVersion,
+                SubjectId = $"{app}:{canonicalClass}",
+                SubjectVersion = draft.Version,
+                ContentHash = draft.ContentHash,
+                Role = ApprovalRoles.Publisher,
+                ApproverOid = publisher,
+                ApprovedAt = now,
+            };
+            var entry = new AuditEntry
             {
                 ActorType = AuditActorTypes.User,
                 ActorId = publisher,
@@ -111,13 +117,19 @@ internal static partial class PublishClassPolicyVersion
                 EntityId = $"{app}:{canonicalClass}:{draft.Version}",
                 DetailsJson = PublicationDetails(draft, report, current?.Version),
                 OccurredAt = now,
-            }));
+            };
 
+            // One database transaction shared with the audit contract: the
+            // status flips, the approval and the audit event land together or
+            // not at all.
+            await using IDbContextTransaction transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                // One SaveChanges, one database transaction: the status flips,
-                // the approval and the audit event land together or not at all.
                 await dbContext.SaveChangesAsync(cancellationToken);
+                await auditTrail.RecordApprovalAsync(transaction.GetDbTransaction(), grant, cancellationToken);
+                await auditTrail.AppendAsync(transaction.GetDbTransaction(), entry, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {

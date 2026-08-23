@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.Audit.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
@@ -24,7 +24,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         JsonElement body = await TemplateApi.ReadJsonAsync(response);
         body.GetProperty("status").GetString().ShouldBe("active");
         body.GetProperty("ownerTeam").GetString().ShouldBe("design-system");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             AuditEvent audit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "layout.created" && candidate.EntityId == key);
@@ -110,7 +110,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         JsonElement problem = await TemplateApi.ReadJsonAsync(response);
         problem.GetProperty("type").GetString().ShouldBe("four-eyes-violation");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
             (await db.Approvals.AsNoTracking().AnyAsync(candidate => candidate.SubjectId == key))
                 .ShouldBeFalse());
     }
@@ -129,7 +129,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         JsonElement body = await TemplateApi.ReadJsonAsync(response);
         body.GetProperty("status").GetString().ShouldBe("published");
         var contentHash = body.GetProperty("contentHash").GetString()!;
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             Approval approval = await db.Approvals.AsNoTracking().SingleAsync(candidate =>
                 candidate.SubjectType == "layout_version"
@@ -194,7 +194,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         body.GetProperty("rolledBackFrom").GetInt32().ShouldBe(first);
         body.GetProperty("supersededVersion").GetInt32().ShouldBe(second);
         var third = body.GetProperty("version").GetInt32();
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             AuditEvent audit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "layout.rollback" && candidate.EntityId == $"{key}:{third}");
@@ -217,7 +217,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         deprecated.StatusCode.ShouldBe(HttpStatusCode.OK);
         disabled.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await TemplateApi.ReadJsonAsync(disabled)).GetProperty("status").GetString().ShouldBe("disabled");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             AuditEvent deprecatedAudit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "layout.deprecated" && candidate.EntityId == key);

@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.Audit.Domain;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
 
@@ -25,7 +25,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         HttpResponseMessage template = await author.GetAsync($"/v1/templates/{key}");
         (await TemplateApi.ReadJsonAsync(template)).GetProperty("status").GetString().ShouldBe("deprecated");
 
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             AuditEvent audit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "template.deprecated" && candidate.EntityId == key);
@@ -84,7 +84,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         JsonElement body = await TemplateApi.ReadJsonAsync(response);
         body.GetProperty("status").GetString().ShouldBe("disabled");
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             AuditEvent audit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "template.disabled" && candidate.EntityId == key);
@@ -123,7 +123,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         HttpClient author = fixture.CreateAuthorClient("author-lc-7");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
-        await fixture.ExecuteDbAsync(async db =>
+        await fixture.ExecuteAuditDbAsync(async db =>
         {
             AuditEvent audit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "template.created" && candidate.EntityId == key);

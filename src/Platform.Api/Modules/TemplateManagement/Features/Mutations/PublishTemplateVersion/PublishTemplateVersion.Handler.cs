@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
+using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -13,6 +15,7 @@ internal static partial class PublishTemplateVersion
 {
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
+        IAuditTrail auditTrail,
         TemplateVersionAnalyzer analyzer,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
@@ -105,13 +108,17 @@ internal static partial class PublishTemplateVersion
                 }
             }
 
-            dbContext.Approvals.Add(Approval.ForTemplateVersion(
-                templateKey.Value!,
-                version.Version,
-                version.ContentHash,
-                publisher,
-                now));
-            dbContext.AuditEvents.Add(AuditEvent.Record(new AuditEntry
+            var grant = new ApprovalGrant
+            {
+                SubjectType = ApprovalSubjectTypes.TemplateVersion,
+                SubjectId = templateKey.Value!.Value,
+                SubjectVersion = version.Version,
+                ContentHash = version.ContentHash,
+                Role = ApprovalRoles.Publisher,
+                ApproverOid = publisher,
+                ApprovedAt = now,
+            };
+            var entry = new AuditEntry
             {
                 ActorType = AuditActorTypes.User,
                 ActorId = publisher,
@@ -121,18 +128,24 @@ internal static partial class PublishTemplateVersion
                 EntityId = $"{templateKey.Value!.Value}:{version.Version}",
                 DetailsJson = PublicationDetails(version, report, current?.Version),
                 OccurredAt = now,
-            }));
+            };
 
             // Forcing the status write makes the update carry the template's
             // concurrency token: a deprecate/disable committed after the load
             // above turns this publication into a concurrency conflict.
             dbContext.Entry(template).Property(entity => entity.Status).IsModified = true;
 
+            // One database transaction shared with the audit contract: the
+            // status flips, the approval and the audit event land together or
+            // not at all.
+            await using IDbContextTransaction transaction =
+                await dbContext.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                // One SaveChanges, one database transaction: the status flips,
-                // the approval and the audit event land together or not at all.
                 await dbContext.SaveChangesAsync(cancellationToken);
+                await auditTrail.RecordApprovalAsync(transaction.GetDbTransaction(), grant, cancellationToken);
+                await auditTrail.AppendAsync(transaction.GetDbTransaction(), entry, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {
