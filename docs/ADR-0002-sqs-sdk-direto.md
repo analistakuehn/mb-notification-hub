@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # ADR-0002: SQS com SDK direto da AWS
 
 | | |
@@ -37,7 +41,7 @@ Adotar a opção 1. O hub mantém um componente interno pequeno (~400 linhas) qu
 - **Retry**: em erro transitório, `ChangeMessageVisibility` com backoff exponencial e jitter; em erro permanente, `DeleteMessage` + registro da falha (não vai para DLQ).
 - **DLQ**: redrive policy do próprio SQS (`maxReceiveCount`) para o inesperado.
 - **Outbox**: `Outbox Relay Worker` lê `outbox` com `FOR UPDATE SKIP LOCKED`, publica (`SendMessageBatch` ou producer Kafka) e marca como enviado.
-- **Idempotência**: tabela `processed_messages(message_id, consumer)` verificada na transação do efeito (ADR-0008).
+- **Idempotência**: tabela `processed_messages(message_id, consumer)` verificada na transação do efeito (ADR-0008). Nota de refinamento (2026-08-23): o dedupe usa o `messageId` do envelope interno (gerado na escrita do outbox, estável entre republicações do relay) mais a chave de negócio; a republicação pelo relay gera novo `MessageId` de transporte no SQS, que por isso não serve como identidade.
 - **Agendamento**: `DelaySeconds` (≤ 15 min) para curto prazo; scheduler DB-backed para o resto.
 - **Serialização**: `System.Text.Json` com *source generators*; envelope próprio com `messageId`, `type`, `schemaVersion`, `traceparent`.
 

@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # ADR-0012: Contact & Consent: hub como fonte da verdade com ingestão dedicada
 
 | | |
@@ -42,7 +46,7 @@ Adotar a opção 1.
 
 **Ingestão (caminhos de escrita).**
 
-- REST: `PUT /v1/recipients/{id}/contact-points`, `PUT /v1/recipients/{id}/consents` e `POST /v1/recipients/{id}/devices` (registro de device token). Autorização por scope dedicado `contacts.write`; toda escrita gera `audit_event` na mesma transação (ADR-0006).
+- REST: `PUT /v1/recipients/{id}/contact-points`, `PUT /v1/recipients/{id}/consents` e `POST /v1/recipients/{id}/devices` (registro de device token). Autorização por app role dedicada `Contacts.Write` (roles de client credentials, o mecanismo de autorização do hub); toda escrita gera `audit_event` na mesma transação (ADR-0006).
 - Kafka: tópico `contacts.events.v1` (CloudEvents, emissor: sistema de cadastro), no mesmo padrão at-least-once do ingress, com dedupe em `processed_messages` (ADR-0010).
 - Opt-in de WhatsApp: registrado como `CONSENT` com `channel=whatsapp` e campo `source` (app, atendimento, importação).
 

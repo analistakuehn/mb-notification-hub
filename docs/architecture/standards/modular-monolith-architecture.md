@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # Pragmatic Modular Architecture
 
 This solution organizes code by business capability first and technology second. Bounded contexts come from domain discovery, and a vertical slice is the unit of change inside a context.
@@ -40,3 +44,7 @@ Keep a slice's request, structural validation, handler, source-generated logger,
 The default posture is fail-closed: authenticated fallback authorization, explicit anonymous exceptions, rate limiting for state-changing or upstream-cost endpoints, sanitized problem details, no domain binding from request bodies, no interpolated raw SQL, and no personal data in logs.
 
 Runtime performance is not inferred from folder structure. Establish endpoint and workload baselines before setting latency, throughput, allocation, garbage-collection, eventual-consistency, or AI-runtime thresholds.
+
+## Infraestrutura de plataforma (nota da fase 1b, 2026-08-23)
+
+Outbox, Outbox Relay e `processed_messages` são infraestrutura de plataforma, não módulos de negócio: implementam os padrões transversais das ADRs 0002 e 0008 para todos os módulos. O schema Postgres `platform` é a convenção oficial dessa infraestrutura, com history table de migração própria. O provisionamento de partições mensais é mecânica de plataforma parametrizada por esquema e tabela; a semântica de fechamento (revoke de escrita, retenção WORM) permanece nos módulos donos. A infraestrutura de plataforma é consumida pelos dois hosts (`Platform.Api` e `Platform.Worker`) via assembly do Api; a extração de um projeto `Platform.Infrastructure` fica registrada como opção diferida, com gatilho definido: um host precisar excluir código de módulo por conformidade ou por tamanho de imagem. Contratos de escrita transacionais de plataforma seguem o padrão do `IAuditTrail`: o chamador entrega a `DbTransaction`.

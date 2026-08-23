@@ -27,7 +27,7 @@ Entregar o caminho completo de uma notificação nas classes `critical` e `trans
 
 ### 1.3 Escopo
 
-Conforme o §15 do design de sistema, a entrega da fase 1b compreende: Ingestion API REST; Kafka Ingress Worker (`notifications.requested.v1`, `.dlt`, `PRODUCER_REGISTRY`); saída `notifications.events.v1`; outbox relay; Core pipeline consumindo versões `published`; Contact & Consent v1 (`RECIPIENT_PROFILE`, `DEVICE_TOKEN`, `contacts.events.v1`, escrita REST; ADR-0012); `audit_event` com cadeia de hash e export WORM; API REST de consulta e auditoria; canais e-mail (SendGrid) e push (FCM); classes `critical` e `transactional`; guia de integração do produtor com biblioteca .NET compartilhada opcional. A duração prevista no roadmap é de 6 a 8 semanas; este documento não deriva cronograma por fatia.
+Conforme o §15 do design de sistema, a entrega da fase 1b compreende: Ingestion API REST; Kafka Ingress Worker (`notifications.requested.v1`, `.dlt`, `PRODUCER_REGISTRY`); saída `notifications.events.v1`; outbox relay; Core pipeline consumindo versões `published`; Contact & Consent v1 (`RECIPIENT_PROFILE`, `DEVICE_TOKEN`, `contacts.events.v1`, escrita REST; ADR-0012); `audit_event` com cadeia de hash e export WORM; API REST de consulta e auditoria; canais e-mail (SendGrid) e push (FCM); classes `critical` e `transactional`; guia de integração do produtor com biblioteca .NET compartilhada opcional. A duração prevista no roadmap é de 6 a 8 semanas; este documento não deriva cronograma por fatia. A emissão de `notifications.events.v1` e o publicador Kafka do outbox relay movem para a fatia B10 (§5.1): o escopo da fase não muda; muda o sequenciamento.
 
 ### 1.4 Não objetivos
 
@@ -50,7 +50,7 @@ Ingestão REST e Kafka, pipeline de estágios (ADR-0003), estados de notificaç�
 
 ### 2.2 ContactConsent (subdomínio supporting)
 
-Fonte da verdade de `RECIPIENT_PROFILE`, `CONTACT_POINT`, `CONSENT` e `DEVICE_TOKEN`, com escrita REST (scope `contacts.write`) e ingestão de `contacts.events.v1`, conforme a [ADR-0012](../ADR-0012-contact-consent-fonte-da-verdade.md): módulo interno, mesmo processo e mesmo Postgres, sem serviço remoto na v1; modo degradado por cache stale-while-revalidate sobre consulta local.
+Fonte da verdade de `RECIPIENT_PROFILE`, `CONTACT_POINT`, `CONSENT` e `DEVICE_TOKEN`, com escrita REST (app role `Contacts.Write`) e ingestão de `contacts.events.v1`, conforme a [ADR-0012](../ADR-0012-contact-consent-fonte-da-verdade.md): módulo interno, mesmo processo e mesmo Postgres, sem serviço remoto na v1; modo degradado por cache stale-while-revalidate sobre consulta local.
 
 ### 2.3 Audit (subdomínio core)
 
@@ -68,7 +68,7 @@ Os workers da fase (Outbox Relay, Core, Kafka Ingress, dispatchers) rodam em um 
 
 ### 2.6 Infraestrutura de plataforma
 
-Outbox, Outbox Relay e `processed_messages` são infraestrutura de plataforma, não módulos de negócio: implementam os padrões transversais das ADRs [0002](../ADR-0002-sqs-sdk-direto.md) e [0008](../ADR-0008-at-least-once-com-idempotencia.md) para todos os módulos. A decisão determina registrar essa nota no [documento de padrões de arquitetura](../architecture/standards/modular-monolith-architecture.md); a pendência consta na seção 9.
+Outbox, Outbox Relay e `processed_messages` são infraestrutura de plataforma, não módulos de negócio: implementam os padrões transversais das ADRs [0002](../ADR-0002-sqs-sdk-direto.md) e [0008](../ADR-0008-at-least-once-com-idempotencia.md) para todos os módulos. O provisionamento de partições mensais também é infraestrutura de plataforma, promovido no commit `2a0dd86` (`src/Platform.Api/Infrastructure/Partitioning/`); a semântica de fechamento (revoke de escrita, retenção WORM) permanece no módulo Audit. A decisão determina registrar essa nota no [documento de padrões de arquitetura](../architecture/standards/modular-monolith-architecture.md); a nota foi registrada em 2026-08-23 (seção 9, item 8).
 
 ### 2.7 Conformidade com decisões aceitas
 
@@ -121,23 +121,30 @@ Status observado no repositório na data de autoria (2026-08-23):
 
 ```text
 $ git log --oneline
+2a604dc feat(worker): criar host Platform.Worker com o Outbox Relay
+ead7d8b feat(contacts): criar módulo ContactConsent dono dos contatos
+02f41ff feat(notifications): criar módulo Notifications com ingestão REST
+2a0dd86 refactor(platform): extrair provisionamento de partições do Audit
+974b421 docs: alinhar contrato do Dispatch na ADR-0001 e no design
+208a81c feat(dispatch): criar módulo Dispatch com adapters SendGrid e FCM
+d532414 feat(templates): publicar contratos de leitura em Integration/V1
+e57f7db docs: adicionar documentos completos das fases pendentes
 6fc95b1 feat(audit): criar módulo Audit dono da trilha com cadeia de hash
 5b50445 refactor(templates): mover contrato de política para Integration/V1
-e3fb937 fix: corrigir achados da revisão da fase 1a
 ```
 
 | Fatia | Entrega | Depende de | Status em 2026-08-23 |
 |---|---|---|---|
 | B1 | Contrato de política movido para `Integration/V1` de TemplateManagement | Nenhuma | Concluída (commit `5b50445`) |
 | B2 | Módulo Audit assume a auditoria (cadeia de hash, contrato de append transacional) | B1 | Concluída (commit `6fc95b1`) |
-| B3 | Contratos de leitura de TemplateManagement (`Integration/V1`) | B1 | Em implementação |
-| B4 | Ingestão REST com idempotência e outbox (`POST /v1/notifications`, §7.1) | B2, B3 | Em implementação prevista após B3; sem commit na data |
-| B5 | Host `src/Platform.Worker` e Outbox Relay Worker (§4.2, ADR-0002) | B4 | Não iniciada |
-| B6 | ContactConsent v1: modelo, escrita REST, cache (ADR-0012) | B2, B4 | Não iniciada |
-| B7 | Core pipeline consumindo as filas `core-*` (ADR-0003, §4.3) | B3, B5, B6 | Não iniciada |
-| B8 | Módulo Dispatch: `IChannelProvider`, adapters SendGrid e FCM | B1 | Em implementação |
+| B3 | Contratos de leitura de TemplateManagement (`Integration/V1`) | B1 | Concluída (commit `d532414`) |
+| B4 | Ingestão REST com idempotência e outbox (`POST /v1/notifications`, §7.1) | B2, B3 | Concluída (commit `02f41ff`) |
+| B5 | Host `src/Platform.Worker` e Outbox Relay Worker (§4.2, ADR-0002) | B4 | Concluída (commit `2a604dc`) |
+| B6 | ContactConsent v1: modelo, escrita REST (ADR-0012); desvio aceito de escopo: o cache de contatos saiu da B6 e entrou na B7 (decisão de arquitetura: o cache pertence ao leitor no tempo, mas vive no módulo dono atrás do contrato) | B2, B4 | Concluída (commit `ead7d8b`) |
+| B7 | Core pipeline consumindo as filas `core-*` (ADR-0003, §4.3) | B3, B5, B6 | Em implementação |
+| B8 | Módulo Dispatch: `IChannelProvider`, adapters SendGrid e FCM | B1 | Concluída (commit `208a81c`) |
 | B9 | Fatia de despacho: filas `dispatch-*`, estados do attempt, fan-out de push (§4.2, §4.3) | B6, B7, B8 | Não iniciada |
-| B10 | Kafka Ingress Worker (`notifications.requested.v1`, `.dlt`, `PRODUCER_REGISTRY`, §7.2) | B4, B5 | Não iniciada |
+| B10 | Kafka Ingress Worker (`notifications.requested.v1`, `.dlt`, `PRODUCER_REGISTRY`, §7.2), emissão de `notifications.events.v1` e publicador Kafka do outbox relay (§1.3) | B4, B5 | Não iniciada |
 | B11 | Ingestão de `contacts.events.v1` no ContactConsent (ADR-0012) | B6, B10 | Não iniciada |
 | B12 | API de consulta (`Notifications.Read`, §7.4) | B7, B9 | Não iniciada |
 | B13 | Export WORM e verificação da cadeia de hash (ADR-0006, §9.4) | B2 | Não iniciada |
@@ -145,7 +152,7 @@ e3fb937 fix: corrigir achados da revisão da fase 1a
 | B15 | Gate de carga do risco 7: p99 de ingestão sob advisory lock; plano B por sub-cadeias | B4, B7, B9, B10, B13 | Não iniciada |
 | B16 | Guia de integração do produtor e biblioteca .NET compartilhada opcional (§15) | B10 | Não iniciada |
 
-Nota sobre B4: a decisão ordena B4 após B2 e B3; com B3 em implementação na data, B4 ainda não tem código no repositório.
+Nota sobre a ordem: a decisão que ordenava B4 após B2 e B3 foi cumprida; entre B3 e B4 entrou também a promoção do provisionamento de partições a infraestrutura de plataforma (commit `2a0dd86`, §2.6). B7 está em implementação na data, sem commit.
 
 ### 5.2 Paralelismos previstos na decisão
 
@@ -180,7 +187,7 @@ Aplicam-se as fronteiras já decididas no design de sistema, sem alteração nes
 - Alarmes operacionais do ingress: partição pausada por mais de 5 minutos gera page; objetivo de restauração do ingress de até 1 hora, abaixo da retenção de 24 horas do tópico de entrada (§4.2, ADR-0010).
 - DLQ por fila SQS com alarme por profundidade e `.dlt` Kafka com alarme por taxa; redrive apenas por ferramenta interna auditada (§8).
 - Escala por KEDA: consumer lag no ingress, profundidade de fila nos workers (§4.2, §14).
-- O perfil de stack (`.araia/stack-profile.yaml`) declara na data `messaging: []` e `telemetry: none`; a atualização para refletir Kafka, SQS e telemetria é pendência registrada na seção 9.
+- O perfil de stack (`.araia/stack-profile.yaml`) declara na data `messaging: [sqs]` (AWSSDK.SQS é dependência de produção desde a B5) e `telemetry: none`; kafka e telemetria entram no perfil quando materializarem (pendência na seção 9).
 
 ## 8. Rollout e critérios de saída
 
@@ -205,8 +212,11 @@ Rollback de fase não exige mecanismo próprio: enquanto um template não é mig
 | 4 | Regra `QuietHours` existe na ordem fixa da v1 do estágio Policy, mas a única classe com janela de silêncio (`operational`) entra apenas na fase 2: na 1b a regra roda sem classe que a exercite | Pendência documental registrada pelo architect; comportamento esperado: `quietHours` nulo para `critical` e `transactional` | §4.3 "Regras da v1, em ordem fixa"; §3; §15 fase 2 |
 | 5 | `KILL_SWITCH` consta do modelo de dados e da mecânica de segurança, mas nenhuma linha do roadmap atribui sua implementação a uma fase | Pendência documental registrada pelo architect; dono: Arquitetura, na próxima revisão do roadmap | §6; §10.3; §15 |
 | 6 | `delivered` de e-mail inexiste na 1b sem webhooks; critério de saída vale para `rejected`, `failed` e `delivered` de push | Ressalva formalizada na seção 8; fecha na fase 2 com o Delivery Tracker | §15; §16 risco 4 |
-| 7 | `.araia/stack-profile.yaml` declara `messaging: []` e `telemetry: none`, divergindo do que a fase introduz | Atualizar para `messaging: [kafka, sqs]` e telemetria durante a fase; dono: Engenharia | `.araia/stack-profile.yaml` |
-| 8 | Nota de infraestrutura de plataforma (outbox, relay, `processed_messages`) ainda não registrada no documento de padrões | Registrar em [modular-monolith-architecture.md](../architecture/standards/modular-monolith-architecture.md); dono: Arquitetura | Decisão do mapa de módulos (2026-08-23) |
+| 7 | `.araia/stack-profile.yaml` declara `telemetry: none` e `messaging` sem kafka, divergindo do que a fase ainda introduz | Parcialmente resolvida em 2026-08-23: `messaging: [sqs]` aplicado; kafka e telemetria entram quando materializarem; dono: Engenharia | `.araia/stack-profile.yaml` |
+| 8 | Nota de infraestrutura de plataforma (outbox, relay, `processed_messages`) precisava constar no documento de padrões | Resolvida em 2026-08-23: nota registrada em [modular-monolith-architecture.md](../architecture/standards/modular-monolith-architecture.md); dono: Arquitetura | Decisão do mapa de módulos (2026-08-23) |
+| 9 | Topologia de filas (`core-*`, `dispatch-*`, `contacts-changed`, DLQs) sem entrega Terraform | Pendência de entrega, pré-requisito de AWS pré-prod; dono: Engenharia de Plataforma | §4.2; §14; memorando B5/B6 (2026-08-23) |
+| 10 | Transporte de observabilidade do health do `Platform.Worker` em produção (endpoint mínimo, publisher ou probe) sem definição | Decisão em aberto | §12; memorando B5/B6 (2026-08-23) |
+| 11 | Ingestão aceita `scheduledAt` sem teto enquanto não existe liberador de deferred, e `expires_at` calculado como aceite + TTL é incoerente para agendamentos | Revisão curta do §7.1; dono: Arquitetura com Engenharia | §7.1; memorando B4 (2026-08-23) |
 
 ## 10. Referências
 

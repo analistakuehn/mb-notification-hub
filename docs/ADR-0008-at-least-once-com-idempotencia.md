@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # ADR-0008: Entrega at-least-once com idempotência
 
 | | |
@@ -37,11 +41,12 @@ Adotar a opção 1. A unicidade para o cliente é garantida por **três chaves e
 | Camada | Chave | Protege contra |
 |---|---|---|
 | Produtor | `(application, idempotency_key)`: UK da tabela dedicada `IDEMPOTENCY_KEY`, que guarda `payload_hash` para responder `409` à mesma chave com payload diferente; *fast path* `SET NX` no Redis (`idem:{application}:{key}`), gravado somente após o commit | Retry do produtor (REST) ou reenvio legítimo (Kafka) |
-| Transporte | `processed_messages(message_id, consumer)` (`MessageId` do SQS ou `(topic, partition, offset)` do Kafka), verificado **na mesma transação** do efeito | Redelivery do broker, rebalance, pod morto após efeito e antes do ack |
+| Transporte | `processed_messages(message_id, consumer)` (`messageId` do envelope interno para origens SQS ou `(topic, partition, offset)` do Kafka), verificado **na mesma transação** do efeito | Redelivery do broker, rebalance, pod morto após efeito e antes do ack |
 | Entrega | `UPDATE notification_attempt SET status='sending' WHERE id=? AND status='queued'` antes de chamar o provedor; só quem vence o update chama | Dois dispatchers com a mesma mensagem |
 
 Complementos:
 - Outbox transacional em quem publica (produtores e hub); o relay pode publicar duas vezes, o consumidor dedupe.
+- Nota de refinamento (2026-08-23): para origens SQS, o dedupe usa o `messageId` do envelope interno (gerado na escrita do outbox, estável entre republicações do relay) mais a chave de negócio; a republicação pelo relay gera novo `MessageId` de transporte no SQS, que por isso não serve como identidade.
 - Commit manual no Kafka após a transação; `CooperativeSticky` e *static membership* reduzem reprocessamento, não o eliminam; por isso a camada de transporte existe.
 - Webhooks: idempotência por `(provider, provider_event_id)`, UK da tabela dedicada `PROVIDER_EVENT_DEDUPE`.
 - Reentrega detectada gera `notification.duplicate` na auditoria e métrica; nunca gera segundo envio.

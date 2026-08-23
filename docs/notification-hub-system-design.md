@@ -209,6 +209,7 @@ Dois sistemas, dois papéis, sem sobreposição:
 | `contacts.events.v1` | Kafka topic | Entrada de contatos, consentimentos e device tokens para o módulo Contact & Consent (ADR-0012) | CloudEvents; emissor: sistema de cadastro; mesmo padrão at-least-once do ingress, dedupe em `processed_messages` |
 | `core-{critical\|transactional\|operational}` e `core-auth` | SQS standard (4) | Entrada do Core Worker, por classe; `core-auth` quando `template.purpose = authentication` | Alimentadas pelo Outbox Relay |
 | `dispatch-{email\|sms\|push\|whatsapp}-{class}` e `dispatch-{channel}-auth` | SQS standard (16) | Entrada dos dispatchers; filas `-auth` para templates de autenticação | `DelaySeconds` por mensagem para `scheduled_at` ≤ 15 min; DLQ por fila |
+| `contacts-changed` | SQS standard | Eventos `contact.changed`/`consent.changed` emitidos pelo módulo ContactConsent para invalidação dos caches de contato dos workers | Fila interna, sem PII; o consumidor entra com o papel de worker do módulo |
 | `*-dlq` | SQS standard | Dead-letter interno | Retenção 14 dias; alarme CloudWatch por profundidade |
 
 Não existe mais SNS de entrada nem de saída: dois caminhos assíncronos para a mesma coisa é superfície duplicada. Se surgir um produtor sem acesso ao Kafka, ele usa REST.
@@ -224,7 +225,7 @@ Não existe mais SNS de entrada nem de saída: dois caminhos assíncronos para a
 Decisões que o MassTransit fazia e agora são nossas:
 
 - **Outbox → fila/tópico**: um `Outbox Relay Worker` lê `outbox` (em lotes, `FOR UPDATE SKIP LOCKED`), publica no destino da linha — SQS via `SendMessageBatch` ou Kafka via producer idempotente (`acks=all`, `enable.idempotence=true`) — e marca como enviado. At-least-once; dedupe no consumidor.
-- **Consumidor idempotente**: tabela `processed_messages(message_id, consumer, processed_at)` verificada na mesma transação do efeito. Usa o `MessageId` do SQS **e** a chave de negócio da mensagem.
+- **Consumidor idempotente**: tabela `processed_messages(message_id, consumer, processed_at)` verificada na mesma transação do efeito. Usa o `messageId` do envelope da mensagem interna (gerado na escrita do outbox, estável entre republicações do relay) **e** a chave de negócio da mensagem; o `MessageId` de transporte do SQS muda a cada republicação e não serve como identidade.
 - **Retry com backoff**: consumidor chama `ChangeMessageVisibility` com delay exponencial + jitter em erro transitório; erro permanente → `DeleteMessage` + registro de falha (não vai para DLQ). DLQ fica só para o inesperado.
 - **Prioridade**: SQS não tem. Cada dispatcher faz *weighted polling* na ordem `auth > critical > transactional > operational` (§11.5): drena a fila `-auth` antes de qualquer outra, depois `critical`; `transactional` e `operational` em rodízio 3:1. Cada fila tem seu próprio scaler KEDA.
 - **Agendamento**: `DelaySeconds` até 15 min; além disso (`scheduled_at` distante, janela de silêncio) o Core grava `release_at` e um scheduler DB-backed (§4.3, Delivery Tracker) libera. Uniforme, auditável, sem EventBridge.
@@ -293,7 +294,7 @@ Exceções inesperadas não são "tratadas" no pipeline: propagam, a mensagem vo
 - Fonte da verdade: tabelas do hub `RECIPIENT_PROFILE`, `CONTACT_POINT`, `CONSENT`, `DEVICE_TOKEN` (§6).
 - `RECIPIENT_PROFILE` guarda `timezone` (IANA; ausente = `America/Sao_Paulo`) e `locale`: é o dado que alimenta `quietHours` (§3, §4.3 "Políticas").
 - `DEVICE_TOKEN` registra os tokens de push por dispositivo; invalidação por `UNREGISTERED`/`INVALID_ARGUMENT` do FCM.
-- Caminhos de escrita: REST (`PUT /v1/recipients/{id}/contact-points`, `PUT /v1/recipients/{id}/consents`, `POST /v1/recipients/{id}/devices`, com scope dedicado `contacts.write`, §7.4) e Kafka (tópico `contacts.events.v1`, CloudEvents, emissor: sistema de cadastro; mesmo padrão at-least-once do ingress, dedupe em `processed_messages`). Toda escrita gera `audit_event` na mesma transação.
+- Caminhos de escrita: REST (`PUT /v1/recipients/{id}/contact-points`, `PUT /v1/recipients/{id}/consents`, `POST /v1/recipients/{id}/devices`, com app role dedicada `Contacts.Write`, §7.4) e Kafka (tópico `contacts.events.v1`, CloudEvents, emissor: sistema de cadastro; mesmo padrão at-least-once do ingress, dedupe em `processed_messages`). Toda escrita gera `audit_event` na mesma transação.
 - Opt-in WhatsApp: registrado como `CONSENT` com `channel = whatsapp` e campo `source` (app, atendimento, importação).
 - Consentimento **append-only**: origem (app, atendimento, importação), dispositivo/IP quando houver, versão do termo, timestamp, ator. Nunca sobrescreve.
 - Eventos de invalidação de cache `ContactChanged`/`ConsentChanged`: emitidos **pelo próprio módulo** via outbox, consumidos pelos caches locais dos workers.
@@ -390,7 +391,7 @@ Uma política é o conjunto de regras que o estágio *Policy* aplica a **toda** 
 
 Opt-out não é campo de política na v1: deriva da classe (`critical` nunca; demais, escolha de canal) e fica em código.
 
-**Regras da v1, em ordem fixa.** O estágio Policy executa: 1. `ConsentGate` (rejeita canais sem opt-in; marketing exige opt-in explícito); 2. `QuietHours` (`Defer` para classes que não sejam `critical`/autenticação, no fuso de `RECIPIENT_PROFILE`); 3. `DedupeWindow`; 4. `RecipientRateLimit`; 5. `ChannelSelection` (aplica `deliveryPlan` + `channelsHint`).
+**Regras da v1, em ordem fixa.** O estágio Policy executa: 1. `ConsentGate` (rejeita canais sem opt-in; marketing exige opt-in explícito); 2. `QuietHours` (`Defer` para classes que não sejam `critical`/autenticação, no fuso de `RECIPIENT_PROFILE`); 3. `DedupeWindow`; 4. `RecipientRateLimit`; 5. `ChannelSelection` (aplica `deliveryPlan` + `channelsHint`). Nota: o rate limit por destinatário tem ponto de aplicação na ingestão (§11.3), não no estágio Policy; o motivo `recipient-rate-limited` permanece no catálogo canônico, produzido pela ingestão.
 
 **Composição.** Cada regra recebe o conjunto de canais remanescente; `FilterChannels` é interseção; o primeiro `Reject` ou `Defer` encerra o pipeline de política; o resultado de cada regra é auditado (`POLICY_EVALUATION`).
 
@@ -591,6 +592,7 @@ erDiagram
     int template_version
     int policy_version
     jsonb variables_masked
+    bytea variables_enc
     string correlation_id
     string requested_by
     string status
@@ -645,6 +647,7 @@ erDiagram
     string result
     string reason
     jsonb evidence
+    timestamptz evaluated_at
   }
   TEMPLATE {
     string key PK
@@ -768,13 +771,13 @@ Tabelas de infraestrutura:
 - `KILL_SWITCH(scope, key, state, actor, second_actor, updated_at)`: estado dos kill switches (§10.3).
 
 Notas:
-- `variables_masked` guarda variáveis já mascaradas; originais não são persistidas.
+- Variáveis em duas fases: os valores originais não são persistidos em claro nem além do ciclo de vida do pipeline; a forma completa existe cifrada em `variables_enc` (envelope com key id, chave por escopo) até a notificação alcançar estado terminal, quando é expurgada; `variables_masked` é a projeção durável de consulta e auditoria.
 - `requested_by` = `appid`/`oid` do token Entra do produtor — quem pediu fica na notificação, não só no log.
 - `policy_version` e `template_version` na notificação: sabemos exatamente sob quais regras e qual texto ela foi processada. `policy_version` aponta para `CLASS_POLICY_VERSION(application, class, version)`.
 - `APPROVAL.content_hash` é o hash do que foi publicado: o publish grava a aprovação (oid do publicador, segundo ator) sobre o `content_hash` exato da versão, na mesma transação. Como a versão é imutável fora de `draft`, **não existe aprovar um texto e publicar outro**.
 - `TEMPLATE_VERSION`, `TEMPLATE_CONTENT`, `LAYOUT_VERSION`, `APPROVAL` são append-only (§9.4); o único `UPDATE` permitido é de `status` via transição válida, auditada.
 - `AUDIT_EVENT` é particionada por mês em `occurred_at`; a cadeia de hash é **por partição mensal**: `hash = SHA-256(prev_hash || canonical)`, onde `canonical` guarda os bytes exatos (UTF-8) da canonicalização RFC 8785 (JCS) que foram hasheados. Detalhe em §9.4.
-- Particionar `NOTIFICATION`, `NOTIFICATION_ATTEMPT`, `DELIVERY_EVENT`, `AUDIT_EVENT` por mês desde o dia 1; `IDEMPOTENCY_KEY` e `PROVIDER_EVENT_DEDUPE` ficam fora do particionamento (é o que viabiliza seus índices únicos).
+- Particionar `NOTIFICATION`, `NOTIFICATION_ATTEMPT`, `DELIVERY_EVENT`, `POLICY_EVALUATION` (chave de partição `evaluated_at`) e `AUDIT_EVENT` por mês desde o dia 1; `IDEMPOTENCY_KEY` e `PROVIDER_EVENT_DEDUPE` ficam fora do particionamento (é o que viabiliza seus índices únicos).
 
 ---
 
@@ -900,7 +903,7 @@ Tudo em minimal APIs, no mesmo estilo da ingestão. Rotas agrupadas por polític
 | `GET /v1/audit/events?subjectType=&subjectId=&from=&to=&cursor=` | Eventos de auditoria de qualquer sujeito (template, política, provedor, principal) |
 | `POST /v1/audit/exports` | Exportação assíncrona (pseudonimização opcional) → `202` + `Location` |
 
-**Contatos e consentimento** (`contacts.write`; toda escrita gera `audit_event` na mesma transação; ADR-0012)
+**Contatos e consentimento** (app role `Contacts.Write`; toda escrita gera `audit_event` na mesma transação; ADR-0012)
 
 ```http
 PUT  /v1/recipients/{id}/contact-points
@@ -1038,7 +1041,7 @@ Toda linha abaixo vira `audit_event` gravado **na mesma transação** do efeito 
 | Supressão | `suppression.added` (automática ou manual), `suppression.removed` | sistema / Platform Admin |
 | Catálogo | `template.created`, `template.version.created`, `template.version.content_updated` (diff), `template.version.published` (publicador, `content_hash`, resultado da validação), `template.deprecated`, `template.disabled`, `template.rollback`, `template.whatsapp.submitted` / `status_changed`, `layout.*`, `policy.*` | autor / publicador (`oid`) via API de gestão |
 | Configuração | `provider.config.changed` (`before`/`after`, sem segredos), `quota.changed` | Platform Admin |
-| Operação | `dlq.redriven`, `reconciliation.corrected` | Platform Admin / job |
+| Operação | `dlq.redriven`, `reconciliation.corrected`, `message.discarded` (descarte de mensagem interna por erro permanente do consumidor: registro de falha de protocolo, com o `messageId` do envelope e o motivo, sem PII) | Platform Admin / job / sistema (worker) |
 | **Acesso** | `audit.read` (quem leu `renderedContent`/`contactPoint` de qual notificação), `audit.exported` | Auditor / atendimento |
 | Identidade | `admin.role.activated` (PIM), `principal.role.changed` | Entra (ingerido via log) |
 
@@ -1121,7 +1124,7 @@ flowchart LR
 | **A1** | **Produtor comprometido** dispara notificações em massa: SMS bombing a um cliente, custo, ou phishing usando templates legítimos | Financeiro, reputacional, fraude | App roles por classe (serviço de billing não pede `critical`); **rate limit por principal** (token bucket, ex.: `critical` 50 rps, `operational` 20 rps) e **por destinatário** (ex.: máx. 5 `critical` em 10 min e 20/dia — excedente rejeitado com `recipient-rate-limited`, auditado); detecção de anomalia por produtor (volume > 3× baseline de 7 dias → alarme; `operational` corta automaticamente, `critical` alerta humano); **kill switch** por produtor/aplicação/canal (§10.3); o atacante nunca controla o texto, só variáveis tipadas. O rate limit é aplicado na ingestão; em falha do Redis, fail-open com alarme imediato; compensação: kill switch manual (a disponibilidade de OTP prevalece) |
 | **A2** | **Injeção via variáveis**: SSTI no Scriban, HTML/URL em variável de string, caracteres de controle, *bidi override*, homóglifos para forjar domínio | Phishing a partir do canal oficial | Variáveis **nunca** são interpretadas como template (valor é dado, não código); Scriban em sandbox sem acesso a tipos; **encoding por canal** (HTML-encode no e-mail, remoção de controle/quebra de linha em SMS/push, normalização NFC, rejeição de U+202E e similares); URL só via variável de tipo `url`, validada contra allowlist de domínios por template e emitida como URL direta (sem link assinado `/l/{token}` na v1, §10.8); string que "parece URL" em variável de texto é `422`; limite de tamanho por variável; variáveis `sensitive` só via função de máscara |
 | **A3** | **Enumeração / oráculo** de clientes pela API ou por diferenças de resposta | Privacidade | `recipient_id` opaco (ULID), nunca CPF/e-mail; REST devolve `202` independentemente de o destinatário existir; motivo de rejeição só no tópico de eventos (ACL) e na consulta autorizada; rate limit e alerta em taxa alta de `no-valid-contact` por produtor |
-| **A4** | **Interceptação de OTP**: SIM swap, SS7, *takeover* de WhatsApp, leitura de log/trace/fila | Fraude de conta | Push como canal primário; SMS/WhatsApp como fallback com rate limit por destinatário; TTL curto; **sem link**; variáveis `sensitive` nunca em logs, traces ou métricas, e solicitações com variável sensível só via REST (§7.2); conteúdo renderizado de template com `sensitive_variables` é armazenado **mascarado**, com hash duplo: `content_hash_full` calculado sobre o conteúdo completo antes do mascaramento e `content_hash_masked` sobre o que foi armazenado. O endpoint de auditoria verifica `content_hash_masked`; a verificação criptográfica do conteúdo completo não é possível após o mascaramento e `content_hash_full` serve para confronto com evidência externa. A auditoria prova que um OTP foi enviado, não qual; nível 2 de política poderá bloquear SMS para contato verificado há < 24 h em operação de alto risco |
+| **A4** | **Interceptação de OTP**: SIM swap, SS7, *takeover* de WhatsApp, leitura de log/trace/fila | Fraude de conta | Push como canal primário; SMS/WhatsApp como fallback com rate limit por destinatário; TTL curto; **sem link**; variáveis `sensitive` nunca em logs, traces ou métricas, e solicitações com variável sensível só via REST (§7.2); conteúdo renderizado de template com `sensitive_variables` segue duas fases: a forma completa permanece cifrada em `rendered_content_enc` enquanto o pipeline e o despacho precisam dela; a forma **mascarada** é o estado durável após o mascaramento, com hash duplo que preserva a verificação nas duas fases: `content_hash_full` calculado sobre o conteúdo completo antes do mascaramento e `content_hash_masked` sobre o que foi armazenado. O endpoint de auditoria verifica `content_hash_masked`; a verificação criptográfica do conteúdo completo não é possível após o mascaramento e `content_hash_full` serve para confronto com evidência externa. A auditoria prova que um OTP foi enviado, não qual; nível 2 de política poderá bloquear SMS para contato verificado há < 24 h em operação de alto risco |
 | **A5** | **Webhook forjado ou repetido**: `delivered` falso suprime o fallback; `bounce` falso **suprime o contato de um cliente** (negação de serviço dirigida) | Cliente fica sem receber OTP | Assinatura obrigatória (Twilio HMAC, SendGrid ECDSA); allowlist de IP dos provedores; WAF com regra de taxa; replay por `provider_event_id` + janela de timestamp; **supressão só por código de *hard bounce* específico** e, para SMS, só após 2 ocorrências em 7 dias; supressão reversível e auditada; `delivered` de origem fora da allowlist gera alarme de segurança |
 | **A6** | **Insider / conta humana comprometida** altera texto, publica a própria versão, lê conteúdo de clientes | Fraude interna, vazamento | §9: imutabilidade, quatro olhos sobre `content_hash` (o hub nega publish do autor ou editor da versão, avaliado no recurso), validação automática integral no publish, PIM just-in-time, `audit.read`, hash chain + WORM; acesso humano à API de gestão só via ZTNA/VPN, Conditional Access com MFA e dispositivo conforme, sessão curta; nenhum humano com `UPDATE` em tabelas governadas |
 | **A7** | **Vazamento de dados**: dump de banco, backup, cache Redis, log, tópico Kafka, export para BI | LGPD, BCB | Envelope encryption com chave KMS **por `application`** (vazar uma não expõe a outra); roles de banco por worker (ingestão só `INSERT`; dispatcher não lê `consent`); pgaudit em tabelas sensíveis; backups cifrados com chave própria e teste de restore trimestral; **Redis guarda contatos cifrados com data key** e TTL 24 h, AUTH + TLS, sem persistência em disco; Serilog com *destructuring policy* + processador OTel que remove atributos sensíveis antes de exportar; Kafka com retenção 24 h e ACL de leitura; BI só pseudonimizado |
@@ -1248,9 +1251,9 @@ O relay é o componente que mais facilmente estoura o orçamento; por isso tem i
 - SQS `SendMessageBatch` (10) em paralelo; Kafka producer com `linger.ms=5`, `batch.size` alto, idempotente.
 
 **Core Worker**
-- **Template**: versão publicada é imutável → Scriban compilado em cache em memória por `(key, version)`, sem expiração; invalidação só por evento de publish/deprecate (Redis pub/sub) — na prática, nunca há *cache miss* em produção após o primeiro uso.
+- **Template**: versão publicada é imutável → Scriban compilado em cache em memória por `(key, version)`, sem expiração; invalidação só por evento de publish/deprecate (Redis pub/sub) — na prática, nunca há *cache miss* em produção após o primeiro uso. Clarificação da fase 1b: a invalidação de template e de política usa ponteiro de versão publicada com TTL de 60 s; o pub/sub fica como ponto de extensão.
 - **Política**: idem, por `(application, class, version)`.
-- **Contato/consentimento**: Redis, cifrado, TTL 24 h, invalidado por `ContactChanged`/`ConsentChanged` (emitidos pelo próprio módulo via outbox); *miss* vai à consulta local no Postgres (o módulo Contact & Consent vive no mesmo processo e banco, ADR-0012); em degradação, `critical`/autenticação usam o último valor conhecido (*stale-while-revalidate*), demais classes `Defer`.
+- **Contato/consentimento**: Redis, cifrado, TTL 24 h, invalidado por `ContactChanged`/`ConsentChanged` (emitidos pelo próprio módulo via outbox); *miss* vai à consulta local no Postgres (o módulo Contact & Consent vive no mesmo processo e banco, ADR-0012); em degradação, `critical`/autenticação usam o último valor conhecido (*stale-while-revalidate*). Clarificação da fase 1b: as classes não críticas voltam à fila com backoff em vez de `Defer` enquanto não existe o scheduler da fase 2; a revisitar quando ele existir.
 - Render e avaliação de política são CPU puro; o estágio Commit grava `notification` (update), `attempt`, `outbox`, `policy_evaluation[]` e `audit_event` numa transação com *batching* de inserts.
 
 **Dispatchers**
@@ -1394,7 +1397,7 @@ Serilog → sink OpenTelemetry → OTel Collector (DaemonSet no EKS) → backend
 **Consequências.** A v1 entrega com o mínimo e sem dívida estrutural: subir para o nível 2 é adicionar código ao estágio Policy e à API de gestão, não redesenhar modelo, API ou auditoria. O custo aceito é que, até lá, qualquer "e se" que não caiba nos seis campos vira PR — o que é adequado enquanto não houver evidência de que acontece com frequência.
 
 ### ADR-0012 — Contact & Consent: hub como fonte da verdade com ingestão dedicada
-**Decisão.** Contact & Consent é **módulo interno** do hub (mesmo processo, mesmo Postgres), fonte da verdade em `RECIPIENT_PROFILE`, `CONTACT_POINT`, `CONSENT` e `DEVICE_TOKEN`. Escrita via REST dedicado (scope `contacts.write`) e tópico `contacts.events.v1`; opt-in WhatsApp como `CONSENT` com `source`; eventos `ContactChanged`/`ConsentChanged` emitidos pelo próprio módulo via outbox. Modo degradado: cache *stale-while-revalidate* sobre consulta local.
+**Decisão.** Contact & Consent é **módulo interno** do hub (mesmo processo, mesmo Postgres), fonte da verdade em `RECIPIENT_PROFILE`, `CONTACT_POINT`, `CONSENT` e `DEVICE_TOKEN`. Escrita via REST dedicado (app role `Contacts.Write`) e tópico `contacts.events.v1`; opt-in WhatsApp como `CONSENT` com `source`; eventos `ContactChanged`/`ConsentChanged` emitidos pelo próprio módulo via outbox. Modo degradado: cache *stale-while-revalidate* sobre consulta local.
 **Alternativas rejeitadas.** Consulta síncrona ao cadastro; réplica CDC; serviço separado.
 
 ### ADR-0013 — Scriban como engine de templates

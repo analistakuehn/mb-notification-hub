@@ -45,7 +45,7 @@ A fase não introduz decisão arquitetural nova: ela materializa decisões já r
 
 - O opt-in de WhatsApp é registrado como `CONSENT` com `channel = whatsapp` e campo `source` (app, atendimento, importação), no ledger append-only do módulo Contact & Consent (ADR-0012; §4.3).
 - O estágio Policy consome o dado: `ConsentGate` rejeita canais sem opt-in (§4.3, regras da v1 em ordem fixa).
-- Nenhum caminho de escrita novo: o opt-in entra pelos caminhos já definidos na ADR-0012 (REST com scope `contacts.write` e tópico `contacts.events.v1`), com `audit_event` na mesma transação.
+- Nenhum caminho de escrita novo: o opt-in entra pelos caminhos já definidos na ADR-0012 (REST com app role `Contacts.Write` e tópico `contacts.events.v1`), com `audit_event` na mesma transação.
 
 ### Entrega 4: processamento de SAIR como transição de consentimento auditada
 
