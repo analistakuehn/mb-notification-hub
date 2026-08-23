@@ -9,6 +9,8 @@ using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.Worker;
 
 namespace NotificationHub.IntegrationTests.Messaging;
@@ -166,6 +168,37 @@ public sealed class WorkerHostCompositionTests
 
         host.Services.GetRequiredService<SqsConsumerPlan<ContactsChangedProcessor>>()
             .Queues.ShouldHaveSingleItem().QueueName.ShouldBe("contacts-changed");
+    }
+
+    [Fact]
+    public void The_notifications_maintenance_role_hosts_exactly_the_content_sweep_and_the_backfill()
+    {
+        HostApplicationBuilder builder = CreateBuilder(new Dictionary<string, string?>
+        {
+            ["Worker:Role"] = "notifications-maintenance",
+            ["Platform:Cryptography:Envelope:KeyId"] = "test-key",
+            ["Platform:Cryptography:Envelope:MasterKey"] = Convert.ToBase64String(new byte[32]),
+            ["Modules:Notifications:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+        });
+
+        WorkerRoleCatalog.Register(builder.Services, builder.Configuration);
+        using IHost host = builder.Build();
+
+        IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
+        hosted.OfType<RenderedContentSweepService>().ShouldHaveSingleItem();
+        hosted.OfType<RenderedContentBackfillService>().ShouldHaveSingleItem();
+        hosted
+            .Where(service => service is not RenderedContentSweepService
+                && service is not RenderedContentBackfillService)
+            .ShouldAllBe(service => service.GetType().Namespace!.StartsWith("Microsoft.", StringComparison.Ordinal));
+
+        // The backfill rebuilds the masked form through the published render
+        // contract, so the role composes it exactly like the pipeline does.
+        using IServiceScope scope = host.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<RenderedContentSweep>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<RenderedContentBackfill>().ShouldNotBeNull();
     }
 
     [Fact]

@@ -159,6 +159,14 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
         Action<IServiceCollection>? replaceServices = null)
         => BuildProvider(DispatcherWorkerRole.ConfigureServices, overrides, loggerProvider, replaceServices);
 
+    /// <summary>The notifications-maintenance role composed exactly as the worker host would compose it.</summary>
+    public ServiceProvider BuildMaintenanceWorkerProvider(
+        IDictionary<string, string?>? overrides = null,
+        ILoggerProvider? loggerProvider = null,
+        Action<IServiceCollection>? replaceServices = null)
+        => BuildProvider(
+            NotificationsMaintenanceWorkerRole.ConfigureServices, overrides, loggerProvider, replaceServices);
+
     /// <summary>A relay composition against the containers, mirroring the relay fixture.</summary>
     public ServiceProvider BuildRelayProvider(IDictionary<string, string?>? overrides = null)
         => BuildProvider(

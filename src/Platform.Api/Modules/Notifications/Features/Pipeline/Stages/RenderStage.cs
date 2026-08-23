@@ -1,5 +1,5 @@
-using System.Text.Json;
 using NotificationHub.Api.Infrastructure.Cryptography;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
@@ -10,8 +10,9 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 /// surviving plan step, with the layout the version pins and the sensitive
 /// variables masked on the trail form. The full-content hash is computed
 /// before any masking and the masked hash over what a trail may store; the
-/// stored content is the envelope-encrypted full form, sealed with the
-/// application's data key, exactly like the ingestion seals the variables.
+/// stored content is the envelope-encrypted render, sealed with the
+/// application's data key, exactly like the ingestion seals the variables,
+/// carrying both forms until the send reaches a verdict.
 /// </summary>
 internal sealed class RenderStage(
     IPublishedTemplateRenderer renderer,
@@ -54,33 +55,8 @@ internal sealed class RenderStage(
         }
 
         context.Render = render.Value;
-        context.RenderedContentEncrypted = await RenderedContentSealing.SealAsync(
+        context.RenderedContentEncrypted = await RenderedContentEnvelope.SealAsync(
             cipher, context.Notification.Application, render.Value!, cancellationToken);
         return StageOutcome.Continue;
-    }
-}
-
-/// <summary>
-/// Seals one render into the stored attempt shape, with the application's
-/// data key. One sealing for every producer of attempts (pipeline and
-/// fallback), so the dispatcher always opens the same shape.
-/// </summary>
-internal static class RenderedContentSealing
-{
-    public static async Task<byte[]> SealAsync(
-        IEnvelopeCipher cipher,
-        string application,
-        PublishedTemplateRender render,
-        CancellationToken cancellationToken)
-    {
-        var plaintext = JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            channel = render.Channel,
-            locale = render.ResolvedLocale,
-            subject = render.Full.Subject,
-            body = render.Full.Body,
-            bodyText = render.Full.BodyText,
-        });
-        return await cipher.EncryptAsync(application, plaintext, cancellationToken);
     }
 }

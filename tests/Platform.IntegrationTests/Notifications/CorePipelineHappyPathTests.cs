@@ -71,21 +71,22 @@ public sealed class CorePipelineHappyPathTests(CorePipelineFixture fixture)
         attempt.ContentHashFull.ShouldNotBe(attempt.ContentHashMasked);
 
         // One policy_evaluation row per rule of the fixed v1 set, each with
-        // its decision. Version-7 ids do not order within one millisecond, so
-        // the oracle maps rule to result instead of asserting insert order.
+        // its decision. Version-7 ids do not order within one millisecond and
+        // the query carries no ordering, so the oracle looks each rule up by
+        // name: a comparison of the whole dictionary would read as a sequence
+        // and fail on a permutation that means nothing.
         List<PolicyEvaluation> evaluations = await fixture.QueryNotificationsDbAsync(db => db.PolicyEvaluations
             .AsNoTracking()
             .Where(evaluation => evaluation.NotificationId == notificationId)
             .ToListAsync());
         evaluations.Count.ShouldBe(4);
-        evaluations.ToDictionary(evaluation => evaluation.Rule, evaluation => evaluation.Result)
-            .ShouldBe(new Dictionary<string, string>
-            {
-                ["ConsentGate"] = "allow",
-                ["QuietHours"] = "allow",
-                ["DedupeWindow"] = "allow",
-                ["ChannelSelection"] = "filter-channels",
-            });
+        Dictionary<string, string> resultByRule = evaluations.ToDictionary(
+            evaluation => evaluation.Rule,
+            evaluation => evaluation.Result);
+        resultByRule["ConsentGate"].ShouldBe("allow");
+        resultByRule["QuietHours"].ShouldBe("allow");
+        resultByRule["DedupeWindow"].ShouldBe("allow");
+        resultByRule["ChannelSelection"].ShouldBe("filter-channels");
 
         // The outbox row targets the auth dispatch queue with the claim check.
         var outboxPayload = await fixture.QueryPlatformDbAsync(db => db.Database

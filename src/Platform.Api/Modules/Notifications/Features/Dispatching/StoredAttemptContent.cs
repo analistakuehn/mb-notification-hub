@@ -1,14 +1,14 @@
-using System.Text.Json;
 using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 
 /// <summary>
 /// The sealed render of one attempt, opened in memory at send time only. The
-/// shape mirrors exactly what the render stage sealed; the plaintext lives in
-/// this record for the duration of one send and never reaches a log, a queue
-/// or another store.
+/// content to send is the top level of the envelope, which is the complete
+/// form until the verdict discards it; the plaintext lives in this record for
+/// the duration of one send and never reaches a log, a queue or another store.
 /// </summary>
 internal sealed record StoredAttemptContent(
     string Channel,
@@ -26,16 +26,10 @@ internal sealed record StoredAttemptContent(
         byte[] renderedContentEncrypted,
         CancellationToken cancellationToken)
     {
-        var plaintext = await cipher.DecryptAsync(application, renderedContentEncrypted, cancellationToken);
-        using JsonDocument document = JsonDocument.Parse(plaintext);
-        JsonElement root = document.RootElement;
+        SealedRenderedContent content = await RenderedContentEnvelope.ReadAsync(
+            cipher, application, renderedContentEncrypted, cancellationToken);
         return new StoredAttemptContent(
-            root.GetProperty("channel").GetString()
-                ?? throw new InvalidOperationException("O conteúdo selado não declara o canal."),
-            ReadOptional(root, "subject"),
-            root.GetProperty("body").GetString()
-                ?? throw new InvalidOperationException("O conteúdo selado não carrega o corpo."),
-            ReadOptional(root, "bodyText"));
+            content.Channel, content.Subject, content.Body, content.BodyText);
     }
 
     /// <summary>
@@ -52,9 +46,4 @@ internal sealed record StoredAttemptContent(
             _ => throw new InvalidOperationException(
                 $"O canal '{Channel}' não possui projeção de conteúdo nesta fase."),
         };
-
-    private static string? ReadOptional(JsonElement root, string name)
-        => root.TryGetProperty(name, out JsonElement element) && element.ValueKind == JsonValueKind.String
-            ? element.GetString()
-            : null;
 }

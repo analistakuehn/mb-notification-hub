@@ -43,6 +43,7 @@
 | `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs` | composition of the `core` worker role, discovered by the worker host |
 | `src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs` | composition of the `dispatcher` worker role, discovered by the worker host |
 | `src/Platform.Api/Modules/Notifications/KafkaIngressWorkerRole.cs` | composition of the `kafka-ingress` worker role, discovered by the worker host |
+| `src/Platform.Api/Modules/Notifications/NotificationsMaintenanceWorkerRole.cs` | composition of the `notifications-maintenance` worker role, discovered by the worker host |
 
 Owned state: `notification`, `notification_attempt` and `policy_evaluation`
 (monthly partitioned parents), `idempotency_key`, `producer_registry`. The
@@ -299,6 +300,31 @@ has no business effect and records its trail in its own short transaction.
   the pipeline resumes from there.
 - No recipient existence check happens at ingestion (anti-enumeration): the
   API answers 202 whether or not the recipient exists.
+
+## Rendered content lives in two phases
+
+- `rendered_content_enc` (bytea) is sealed by
+  `Infrastructure/Privacy/RenderedContentEnvelope.cs`, the single owner of that
+  shape. The content to send is the top level of the envelope; the masked form
+  rides beside it in a `masked` member, and only when the two forms differ.
+  Nothing else parses or writes those bytes.
+- **The terminal verdict of a send is the transition.** In the same statement
+  that writes `sent`, `failed` or `unknown`, the envelope is rewritten with the
+  masked form alone: the complete content loses its purpose the instant the
+  provider takes or refuses the message, a fallback step renders and seals its
+  own content instead of reusing the failed one, and reconciliation asks the
+  provider by message id without ever resending content. Throttling and an open
+  circuit are not verdicts and never transition.
+- **The `notifications-maintenance` role is the rear guard.** An attempt that
+  never reaches a verdict (queued or sending, notification expired past the
+  configured grace) is settled by `RenderedContentSweep`; content sealed before
+  the two-form envelope existed is settled by `RenderedContentBackfill`, which
+  renders the published template again with `variables_masked` and substitutes
+  only when the recomputed hash matches the stored `content_hash_masked`. A row
+  that does not match is left untouched and leaves in a structured review log.
+- The two hashes never change: `content_hash_full` stays as the anchor for
+  confronting external evidence, and `content_hash_masked` is what the audit
+  surface verifies against the durable form.
 
 ## Rate limiting
 

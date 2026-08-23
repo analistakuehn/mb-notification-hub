@@ -123,6 +123,7 @@ Status observado no repositório na data de autoria (2026-08-23):
 
 ```text
 $ git log --oneline
+695e7f6 feat(notifications): publicar a API de consulta de notificações
 229c474 feat(contacts): ingerir contatos e consentimentos do barramento
 fbaa33d feat(ingress): consumir notificações do Kafka e publicar os eventos
 5b24c95 feat(audit): exportar a trilha para WORM e verificar a cadeia
@@ -154,13 +155,14 @@ e57f7db docs: adicionar documentos completos das fases pendentes
 | B9 | Fatia de despacho: filas `dispatch-*`, estados do attempt, fan-out de push (§4.2, §4.3) | B6, B7, B8 | Concluída (commit `c44222a`) |
 | B10 | Kafka Ingress Worker (`notifications.requested.v1`, `.dlt`, `PRODUCER_REGISTRY`, §7.2), emissão de `notifications.events.v1` e publicador Kafka do outbox relay (§1.3) | B4, B5 | Concluída (commit `fbaa33d`) |
 | B11 | Ingestão de `contacts.events.v1` no ContactConsent (ADR-0012) | B6, B10 | Concluída (commit `229c474`) |
-| B12 | API de consulta (`Notifications.Read`, §7.4) | B7, B9 | Em implementação |
+| B12 | API de consulta (`Notifications.Read`, §7.4) | B7, B9 | Concluída (commit `695e7f6`) |
 | B13 | Export WORM e verificação da cadeia de hash (ADR-0006, §9.4) | B2 | Concluída (commit `5b24c95`) |
-| B14 | API `/v1/audit/*` respondendo às 8 perguntas do §9.5 | B6, B7, B9, B13 | Não iniciada |
+| B14 | API `/v1/audit/*` respondendo às 8 perguntas do §9.5 | B6, B7, B9, B13 | Em implementação |
 | B15 | Gate de carga do risco 7: p99 de ingestão sob advisory lock; plano B por sub-cadeias | B4, B7, B9, B10, B13 | Não iniciada |
 | B16 | Guia de integração do produtor e biblioteca .NET compartilhada opcional (§15) | B10 | Não iniciada |
+| C1 (corretiva) | Transição de fase do conteúdo renderizado (§10.2 A4): pipeline e fallback selam as duas formas, o veredito terminal do despacho descarta a completa na mesma transação, varredura de retaguarda no papel `notifications-maintenance` e backfill do conteúdo já gravado sob gate de configuração | B7, B9 | Em implementação (2026-08-23) |
 
-Nota sobre a ordem: a decisão que ordenava B4 após B2 e B3 foi cumprida; entre B3 e B4 entrou também a promoção do provisionamento de partições a infraestrutura de plataforma (commit `2a0dd86`, §2.6). As erratas documentais das decisões de arquitetura da fase entraram no commit `d293da9`. B12 está em implementação na data, sem commit.
+Nota sobre a ordem: a decisão que ordenava B4 após B2 e B3 foi cumprida; entre B3 e B4 entrou também a promoção do provisionamento de partições a infraestrutura de plataforma (commit `2a0dd86`, §2.6). As erratas documentais das decisões de arquitetura da fase entraram no commit `d293da9`. B14 está em implementação na data, sem commit.
 
 ### 5.2 Paralelismos previstos na decisão
 
@@ -256,6 +258,8 @@ Rollback de fase não exige mecanismo próprio: enquanto um template não é mig
 | 38 | Réplica de leitura física sem entrega Terraform: a costura existe no código (`ReadConnectionString` opcional, contexto somente leitura próprio), mas sem réplica provisionada a consulta lê o primário e concorre com o caminho quente | Pendência de entrega, no mesmo estado da topologia de filas da pendência 9 e dos tópicos da 28. A medição entra no gate de carga da B15: verificar se a consulta contra o primário compete com o caminho quente e, com a réplica provisionada, apontar a consulta para ela por configuração, sem mudança de código; dono: Engenharia de Plataforma | §11.3; §4.3; fatia B12; fatia B15 |
 | 39 | O mascaramento de contato da consulta responde também sobre ponto de contato já removido, marcando que não está mais ativo. É ampliação deliberada de acesso histórico: o dado de um contato apagado do conjunto ativo continua legível na forma mascarada enquanto a notificação existir | Confirmar com Compliance, junto da revisão do §9.6 sobre retenção e acesso, que a forma mascarada de um contato removido pode ser servida ao atendimento. A alternativa, caso a resposta seja negativa, é a consulta devolver só o identificador do ponto de contato quando ele estiver removido; dono: Compliance com Arquitetura | §7.4; §9.6; ADR-0012; fatia B12 |
 | 40 | A consulta expõe `policyEvaluations[].reason` sem projeção da evidência da regra, e isso deixa lacuna de triagem real: com `reason: no-valid-contact` e nada mais, o atendimento não distingue "o cliente precisa atualizar o cadastro" de "o template não tem conteúdo publicado para o canal", que pedem ações opostas. O desvio para `/v1/audit/*` não é caminho operacional, porque aquele papel é de Compliance e Auditoria Interna e lê conteúdo renderizado e contato completo | Decidir o recorte da projeção na mesma rodada da pendência 39. A forma já está decidida e a reabertura é implementação, não desenho: nunca o jsonb bruto, sempre projeção por lista de permissão por regra, no mesmo precedente da dead letter de contatos. Campos candidatos: `remaining`, `plan`, `withContent`, `reachable`, `selected` (ChannelSelection); `purpose`, `granted`, `denied` (ConsentGate); `windowSeconds`, `acquired`, `failOpen` (DedupeWindow); `window` e `releaseAt` (QuietHours). Fora da projeção por default: `timezone` e `localTime`, que não respondem pergunta de triagem que `window` e `releaseAt` já não respondam. O meio-termo de expor só os campos derivados do catálogo foi descartado: com `withContent` cheio e `selected` vazio, o fato pessoal sai por eliminação; dono: Arquitetura com Compliance | §7.4; §9.6; fatia B12; fatia B14 |
+
+| 41 | Lacuna entre o §10.2 A4 e o código, encontrada em 2026-08-23: nenhuma fatia implementava a transição de fase do conteúdo renderizado. O `RenderStage` selava apenas a forma completa, o despacho a consumia e ninguém a substituía, de modo que conteúdo de template com variável sensível ficava em forma completa até o drop da partição; os dois hashes já eram gravados, o que prova que a transição estava projetada e ficou de fora | Corrigida em 2026-08-23 pela fatia corretiva C1: pipeline e fallback selam as duas formas no envelope cifrado, o veredito terminal do despacho (`sent`, `failed`, `unknown`) descarta a forma completa na mesma transação, a varredura de retaguarda alcança a tentativa que nunca chega a veredito e o backfill sob gate substitui o conteúdo já gravado apenas quando o hash recomputado confere com o `content_hash_masked`. Consequências registradas: o papel de worker `notifications-maintenance` precisa de entrega de deployment própria, no mesmo estado da pendência 9, e a janela da varredura fica além do TTL mais uma carência, de modo que uma mensagem entregue depois desse ponto enviaria a forma mascarada; dono: Engenharia com Arquitetura | §10.2 A4; §9.4; fatia B7; fatia B9 |
 
 ## 10. Referências
 

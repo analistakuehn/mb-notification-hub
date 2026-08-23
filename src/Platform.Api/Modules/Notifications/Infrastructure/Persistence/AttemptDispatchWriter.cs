@@ -3,12 +3,14 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
+using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Events;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 
@@ -35,11 +37,20 @@ internal enum AttemptClaimOutcome
 /// always follows the audit append immediately, because the append holds the
 /// partition chain lock until the transaction ends.
 /// </summary>
+/// <remarks>
+/// A terminal verdict also settles the rendered content: in the same
+/// statement that writes the verdict, the sealed envelope is rewritten with
+/// its masked form alone, because the complete content loses its purpose the
+/// instant the provider takes or refuses the message. A fallback step never
+/// reuses the seal, it renders and seals its own, and an attempt parked on
+/// unknown never resends either, so no path needs the complete form back.
+/// </remarks>
 internal sealed class AttemptDispatchWriter(
     NotificationsDbContext db,
     IProcessedMessageStore processedMessages,
     IOutboxWriter outboxWriter,
     IAuditTrail auditTrail,
+    IEnvelopeCipher cipher,
     TimeProvider timeProvider)
 {
     internal const string ConsumerName = "dispatcher";
@@ -157,6 +168,7 @@ internal sealed class AttemptDispatchWriter(
         CancellationToken cancellationToken)
     {
         DateTimeOffset now = timeProvider.GetUtcNow();
+        var durableContent = await DurableContentAsync(attempt, notification, cancellationToken);
         await using IDbContextTransaction transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
         var marked = await processedMessages.TryMarkAsync(
@@ -173,9 +185,13 @@ internal sealed class AttemptDispatchWriter(
             .Where(candidate => candidate.Id == attempt.Id
                 && candidate.Status == NotificationAttemptStatuses.Queued)
             .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Failed)
-                    .SetProperty(candidate => candidate.ErrorCode, ErrorNoActiveDeviceToken),
+                setters =>
+                {
+                    setters
+                        .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Failed)
+                        .SetProperty(candidate => candidate.ErrorCode, ErrorNoActiveDeviceToken);
+                    DiscardCompleteForm(setters, durableContent);
+                },
                 cancellationToken);
         if (failed == 0)
         {
@@ -205,6 +221,7 @@ internal sealed class AttemptDispatchWriter(
         CancellationToken cancellationToken)
     {
         DateTimeOffset now = timeProvider.GetUtcNow();
+        var durableContent = await DurableContentAsync(attempt, notification, cancellationToken);
         await using IDbContextTransaction transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
         var marked = await processedMessages.TryMarkAsync(
@@ -219,6 +236,7 @@ internal sealed class AttemptDispatchWriter(
 
         await TransitionFromSendingAsync(
             attempt.Id,
+            durableContent,
             setters => setters
                 .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Sent)
                 .SetProperty(candidate => candidate.ProviderMessageId, providerMessageId)
@@ -281,6 +299,7 @@ internal sealed class AttemptDispatchWriter(
         CancellationToken cancellationToken)
     {
         DateTimeOffset now = timeProvider.GetUtcNow();
+        var durableContent = await DurableContentAsync(attempt, notification, cancellationToken);
         await using IDbContextTransaction transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
         var marked = await processedMessages.TryMarkAsync(
@@ -295,6 +314,7 @@ internal sealed class AttemptDispatchWriter(
 
         await TransitionFromSendingAsync(
             attempt.Id,
+            durableContent,
             setters => setters
                 .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Failed)
                 .SetProperty(candidate => candidate.ErrorCode, errorCode),
@@ -318,6 +338,7 @@ internal sealed class AttemptDispatchWriter(
     public async Task RevertToQueuedAsync(NotificationAttempt attempt, CancellationToken cancellationToken)
         => await TransitionFromSendingAsync(
             attempt.Id,
+            durableContent: null,
             setters => setters
                 .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Queued)
                 .SetProperty(candidate => candidate.ProviderKey, (string?)null),
@@ -326,14 +347,18 @@ internal sealed class AttemptDispatchWriter(
     /// <summary>
     /// Records the absence of a conclusive verdict: the attempt parks on
     /// unknown and nothing progresses, because whether the message arrived is
-    /// unknown and only reconciliation may settle it.
+    /// unknown and only reconciliation may settle it. The rendered content
+    /// still settles here: reconciliation asks the provider by message id and
+    /// never resends content, so the complete form has no reader left.
     /// </summary>
     public async Task<bool> RecordUnknownAsync(
         NotificationAttempt attempt,
+        Notification notification,
         string? errorCode,
         Guid envelopeMessageId,
         CancellationToken cancellationToken)
     {
+        var durableContent = await DurableContentAsync(attempt, notification, cancellationToken);
         await using IDbContextTransaction transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
         var marked = await processedMessages.TryMarkAsync(
@@ -348,6 +373,7 @@ internal sealed class AttemptDispatchWriter(
 
         await TransitionFromSendingAsync(
             attempt.Id,
+            durableContent,
             setters => setters
                 .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Unknown)
                 .SetProperty(candidate => candidate.ErrorCode, errorCode),
@@ -461,23 +487,57 @@ internal sealed class AttemptDispatchWriter(
     }
 
     /// <summary>
-    /// Applies one guarded transition from sending. Zero affected rows is a
+    /// Applies one guarded transition from sending, together with the durable
+    /// rendered content when the verdict settles one. Zero affected rows is a
     /// defect, not a race: only the claim owner ever settles the attempt.
     /// </summary>
     private async Task TransitionFromSendingAsync(
         Guid attemptId,
+        byte[]? durableContent,
         Action<UpdateSettersBuilder<NotificationAttempt>> setters,
         CancellationToken cancellationToken)
     {
         var affected = await db.NotificationAttempts
             .Where(candidate => candidate.Id == attemptId
                 && candidate.Status == NotificationAttemptStatuses.Sending)
-            .ExecuteUpdateAsync(setters, cancellationToken);
+            .ExecuteUpdateAsync(
+                builder =>
+                {
+                    setters(builder);
+                    DiscardCompleteForm(builder, durableContent);
+                },
+                cancellationToken);
         if (affected != 1)
         {
             throw new InvalidOperationException(
                 $"O attempt {attemptId} não estava em 'sending' ao registrar o veredito; "
                 + "somente o dono do claim liquida um attempt.");
+        }
+    }
+
+    /// <summary>
+    /// The envelope this attempt keeps after the verdict: the masked form
+    /// alone. Null when the two forms coincide, and null when the stored
+    /// envelope carries no masked form (an attempt sealed before the
+    /// transition existed), so the row is left untouched in both cases and the
+    /// sweep or the backfill decides what to do with it.
+    /// </summary>
+    private async Task<byte[]?> DurableContentAsync(
+        NotificationAttempt attempt,
+        Notification notification,
+        CancellationToken cancellationToken)
+        => string.Equals(attempt.ContentHashFull, attempt.ContentHashMasked, StringComparison.Ordinal)
+            ? null
+            : await RenderedContentEnvelope.TryDiscardCompleteFormAsync(
+                cipher, notification.Application, attempt.RenderedContentEncrypted, cancellationToken);
+
+    private static void DiscardCompleteForm(
+        UpdateSettersBuilder<NotificationAttempt> setters,
+        byte[]? durableContent)
+    {
+        if (durableContent is not null)
+        {
+            setters.SetProperty(candidate => candidate.RenderedContentEncrypted, durableContent);
         }
     }
 

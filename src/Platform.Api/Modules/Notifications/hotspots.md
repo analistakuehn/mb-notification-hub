@@ -268,6 +268,39 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   reachable without any field ever naming it. The allow-list is per rule and
   judged as a whole, not split by provenance of each field.
 
+## The rear-guard sweep can mask an attempt a late message would still send
+
+- **Assumption accepted**: `RenderedContentSweep` settles an attempt still
+  queued or sending once its notification expired past the configured grace
+  (one hour by default). A dispatch message delivered after that point would
+  open an envelope that already carries only the masked form and send masked
+  content to the provider.
+- **Evidence**: `Infrastructure/Privacy/RenderedContentSweep.cs`; the dispatch
+  consumer does not check the notification TTL before sending, so nothing else
+  stops a post-expiry send today. The window is the notification's own
+  `expires_at` plus the grace, which is the widest deterministic bound
+  available without reading the class policy again.
+- **Owner**: Notifications module maintainers with Arquitetura.
+- **Status**: accepted, with the trade named: an abandoned attempt keeping a
+  complete OTP forever is the larger exposure, and a send of an already expired
+  authentication code is a defect of its own.
+- **Review condition**: the phase-2 reconciliation, which must settle `sending`
+  and `unknown` attempts, is the natural place to make the dispatcher refuse an
+  expired notification; with that refusal in place the grace can shrink.
+
+## The maintenance role has no deployment entry yet
+
+- **Assumption accepted**: `notifications-maintenance` is discovered by the
+  worker host through `IWorkerRoleModule` and composes with configuration
+  alone, but no declarative infrastructure deploys it, so the sweep does not
+  run until the deployment exists.
+- **Evidence**: `NotificationsMaintenanceWorkerRole.cs`; the phase records the
+  same gap for the queue topology and for the `audit-maintenance` role.
+- **Owner**: Engenharia de Plataforma.
+- **Status**: accepted, same bucket as the other pending deployment entries.
+- **Review condition**: the infrastructure delivery that provisions the queue
+  topology deploys this role in the same round.
+
 ## Deferred observability is a structured log, not a metric
 
 - **Assumption accepted**: a deferral logs a structured warning with the

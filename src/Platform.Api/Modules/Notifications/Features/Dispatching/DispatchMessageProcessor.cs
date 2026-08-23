@@ -264,7 +264,7 @@ internal sealed class DispatchMessageProcessor(
                 return new MessageDisposition.Postponed(result.RetryAfter, reason);
             case DispatchVerdict.Unknown:
                 var parked = await writer.RecordUnknownAsync(
-                    attempt, result.ErrorCode, envelope.MessageId, cancellationToken);
+                    attempt, notification, result.ErrorCode, envelope.MessageId, cancellationToken);
                 if (parked)
                 {
                     logger.DispatchAttemptUnknown(attempt.Id, notification.Id, result.ErrorCode);

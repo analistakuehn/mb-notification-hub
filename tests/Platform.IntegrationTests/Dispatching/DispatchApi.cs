@@ -33,7 +33,8 @@ internal static class DispatchApi
         CorePipelineFixture fixture,
         string application,
         string @class,
-        string purpose)
+        string purpose,
+        string[]? sensitiveVariables = null)
     {
         HttpClient author = fixture.CreateAuthorClient("template-author");
         HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
@@ -48,20 +49,37 @@ internal static class DispatchApi
             purpose,
             legalBasis = "execucao-de-contrato",
             defaultLocale = "pt-BR",
+            sensitiveVariables,
         });
         created.EnsureSuccessStatusCode();
 
+        var version = await PublishVersionAsync(fixture, key, "Use o código {{ code }} para entrar.");
+        return (key, version);
+    }
+
+    /// <summary>
+    /// Opens a draft over an existing template, fills the email and push
+    /// content with the given phrasing and publishes it. A second call over
+    /// the same key is how a test moves the published content forward.
+    /// </summary>
+    internal static async Task<int> PublishVersionAsync(
+        CorePipelineFixture fixture,
+        string key,
+        string phrase)
+    {
+        HttpClient author = fixture.CreateAuthorClient("template-author");
+        HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
         etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
         {
             subject = "Seu código de acesso",
-            body = "<p>Use o código {{ code }} para entrar.</p>",
-            bodyText = "Use o código {{ code }} para entrar.",
+            body = $"<p>{phrase}</p>",
+            bodyText = phrase,
         }, etag);
         etag = await TemplateApi.PutContentAsync(author, key, version, "push/pt-BR", new
         {
             subject = "Seu código",
-            body = "Use o código {{ code }} para entrar.",
+            body = phrase,
         }, etag);
         await TemplateApi.PutSchemaAsync(author, key, version, new
         {
@@ -70,7 +88,7 @@ internal static class DispatchApi
             required = RequiredCode,
         }, etag);
         await TemplateApi.PublishAsync(publisher, key, version);
-        return (key, version);
+        return version;
     }
 
     /// <summary>Publishes a class policy whose plan follows the given ordered steps.</summary>

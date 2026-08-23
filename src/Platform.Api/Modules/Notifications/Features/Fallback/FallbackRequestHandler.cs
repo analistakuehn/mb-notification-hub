@@ -11,6 +11,7 @@ using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
@@ -208,7 +209,7 @@ internal sealed class FallbackRequestHandler(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var sealedContent = await RenderedContentSealing.SealAsync(
+        var sealedContent = await RenderedContentEnvelope.SealAsync(
             cipher, notification.Application, render, cancellationToken);
         var channel = nextStep.Channel.Value;
         var destination = RouteStage.DestinationFor(template.Purpose, channel, notification.Class);
