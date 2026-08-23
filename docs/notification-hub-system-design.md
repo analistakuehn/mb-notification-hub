@@ -400,13 +400,15 @@ Opt-out não é campo de política na v1: deriva da classe (`critical` nunca; de
 2. **Estágio Policy como lista ordenada de `IPolicyRule`** — cada regra lê a sua fatia da definição, avalia, grava sua linha. Regra nova = uma classe nova registrada na lista; nada do resto muda.
 
 ```csharp
-public interface IPolicyRule
+public interface IPolicyRule<in TContext>
 {
     string Name { get; }
-    Task<PolicyRuleResult> EvaluateAsync(NotificationContext ctx, ClassPolicy policy, CancellationToken ct);
+    Task<PolicyRuleResult> EvaluateAsync(TContext ctx, ClassPolicyDefinition policy, CancellationToken ct);
     // PolicyRuleResult: Allow | FilterChannels(set) | Defer(releaseAt) | Reject(reason), sempre com `evidence`
 }
 ```
+
+O contrato (`IPolicyRule`, `PolicyRuleResult`, `ClassPolicyDefinition`) é publicado pelo módulo Template Management; o Core Worker fecha `TContext = NotificationContext` ao compor o estágio Policy. Na fase 1b, os tipos do contrato movem para a superfície `Integration/V1/` do módulo, com o teste de arquitetura ganhando a exceção explícita de dependência entre módulos apenas via contratos publicados.
 
 3. **Definição em JSON com `schemaVersion`** — leitor tolerante a campos adicionais; campo novo no schema é versão nova, sem quebrar as publicadas.
 4. **Passos do `deliveryPlan` como objetos**, não strings — um `when` entra como propriedade opcional, sem migrar.
@@ -678,6 +680,7 @@ erDiagram
     string layout_key
     int version
     string channel
+    string locale
     text body
     string status
     string body_hash
