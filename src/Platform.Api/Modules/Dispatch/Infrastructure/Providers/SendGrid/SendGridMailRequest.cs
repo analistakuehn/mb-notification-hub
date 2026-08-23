@@ -15,7 +15,10 @@ internal sealed record SendGridMailRequest(
     [property: JsonPropertyName("mail_settings")] SendGridMailSettings MailSettings);
 
 internal sealed record SendGridPersonalization(
-    [property: JsonPropertyName("to")] IReadOnlyList<SendGridAddress> To);
+    [property: JsonPropertyName("to")] IReadOnlyList<SendGridAddress> To,
+    [property: JsonPropertyName("custom_args")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyDictionary<string, string>? CustomArgs = null);
 
 internal sealed record SendGridAddress(
     [property: JsonPropertyName("email")] string Email,

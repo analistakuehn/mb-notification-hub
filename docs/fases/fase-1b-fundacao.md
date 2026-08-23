@@ -121,6 +121,8 @@ Status observado no repositório na data de autoria (2026-08-23):
 
 ```text
 $ git log --oneline
+5afe146 feat(core): implementar o pipeline de estágios consumindo core-*
+d293da9 docs: alinhar design, ADRs e padrões às decisões da fase 1b
 2a604dc feat(worker): criar host Platform.Worker com o Outbox Relay
 ead7d8b feat(contacts): criar módulo ContactConsent dono dos contatos
 02f41ff feat(notifications): criar módulo Notifications com ingestão REST
@@ -141,9 +143,9 @@ e57f7db docs: adicionar documentos completos das fases pendentes
 | B4 | Ingestão REST com idempotência e outbox (`POST /v1/notifications`, §7.1) | B2, B3 | Concluída (commit `02f41ff`) |
 | B5 | Host `src/Platform.Worker` e Outbox Relay Worker (§4.2, ADR-0002) | B4 | Concluída (commit `2a604dc`) |
 | B6 | ContactConsent v1: modelo, escrita REST (ADR-0012); desvio aceito de escopo: o cache de contatos saiu da B6 e entrou na B7 (decisão de arquitetura: o cache pertence ao leitor no tempo, mas vive no módulo dono atrás do contrato) | B2, B4 | Concluída (commit `ead7d8b`) |
-| B7 | Core pipeline consumindo as filas `core-*` (ADR-0003, §4.3) | B3, B5, B6 | Em implementação |
+| B7 | Core pipeline consumindo as filas `core-*` (ADR-0003, §4.3) | B3, B5, B6 | Concluída (commit `5afe146`) |
 | B8 | Módulo Dispatch: `IChannelProvider`, adapters SendGrid e FCM | B1 | Concluída (commit `208a81c`) |
-| B9 | Fatia de despacho: filas `dispatch-*`, estados do attempt, fan-out de push (§4.2, §4.3) | B6, B7, B8 | Não iniciada |
+| B9 | Fatia de despacho: filas `dispatch-*`, estados do attempt, fan-out de push (§4.2, §4.3) | B6, B7, B8 | Em implementação |
 | B10 | Kafka Ingress Worker (`notifications.requested.v1`, `.dlt`, `PRODUCER_REGISTRY`, §7.2), emissão de `notifications.events.v1` e publicador Kafka do outbox relay (§1.3) | B4, B5 | Não iniciada |
 | B11 | Ingestão de `contacts.events.v1` no ContactConsent (ADR-0012) | B6, B10 | Não iniciada |
 | B12 | API de consulta (`Notifications.Read`, §7.4) | B7, B9 | Não iniciada |
@@ -152,7 +154,7 @@ e57f7db docs: adicionar documentos completos das fases pendentes
 | B15 | Gate de carga do risco 7: p99 de ingestão sob advisory lock; plano B por sub-cadeias | B4, B7, B9, B10, B13 | Não iniciada |
 | B16 | Guia de integração do produtor e biblioteca .NET compartilhada opcional (§15) | B10 | Não iniciada |
 
-Nota sobre a ordem: a decisão que ordenava B4 após B2 e B3 foi cumprida; entre B3 e B4 entrou também a promoção do provisionamento de partições a infraestrutura de plataforma (commit `2a0dd86`, §2.6). B7 está em implementação na data, sem commit.
+Nota sobre a ordem: a decisão que ordenava B4 após B2 e B3 foi cumprida; entre B3 e B4 entrou também a promoção do provisionamento de partições a infraestrutura de plataforma (commit `2a0dd86`, §2.6). As erratas documentais das decisões de arquitetura da fase entraram no commit `d293da9`. B9 está em implementação na data, sem commit.
 
 ### 5.2 Paralelismos previstos na decisão
 
@@ -217,6 +219,11 @@ Rollback de fase não exige mecanismo próprio: enquanto um template não é mig
 | 9 | Topologia de filas (`core-*`, `dispatch-*`, `contacts-changed`, DLQs) sem entrega Terraform | Pendência de entrega, pré-requisito de AWS pré-prod; dono: Engenharia de Plataforma | §4.2; §14; memorando B5/B6 (2026-08-23) |
 | 10 | Transporte de observabilidade do health do `Platform.Worker` em produção (endpoint mínimo, publisher ou probe) sem definição | Decisão em aberto | §12; memorando B5/B6 (2026-08-23) |
 | 11 | Ingestão aceita `scheduledAt` sem teto enquanto não existe liberador de deferred, e `expires_at` calculado como aceite + TTL é incoerente para agendamentos | Revisão curta do §7.1; dono: Arquitetura com Engenharia | §7.1; memorando B4 (2026-08-23) |
+| 12 | Attempts em `unknown` não progridem na 1b: sem tracker e sem reconciliação, um timeout ou 5xx sem veredito estaciona o attempt até a fase 2 | Ressalva aceita na decisão da fatia de despacho; fecha com o Delivery Tracker e a reconciliação da fase 2; dono: Engenharia | §5.2; decisão da fatia de despacho (2026-08-23) |
+| 13 | Planos de classe da 1b restritos a `email` e `push`: um plano publicado com `sms` ou `whatsapp` faria o fallback terminar em `failed` por falta de adapter hospedado | Restrição operacional das políticas publicadas na 1b; os canais entram na fase 2; dono: Engenharia com Produto | §15; decisão da fatia de despacho (2026-08-23) |
+| 14 | O evento Kafka de `failed` em `notifications.events.v1` aguarda a fatia B10: a notificação transita a `failed` no banco sem emissão externa até lá | Sequenciamento aceito; a B10 publica os eventos de saída; dono: Engenharia | §7.3; fatia B10 |
+| 15 | O snapshot do ContactConsent não expõe mais o token do dispositivo: o envio revela o token por leitura dedicada (`RevealDeviceTokenAsync`), desvio aceito do modelo que expunha o token no snapshot | Desvio aceito na decisão da fatia de despacho: fronteira de PII mais estreita, todo egresso de token vira ponto de chamada explícito; dono: Engenharia | §4.4; decisão da fatia de despacho (2026-08-23) |
+| 16 | `MaxConcurrency` por provedor segue em configuração com default de desenvolvimento; a calibração aos limites contratados de SendGrid e FCM está pendente | Calibrar antes do go-live junto ao gate de carga; dono: Engenharia de Plataforma | §11.3; decisão da fatia de despacho (2026-08-23) |
 
 ## 10. Referências
 

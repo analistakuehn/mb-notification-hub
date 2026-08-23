@@ -32,6 +32,11 @@
 - An adapter translates one `DispatchRequest` into one provider call and the
   provider's answer into one normalized `ProviderResult`. It knows no
   policy, no fallback, no audit, no attempt state.
+- `DispatchRequest` carries one optional correlation member
+  (`DispatchCorrelation(NotificationId, AttemptId)`), a pure pass-through
+  for webhook reconciliation: the SendGrid adapter writes both ids into
+  `custom_args`, the FCM adapter ignores the member, and the identifiers
+  never enter the rendered content nor its audited hashes.
 - Every provider verdict returns as a result; exceptions are reserved for
   caller defects (wrong channel in the request) and misconfiguration
   (missing API key, missing service account). Configuration guards fire at

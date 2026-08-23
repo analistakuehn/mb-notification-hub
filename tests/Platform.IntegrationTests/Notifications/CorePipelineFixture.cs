@@ -17,7 +17,10 @@ using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Dispatch.Domain;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications;
+using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -48,9 +51,10 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     [
         "core-auth", "core-critical", "core-transactional", "core-operational",
         "contacts-changed",
-        "dispatch-push-auth", "dispatch-sms-auth",
-        "dispatch-push-critical", "dispatch-sms-critical",
+        "dispatch-push-auth", "dispatch-sms-auth", "dispatch-email-auth",
+        "dispatch-push-critical", "dispatch-sms-critical", "dispatch-email-critical",
         "dispatch-push-transactional", "dispatch-sms-transactional", "dispatch-email-transactional",
+        "dispatch-push-operational", "dispatch-email-operational",
     ];
 
     private readonly byte[] _signingKey = RandomNumberGenerator.GetBytes(32);
@@ -92,6 +96,7 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,
                 ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
+                ["Modules:Dispatch:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Platform:Messaging:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Platform:Cryptography:Envelope:KeyId"] = EnvelopeKeyId,
                 ["Platform:Cryptography:Envelope:MasterKey"] = _envelopeMasterKey,
@@ -122,6 +127,7 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
             ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
             ["Modules:ContactConsent:Redis:ConnectionString"] = RedisConnectionString,
             ["Modules:ContactConsent:Redis:KeyPrefix"] = RedisKeyPrefix,
+            ["Modules:Dispatch:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
             ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
         };
         if (overrides is not null)
@@ -143,6 +149,12 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     public ServiceProvider BuildContactConsentWorkerProvider(IDictionary<string, string?>? overrides = null)
         => BuildProvider(ContactConsentWorkerRole.ConfigureServices, overrides);
 
+    /// <summary>The dispatcher role composed exactly as the worker host would compose it.</summary>
+    public ServiceProvider BuildDispatcherWorkerProvider(
+        IDictionary<string, string?>? overrides = null,
+        ILoggerProvider? loggerProvider = null)
+        => BuildProvider(DispatcherWorkerRole.ConfigureServices, overrides, loggerProvider);
+
     /// <summary>A relay composition against the containers, mirroring the relay fixture.</summary>
     public ServiceProvider BuildRelayProvider(IDictionary<string, string?>? overrides = null)
         => BuildProvider(
@@ -161,6 +173,10 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     internal static async Task<SqsConsumePassResult> RunContactsChangedPassAsync(ServiceProvider provider)
         => await BuildConsumer<ContactsChangedProcessor>(provider, "contacts-changed")
             .RunPassAsync(CancellationToken.None);
+
+    /// <summary>Runs one receive-and-settle pass of the dispatch consumer over one queue.</summary>
+    internal static async Task<SqsConsumePassResult> RunDispatchPassAsync(ServiceProvider provider, string queue)
+        => await BuildConsumer<DispatchMessageProcessor>(provider, queue).RunPassAsync(CancellationToken.None);
 
     internal static async Task<OutboxRelayPassResult> RunRelayPassAsync(ServiceProvider provider)
     {
@@ -199,6 +215,35 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
         return await query(scope.ServiceProvider.GetRequiredService<PlatformMessagingDbContext>());
     }
 
+    public async Task<T> QueryContactConsentDbAsync<T>(Func<ContactConsentDbContext, Task<T>> query)
+    {
+        using IServiceScope scope = Services.CreateScope();
+        return await query(scope.ServiceProvider.GetRequiredService<ContactConsentDbContext>());
+    }
+
+    /// <summary>
+    /// Materializes the provider configuration rows the resolver reads, the
+    /// job a deployment performs in a real environment. Idempotent: existing
+    /// pairs stay.
+    /// </summary>
+    public async Task SeedProviderConfigAsync(params (string Channel, string ProviderKey)[] rows)
+    {
+        using IServiceScope scope = Services.CreateScope();
+        DispatchDbContext db = scope.ServiceProvider.GetRequiredService<DispatchDbContext>();
+        foreach ((var channel, var providerKey) in rows)
+        {
+            var exists = await db.ProviderSelections.AnyAsync(
+                selection => selection.ChannelValue == channel && selection.ProviderKey == providerKey);
+            if (!exists)
+            {
+                db.ProviderSelections.Add(ProviderSelection.Create(
+                    channel, providerKey, priority: 0, DateTimeOffset.UtcNow).Value!);
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
     public async Task<T> UsingScopeAsync<T>(Func<IServiceProvider, Task<T>> action)
     {
         using IServiceScope scope = Services.CreateScope();
@@ -234,6 +279,7 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
         await scope.ServiceProvider.GetRequiredService<AuditDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<NotificationsDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<ContactConsentDbContext>().Database.MigrateAsync();
+        await scope.ServiceProvider.GetRequiredService<DispatchDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<PlatformMessagingDbContext>().Database.MigrateAsync();
     }
 
@@ -248,13 +294,20 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
 
     private ServiceProvider BuildProvider(
         Action<IServiceCollection, IConfiguration> configure,
-        IDictionary<string, string?>? overrides)
+        IDictionary<string, string?>? overrides,
+        ILoggerProvider? loggerProvider = null)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(WorkerSettings(overrides))
             .Build();
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(logging =>
+        {
+            if (loggerProvider is not null)
+            {
+                logging.AddProvider(loggerProvider);
+            }
+        });
         configure(services, configuration);
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }

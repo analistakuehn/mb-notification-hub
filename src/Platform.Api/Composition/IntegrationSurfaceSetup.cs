@@ -1,11 +1,15 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
+using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Devices;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Reads;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Redis;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.ProviderConfig;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
@@ -68,6 +72,41 @@ public static class IntegrationSurfaceSetup
         services.TryAddScoped<ContactValueProtector>();
         services.TryAddScoped<RecipientDirectory>();
         services.TryAddScoped<IRecipientDirectory, CachedRecipientDirectory>();
+        return services;
+    }
+
+    /// <summary>
+    /// The device-token lifecycle of ContactConsent for the provider feedback
+    /// path, over the module's own persistence and transactional writer. The
+    /// consuming role also composes the platform messaging and the audit
+    /// trail surface, because every lifecycle write commits its outbox
+    /// message and its audit event transactionally.
+    /// </summary>
+    public static IServiceCollection AddContactConsentDeviceLifecycle(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddContactConsentPersistence(configuration);
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<ContactConsentWriter>();
+        services.TryAddScoped<IDeviceTokenLifecycle, DeviceTokenInvalidation>();
+        return services;
+    }
+
+    /// <summary>
+    /// The channel-provider surface of Dispatch: the hosted adapters, their
+    /// resilience pipelines, and the resolution over the materialized
+    /// provider configuration. Exactly what the Dispatch module composes in
+    /// the API host, for the worker role that performs sends.
+    /// </summary>
+    public static IServiceCollection AddDispatchProviderSurface(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddDispatchPersistence(configuration);
+        services.AddDispatchProviders(configuration);
+        services.AddDispatchProviderResolution(configuration);
+        services.TryAddSingleton(TimeProvider.System);
         return services;
     }
 }

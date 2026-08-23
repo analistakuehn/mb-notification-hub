@@ -15,7 +15,7 @@ public sealed class ChannelSelectionRuleTests
             recipient: PipelineTestData.Recipient(
                 contactPoints: [new ContactPointSnapshot(Guid.NewGuid(), "sms", Verified: true)],
                 devices: [new DeviceRegistration(
-                    Guid.NewGuid(), "token", "android", null, DateTimeOffset.UtcNow)]));
+                    Guid.NewGuid(), "android", null, DateTimeOffset.UtcNow)]));
 
         PolicyRuleResult result = await new ChannelSelectionRule().EvaluateAsync(
             context,
@@ -53,7 +53,7 @@ public sealed class ChannelSelectionRuleTests
             recipient: PipelineTestData.Recipient(
                 contactPoints: [],
                 devices: [new DeviceRegistration(
-                    Guid.NewGuid(), "token", "android", null, DateTimeOffset.UtcNow)]));
+                    Guid.NewGuid(), "android", null, DateTimeOffset.UtcNow)]));
 
         PolicyRuleResult result = await new ChannelSelectionRule().EvaluateAsync(
             context,
@@ -88,7 +88,7 @@ public sealed class ChannelSelectionRuleTests
             recipient: PipelineTestData.Recipient(
                 contactPoints: [new ContactPointSnapshot(Guid.NewGuid(), "sms", Verified: true)],
                 devices: [new DeviceRegistration(
-                    Guid.NewGuid(), "token", "android", null, DateTimeOffset.UtcNow)]));
+                    Guid.NewGuid(), "android", null, DateTimeOffset.UtcNow)]));
 
         PolicyRuleResult result = await new ChannelSelectionRule().EvaluateAsync(
             context,

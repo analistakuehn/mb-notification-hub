@@ -46,7 +46,12 @@ public interface IChannelProvider
     Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken ct);
 }
 
-public sealed record DispatchRequest(DeliveryTarget Target, RenderedMessage Message);
+public sealed record DispatchCorrelation(Guid NotificationId, Guid AttemptId);
+
+public sealed record DispatchRequest(
+    DeliveryTarget Target,
+    RenderedMessage Message,
+    DispatchCorrelation? Correlation = null);
 
 public sealed record ProviderResult(
     ProviderOutcome Outcome,             // Accepted | Rejected | Throttled | TransientError
@@ -56,7 +61,7 @@ public sealed record ProviderResult(
     TimeSpan? RetryAfter);
 ```
 
-A fonte normativa do contrato é `Modules/Dispatch/Integration/V1`; os trechos aqui são ilustrativos. O destino viaja em `DeliveryTarget`, separado do conteúdo renderizado: o modelo de dados guarda contato e conteúdo em colunas distintas do attempt, e a fronteira de PII impede endereço ou token dentro do conteúdo auditado por hash.
+A fonte normativa do contrato é `Modules/Dispatch/Integration/V1`; os trechos aqui são ilustrativos. O destino viaja em `DeliveryTarget`, separado do conteúdo renderizado: o modelo de dados guarda contato e conteúdo em colunas distintas do attempt, e a fronteira de PII impede endereço ou token dentro do conteúdo auditado por hash. A correlação para reconciliação de webhooks é um membro opcional único, nulo por padrão e aditivo na V1: repasse puro que o adapter SendGrid grava em `custom_args` e o adapter FCM ignora, sem jamais entrar no conteúdo renderizado nem nos hashes auditados.
 
 `RenderedMessage` é uma hierarquia discriminada por canal; cada adapter recebe o tipo do seu canal:
 

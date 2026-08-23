@@ -4,14 +4,16 @@ using Microsoft.EntityFrameworkCore.Storage;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.Notifications.Features.Fallback;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 
 /// <summary>
-/// Consumer-side entry of the Core pipeline: reads the claim check, loads the
-/// notification from the store, and runs the ordered stage list. The commit
+/// Consumer-side entry of the Core pipeline. An accepted notification runs
+/// the ordered stage list; a fallback trigger routes to the fallback
+/// handler, because both message types share the core queues. The commit
 /// carries the dedupe mark, so a redelivery after a successful commit
 /// resolves as a duplicate here; a notification already past its accepted
 /// state resolves the same way, with the duplicate trail the at-least-once
@@ -21,6 +23,7 @@ internal sealed class CoreMessageProcessor(
     NotificationsDbContext db,
     NotificationPipeline pipeline,
     PipelineCommitWriter commitWriter,
+    FallbackRequestHandler fallbackHandler,
     IAuditTrail auditTrail,
     TimeProvider timeProvider,
     ILogger<CoreMessageProcessor> logger) : ISqsMessageProcessor
@@ -33,13 +36,19 @@ internal sealed class CoreMessageProcessor(
     public string Consumer => PipelineCommitWriter.ConsumerName;
 
     public bool Accepts(string type, int schemaVersion)
-        => string.Equals(type, AcceptedMessageType, StringComparison.Ordinal)
-            && schemaVersion == SupportedSchemaVersion;
+        => schemaVersion == SupportedSchemaVersion
+            && (string.Equals(type, AcceptedMessageType, StringComparison.Ordinal)
+                || string.Equals(type, DispatchMessages.FallbackRequestedType, StringComparison.Ordinal));
 
     public async Task<MessageDisposition> ProcessAsync(
         MessageEnvelope envelope,
         CancellationToken cancellationToken)
     {
+        if (string.Equals(envelope.Type, DispatchMessages.FallbackRequestedType, StringComparison.Ordinal))
+        {
+            return await fallbackHandler.ProcessAsync(envelope, cancellationToken);
+        }
+
         if (!envelope.Payload.TryGetProperty("notificationId", out JsonElement idElement)
             || idElement.ValueKind != JsonValueKind.String
             || !Guid.TryParse(idElement.GetString(), out Guid notificationId))

@@ -59,4 +59,15 @@ public interface IRecipientDirectory
         string recipientId,
         Guid contactPointId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reveals the routing token of one active device registration of the
+    /// given recipient, for transient use at send time only. An invalidated
+    /// or foreign registration fails as not found, which is the caller's
+    /// signal to fail the attempt instead of sending.
+    /// </summary>
+    Task<Result<string>> RevealDeviceTokenAsync(
+        string recipientId,
+        Guid deviceTokenId,
+        CancellationToken cancellationToken);
 }

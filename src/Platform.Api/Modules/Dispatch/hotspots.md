@@ -15,9 +15,12 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   content separately (`Integration/V1/DispatchRequest.cs`; the accepted data
   model); push fan-out targets one device token per attempt.
 - **Owner**: Dispatch module maintainers. Ratified by the architect on 2026-08-23: `DispatchRequest(Target, Message)` is the published contract shape and `Integration/V1` is the normative source; correlation identifiers join as optional members together with the dispatch slice that consumes them.
-- **Status**: accepted locally, flagged for architecture review.
-- **Review condition**: before the notification pipeline starts consuming
-  the contract; changing the envelope after that is a breaking change.
+- **Status**: closed. The dispatch slice landed the single optional
+  correlation member (`DispatchCorrelation`) as decided: default null,
+  additive in V1, consumed by the SendGrid adapter as `custom_args` and
+  ignored by FCM.
+- **Review condition**: none; a future provider needing a different
+  correlation shape reopens the envelope discussion as a new decision.
 
 ## 429 maps to throttled, not to permanent rejection
 

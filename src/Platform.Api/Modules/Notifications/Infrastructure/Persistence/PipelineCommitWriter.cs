@@ -28,7 +28,7 @@ internal sealed class PipelineCommitWriter(
     ILogger<PipelineCommitWriter> logger) : IPipelineCommitter
 {
     internal const string ConsumerName = "core-pipeline";
-    internal const string AttemptQueuedMessageType = "attempt.queued";
+    internal const string AttemptQueuedMessageType = DispatchMessages.AttemptQueuedType;
 
     public async Task<PipelineCommitResult> CommitAsync(
         NotificationContext context,
@@ -154,27 +154,14 @@ internal sealed class PipelineCommitWriter(
     {
         var destination = context.DispatchDestination
             ?? throw new InvalidOperationException("O estágio Route não definiu a fila de dispatch.");
-        var traceparent = Activity.Current?.Id;
-        return new OutboxAppend
-        {
-            Destination = destination,
-            EventType = AttemptQueuedMessageType,
-            MessageKey = context.Notification.RecipientId,
-            HeadersJson = traceparent is null
-                ? "{}"
-                : JsonSerializer.Serialize(new { traceparent }),
-            PayloadJson = JsonSerializer.Serialize(new
-            {
-                messageId = Guid.CreateVersion7(),
-                type = AttemptQueuedMessageType,
-                schemaVersion = 1,
-                occurredAt = now,
-                traceparent,
-                priorityClass = context.Notification.Class,
-                payload = new { notificationId = context.Notification.Id, attemptId = attempt.Id },
-            }),
-            PriorityClass = context.Notification.Class,
-        };
+        return DispatchMessages.BuildAttemptQueued(
+            destination,
+            context.Notification.RecipientId,
+            context.Notification.Class,
+            context.Notification.Id,
+            attempt.Id,
+            now,
+            Activity.Current?.Id);
     }
 
     private static AuditEntry BuildAuditEntry(

@@ -24,6 +24,13 @@ public sealed record MessageEnvelope
 
     public string? PriorityClass { get; init; }
 
+    /// <summary>
+    /// Queue that delivered this message. Transport metadata stamped by the
+    /// platform consumer after parsing, never part of the body: a processor
+    /// that must produce follow-up messages to the same queue reads it here.
+    /// </summary>
+    public string? SourceQueue { get; init; }
+
     /// <summary>Claim-check payload; the handler reads the identifiers it needs.</summary>
     public required JsonElement Payload { get; init; }
 }

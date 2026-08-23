@@ -37,7 +37,7 @@ internal sealed class SendGridChannelProvider(
         SendGridOptions config = options.Value;
         EnsureConfigured(config);
 
-        SendGridMailRequest payload = BuildRequest(target, message, config);
+        SendGridMailRequest payload = BuildRequest(target, message, config, request.Correlation);
         HttpClient client = httpClientFactory.CreateClient(HttpClientName);
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v3/mail/send");
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
@@ -68,9 +68,20 @@ internal sealed class SendGridChannelProvider(
     internal static SendGridMailRequest BuildRequest(
         EmailDeliveryTarget target,
         EmailMessage message,
-        SendGridOptions config)
+        SendGridOptions config,
+        DispatchCorrelation? correlation = null)
         => new(
-            [new SendGridPersonalization([new SendGridAddress(target.EmailAddress, null)])],
+            // custom_args carries the correlation ids the Event Webhook echoes
+            // back; a pure pass-through that never touches the content bytes.
+            [new SendGridPersonalization(
+                [new SendGridAddress(target.EmailAddress, null)],
+                correlation is null
+                    ? null
+                    : new Dictionary<string, string>
+                    {
+                        ["notification_id"] = correlation.NotificationId.ToString(),
+                        ["attempt_id"] = correlation.AttemptId.ToString(),
+                    })],
             new SendGridAddress(
                 config.SenderEmail,
                 string.IsNullOrWhiteSpace(config.SenderName) ? null : config.SenderName),

@@ -13,6 +13,16 @@ public static class NotificationStatuses
     public const string Rejected = "rejected";
     public const string Expired = "expired";
     public const string Deferred = "deferred";
+
+    /// <summary>
+    /// Delivery succeeded. For push this is stamped when the first sibling
+    /// attempt reaches sent, because acceptance by the push provider is the
+    /// delivery signal the design defines for that channel.
+    /// </summary>
+    public const string Delivered = "delivered";
+
+    /// <summary>The delivery plan is exhausted: every attempt of the last step failed.</summary>
+    public const string Failed = "failed";
 }
 
 /// <summary>
@@ -129,12 +139,54 @@ public sealed class Notification
         TemplateVersion = renderedVersion;
     }
 
+    /// <summary>
+    /// Records the delivery success: for push, the first sibling attempt the
+    /// provider accepted. Only the first success transitions; later sibling
+    /// verdicts leave the state untouched.
+    /// </summary>
+    public void MarkDelivered()
+    {
+        EnsureDispatchCanTransition();
+        Status = NotificationStatuses.Delivered;
+    }
+
+    /// <summary>
+    /// Records the exhaustion of the delivery plan: the failing attempt was
+    /// the last step and, for push, every sibling failed.
+    /// </summary>
+    public void MarkFailedAfterDispatch()
+    {
+        EnsureDispatchCanTransition();
+        Status = NotificationStatuses.Failed;
+    }
+
+    /// <summary>
+    /// Records TTL expiry found while handling a fallback trigger: the plan
+    /// still had steps, but the notification's validity ended first. The
+    /// encrypted variables are purged because no render will ever run again.
+    /// </summary>
+    public void MarkExpiredAfterDispatch()
+    {
+        EnsureDispatchCanTransition();
+        Status = NotificationStatuses.Expired;
+        VariablesEncrypted = null;
+    }
+
     private void EnsurePipelineCanTransition()
     {
         if (Status != NotificationStatuses.Accepted)
         {
             throw new InvalidOperationException(
                 $"A notificação {Id} está em '{Status}' e não aceita transição do pipeline.");
+        }
+    }
+
+    private void EnsureDispatchCanTransition()
+    {
+        if (Status != NotificationStatuses.Dispatched)
+        {
+            throw new InvalidOperationException(
+                $"A notificação {Id} está em '{Status}' e não aceita transição do despacho.");
         }
     }
 

@@ -3,9 +3,11 @@
 ## Boundary
 
 - Keep one bounded context in this module: the notification lifecycle, from
-  ingestion to dispatch. This unit ships the REST ingestion and the Core
-  pipeline that consumes the `core-*` queues; dispatch-side state and the
-  query API arrive in later slices.
+  ingestion to dispatch. This unit ships the REST ingestion, the Core
+  pipeline that consumes the `core-*` queues, and the dispatch slice: the
+  `dispatch-*` consumers, the attempt state machine from `queued` on, the
+  push fan-out and the fallback handler. The query API arrives in a later
+  slice.
 - Keep invariants in the entities and pure functions under
   `src/Platform.Api/Modules/Notifications/Domain/`.
 - Keep use-case orchestration in the slices under
@@ -13,9 +15,11 @@
 - Read sibling contexts exclusively through their published contracts:
   `Modules.TemplateManagement.Integration.V1` (published catalog, variables
   validation, renderer and the policy rule contract),
-  `Modules.ContactConsent.Integration.V1` (recipient directory) and
-  `Modules.Audit.Integration.V1` (transactional audit append). Never touch
-  another context's data store or internal types.
+  `Modules.ContactConsent.Integration.V1` (recipient directory, contact and
+  token reveal, device-token lifecycle),
+  `Modules.Dispatch.Integration.V1` (channel providers and their resolution)
+  and `Modules.Audit.Integration.V1` (transactional audit append). Never
+  touch another context's data store or internal types.
 - Platform infrastructure is a dependency, not a sibling: the outbox writer
   (`NotificationHub.Api.Infrastructure.Messaging.IOutboxWriter`), the SQS
   consuming surface (`NotificationHub.Api.Infrastructure.Messaging.Consuming`),
@@ -29,10 +33,11 @@
 | Path | Responsibility |
 |---|---|
 | `src/Platform.Api/Modules/Notifications/Domain/` | notification, attempt, policy evaluation and idempotency entities, class vocabulary, canonical JSON, variables masking, public id form |
-| `src/Platform.Api/Modules/Notifications/Features/` | vertical slices for this context, including the Core pipeline under `Features/Pipeline/` |
-| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistence (schema `notifications`), Redis controls, template gate, privacy, partition manager, purge job, pipeline commit writer, poison sink |
+| `src/Platform.Api/Modules/Notifications/Features/` | vertical slices for this context: the Core pipeline under `Features/Pipeline/`, the dispatch consumer under `Features/Dispatching/`, the fallback handler under `Features/Fallback/` |
+| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistence (schema `notifications`), Redis controls, template gate, privacy, partition manager, purge job, pipeline commit writer, attempt dispatch writer, poison sinks |
 | `src/Platform.Api/Modules/Notifications/NotificationsModule.cs` | service registration and endpoint mapping for this context |
 | `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs` | composition of the `core` worker role, discovered by the worker host |
+| `src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs` | composition of the `dispatcher` worker role, discovered by the worker host |
 
 Owned state: `notification`, `notification_attempt` and `policy_evaluation`
 (monthly partitioned parents), `idempotency_key`. The platform `outbox` and
@@ -98,6 +103,51 @@ has no business effect and records its trail in its own short transaction.
   operational`; an optional band restriction mirrors the relay
   (`Modules:Notifications:CoreWorker:Bands`, empty = all).
 
+## Dispatch slice
+
+- The `dispatcher` worker role consumes the product of its configured
+  channels and bands over the `dispatch-{channel}-{band}` queues, with the
+  same slot priority as the core role (`auth > critical > transactional >
+  operational`). The composition of this phase hosts only e-mail (SendGrid)
+  and push (FCM); a configured channel without a hosted adapter refuses to
+  boot.
+- Ownership of an attempt is an optimistic lock: `queued -> sending` through
+  `UPDATE ... WHERE status = 'queued'`, stamping `provider_key`. Every later
+  transition is guarded by the expected stored status. The consumer dedupe
+  mark commits with the verdict, never with the claim: a send is not
+  idempotent, so a redelivery resolves on the stored status and never
+  reaches the provider again. A crash between claim and verdict parks the
+  attempt on `sending` for the reconciliation of a later phase.
+- Push fan-out expands at claim time, in the claim transaction: the claimed
+  attempt is stamped with the most recent active token and one sibling per
+  remaining token (five in total, at most, by `last_seen_at`) is inserted
+  already queued, copying the sealed content, the hashes and the step's
+  absolute `fallback_deadline`, each announced to the same queue via outbox.
+  `sequence` is the monotonic creation order per notification. Zero active
+  tokens at claim fail the attempt with `no-active-device-token`.
+- Verdicts: `Accepted` lands on `sent` (push: the first sibling accepted
+  also lands the notification on `delivered`); `Rejected` lands on `failed`
+  and, when the failure exhausts the step (push: no sibling succeeded and
+  every other sibling already failed), advances the plan in the same
+  transaction: a step with a deadline emits `FallbackRequested` to
+  `core-{class}` plus the `fallback.triggered` trail, and the last step
+  fails the notification; `Throttled` and an open circuit revert to
+  `queued` and postpone the message honoring `RetryAfter`; any other
+  transient error parks the attempt on `unknown`, which does not progress
+  in this phase.
+- The fallback handler runs inside the core role: it verifies the TTL
+  (expired ends the notification on `expired`), finds the step after the
+  failed channel in the published plan, renders the next channel and queues
+  the next attempt with the pipeline's transactional invariant. A next step
+  without content, contact or plan entry fails the notification with a
+  stable reason.
+- PII at send time only: the sealed render is opened in memory, the e-mail
+  address comes from `RevealContactValueAsync` and the push token from
+  `RevealDeviceTokenAsync`, both transient. FCM `UNREGISTERED` and
+  `INVALID_ARGUMENT` report the dead token through the ContactConsent
+  lifecycle contract after the verdict commits; the report is best effort
+  and idempotent on the owning side.
+
 ## Variables and PII
 
 - `variables_masked` (jsonb, mandatory) stores the canonical variables object
@@ -146,7 +196,11 @@ type is `producer` with the token identity (`appid`/`oid`) as actor id. The
 pipeline adds `notification.dispatched`, `notification.rejected`,
 `notification.deferred`, `notification.expired`, `notification.duplicate` and
 `message.discarded`, with actor type `system` and actor id `core-worker`
-(`Infrastructure/Auditing/PipelineAuditVocabulary.cs`). The constants live
+(`Infrastructure/Auditing/PipelineAuditVocabulary.cs`). The dispatch side adds
+`fallback.triggered`, `notification.delivered`, `notification.failed` and
+`fallback.attempt_queued`, with actor id `dispatcher` for the dispatcher's
+own decisions and `core-worker` for the fallback handler
+(`Infrastructure/Auditing/DispatchingAuditVocabulary.cs`). The constants live
 module-locally; promoting them into the Audit `Integration/V1` vocabulary is
 a pending cross-module decision.
 

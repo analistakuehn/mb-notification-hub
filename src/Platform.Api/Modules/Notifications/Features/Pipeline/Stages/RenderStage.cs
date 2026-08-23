@@ -54,12 +54,21 @@ internal sealed class RenderStage(
         }
 
         context.Render = render.Value;
-        context.RenderedContentEncrypted = await EncryptRenderedContentAsync(
-            context.Notification.Application, render.Value!, cancellationToken);
+        context.RenderedContentEncrypted = await RenderedContentSealing.SealAsync(
+            cipher, context.Notification.Application, render.Value!, cancellationToken);
         return StageOutcome.Continue;
     }
+}
 
-    private async Task<byte[]> EncryptRenderedContentAsync(
+/// <summary>
+/// Seals one render into the stored attempt shape, with the application's
+/// data key. One sealing for every producer of attempts (pipeline and
+/// fallback), so the dispatcher always opens the same shape.
+/// </summary>
+internal static class RenderedContentSealing
+{
+    public static async Task<byte[]> SealAsync(
+        IEnvelopeCipher cipher,
         string application,
         PublishedTemplateRender render,
         CancellationToken cancellationToken)

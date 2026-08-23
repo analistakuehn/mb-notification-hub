@@ -6,6 +6,8 @@ using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
+using NotificationHub.Api.Modules.Dispatch.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Worker;
 
@@ -78,6 +80,65 @@ public sealed class WorkerHostCompositionTests
             .Queues.Select(binding => binding.QueueName)
             .ShouldBe(["core-auth", "core-critical", "core-transactional", "core-operational"]);
     }
+
+    [Fact]
+    public void The_dispatcher_role_hosts_exactly_the_dispatch_consumer_and_the_processed_purge()
+    {
+        HostApplicationBuilder builder = CreateBuilder(DispatcherSettings());
+
+        WorkerRoleCatalog.Register(builder.Services, builder.Configuration);
+        using IHost host = builder.Build();
+
+        IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
+        hosted.OfType<SqsConsumerService<DispatchMessageProcessor>>().ShouldHaveSingleItem();
+        hosted.OfType<ProcessedMessagePurgeService>().ShouldHaveSingleItem();
+        hosted
+            .Where(service => service is not SqsConsumerService<DispatchMessageProcessor>
+                && service is not ProcessedMessagePurgeService)
+            .ShouldAllBe(service => service.GetType().Namespace!.StartsWith("Microsoft.", StringComparison.Ordinal));
+
+        // The role consumes the sibling contexts through their published
+        // contracts and drains the product of hosted channels and bands.
+        using IServiceScope scope = host.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IRecipientDirectory>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<IDeviceTokenLifecycle>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<IChannelProviderResolver>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<DispatchMessageProcessor>().ShouldNotBeNull();
+        host.Services.GetRequiredService<SqsConsumerPlan<DispatchMessageProcessor>>()
+            .Queues.Select(binding => binding.QueueName)
+            .ShouldBe(
+            [
+                "dispatch-email-auth", "dispatch-push-auth",
+                "dispatch-email-critical", "dispatch-push-critical",
+                "dispatch-email-transactional", "dispatch-push-transactional",
+                "dispatch-email-operational", "dispatch-push-operational",
+            ]);
+    }
+
+    [Fact]
+    public void The_dispatcher_role_refuses_to_boot_for_a_channel_without_a_hosted_adapter()
+    {
+        Dictionary<string, string?> settings = DispatcherSettings();
+        settings["Modules:Notifications:Dispatcher:Channels:0"] = "sms";
+        HostApplicationBuilder builder = CreateBuilder(settings);
+
+        Should.Throw<InvalidOperationException>(
+                () => WorkerRoleCatalog.Register(builder.Services, builder.Configuration))
+            .Message.ShouldContain("sms");
+    }
+
+    private static Dictionary<string, string?> DispatcherSettings()
+        => new()
+        {
+            ["Worker:Role"] = "dispatcher",
+            ["Platform:Messaging:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Platform:Cryptography:Envelope:KeyId"] = "test-key",
+            ["Platform:Cryptography:Envelope:MasterKey"] = Convert.ToBase64String(new byte[32]),
+            ["Modules:Notifications:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:ContactConsent:Redis:ConnectionString"] = "localhost:6379",
+            ["Modules:Dispatch:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+        };
 
     [Fact]
     public void The_contact_consent_role_hosts_exactly_the_invalidation_consumer_and_the_processed_purge()

@@ -44,13 +44,14 @@ public sealed record ConsentDecision(
     DateTimeOffset RecordedAt);
 
 /// <summary>
-/// One active push registration. The token is the routing address the push
-/// dispatcher hands to the provider; it never belongs in logs, traces or
-/// persisted evidence outside this module's own tables.
+/// One active push registration, addressable through its id. The token value
+/// stays inside this module: the push fan-out reads the snapshot only for ids
+/// and recency, and the dispatcher asks for the routing address at send time
+/// through the dedicated reveal read, so every plaintext egress is an
+/// explicit call site.
 /// </summary>
 public sealed record DeviceRegistration(
     Guid DeviceTokenId,
-    string Token,
     string Platform,
     string? AppVersion,
     DateTimeOffset LastSeenAt);

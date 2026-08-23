@@ -60,4 +60,11 @@ internal sealed class CachedRecipientDirectory(
         Guid contactPointId,
         CancellationToken cancellationToken)
         => store.RevealContactValueAsync(recipientId, contactPointId, cancellationToken);
+
+    /// <summary>Never cached: routing tokens do not belong in a cache either.</summary>
+    public Task<Result<string>> RevealDeviceTokenAsync(
+        string recipientId,
+        Guid deviceTokenId,
+        CancellationToken cancellationToken)
+        => store.RevealDeviceTokenAsync(recipientId, deviceTokenId, cancellationToken);
 }

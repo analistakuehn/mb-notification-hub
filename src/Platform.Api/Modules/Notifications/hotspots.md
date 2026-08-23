@@ -73,6 +73,36 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   decision of this phase).
 - **Review condition**: the next data-model revision adopts the columns.
 
+## A crash between claim and verdict parks the attempt on sending
+
+- **Assumption accepted**: when the dispatcher dies after committing the
+  claim and before committing a verdict, the attempt stays on `sending`
+  forever in this phase, and the redelivered message resolves as a
+  duplicate on the stored status instead of resending.
+- **Evidence**: a provider send is not idempotent
+  (`Infrastructure/Persistence/AttemptDispatchWriter.cs`); the accepted
+  posture bans any resend without a conclusive verdict, and reconciliation
+  belongs to the phase-2 tracker.
+- **Owner**: Notifications module maintainers.
+- **Status**: accepted, same bucket as the `unknown` attempts of this phase.
+- **Review condition**: the phase-2 reconciliation must sweep `sending`
+  attempts older than the provider timeout together with the `unknown` ones.
+
+## Device-token invalidation is reported best effort after the verdict
+
+- **Assumption accepted**: the dead-token report to the ContactConsent
+  lifecycle runs after the verdict commit and outside its transaction; a
+  failure there is logged and not retried, because the queue message is
+  already settled and a redelivery resolves as duplicate.
+- **Evidence**: `Features/Dispatching/DispatchMessageProcessor.cs`
+  (`ReportDeadTokenAsync`); the invalidation is idempotent on the owning
+  side, so any later report of the same token heals the gap.
+- **Owner**: Notifications module maintainers with ContactConsent module
+  maintainers.
+- **Status**: accepted.
+- **Review condition**: the phase-2 provider-feedback path must re-report
+  dead tokens seen by webhooks, closing the window a lost report leaves.
+
 ## Deferred observability is a structured log, not a metric
 
 - **Assumption accepted**: a deferral logs a structured warning with the

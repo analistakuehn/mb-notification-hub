@@ -81,7 +81,7 @@ internal sealed class RecipientDirectory(
             .Where(device => device.RecipientId == recipientId && device.InvalidatedAt == null)
             .OrderByDescending(device => device.LastSeenAt)
             .Select(device => new DeviceRegistration(
-                device.Id, device.Token, device.Platform, device.AppVersion, device.LastSeenAt))
+                device.Id, device.Platform, device.AppVersion, device.LastSeenAt))
             .ToListAsync(cancellationToken);
 
         return Result.Success(new RecipientSnapshot
@@ -117,5 +117,28 @@ internal sealed class RecipientDirectory(
 
         var value = await protector.RevealAsync(point.ValueEncrypted, cancellationToken);
         return Result.Success(value);
+    }
+
+    public async Task<Result<string>> RevealDeviceTokenAsync(
+        string recipientId,
+        Guid deviceTokenId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientId);
+
+        DeviceToken? device = await db.DeviceTokens
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                candidate => candidate.Id == deviceTokenId
+                    && candidate.RecipientId == recipientId
+                    && candidate.InvalidatedAt == null,
+                cancellationToken);
+        if (device is null)
+        {
+            return Result.NotFound<string>(
+                "O registro de dispositivo não existe, foi invalidado ou pertence a outro destinatário.");
+        }
+
+        return Result.Success(device.Token);
     }
 }

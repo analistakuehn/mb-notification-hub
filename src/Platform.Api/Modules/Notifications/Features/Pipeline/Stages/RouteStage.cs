@@ -37,13 +37,18 @@ internal sealed class RouteStage : INotificationStage
                 .Select(point => (Guid?)point.ContactPointId)
                 .FirstOrDefault();
         context.FallbackTimeout = firstStep.Timeout;
-        context.DispatchDestination = DispatchDestination(context, channel);
+        context.DispatchDestination = DestinationFor(
+            context.Template?.Purpose, channel, context.Notification.Class);
         return Task.FromResult(StageOutcome.Continue);
     }
 
-    private static string DispatchDestination(NotificationContext context, string channel)
-        => string.Equals(
-            context.Template?.Purpose, ResolveStage.AuthenticationPurpose, StringComparison.Ordinal)
-                ? $"dispatch-{channel}-auth"
-                : $"dispatch-{channel}-{context.Notification.Class}";
+    /// <summary>
+    /// The dispatch queue of one attempt: the auth suffix when the template's
+    /// purpose is authentication, otherwise the notification's class. Shared
+    /// with the fallback path, so both producers route identically.
+    /// </summary>
+    internal static string DestinationFor(string? templatePurpose, string channel, string notificationClass)
+        => string.Equals(templatePurpose, ResolveStage.AuthenticationPurpose, StringComparison.Ordinal)
+            ? $"dispatch-{channel}-auth"
+            : $"dispatch-{channel}-{notificationClass}";
 }

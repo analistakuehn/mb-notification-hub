@@ -191,6 +191,10 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("delivered_at");
 
+                    b.Property<Guid?>("DeviceTokenId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_token_id");
+
                     b.Property<string>("ErrorCode")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")

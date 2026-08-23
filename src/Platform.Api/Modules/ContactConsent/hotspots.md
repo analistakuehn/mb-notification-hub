@@ -23,12 +23,29 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   token may momentarily exist under two recipients (device handed to another
   logged-in user) and nothing here reconciles that.
 - **Evidence**: `DeviceTokenConfiguration.cs`; no cross-recipient rule exists
-  in the accepted design for this phase.
-- **Owner**: ContactConsent module maintainers.
-- **Status**: accepted, pending review.
-- **Review condition**: the push fan-out slice of the dispatch phase must
-  decide whether a token registered by a newer recipient invalidates the older
-  registration.
+  in the accepted design for this phase. The dispatch slice landed without
+  deciding cross-recipient invalidation: the fan-out reads each recipient's
+  own registrations and a provider `UNREGISTERED` invalidates only the
+  reported registration.
+- **Owner**: ContactConsent module maintainers with Arquitetura.
+- **Status**: accepted, still pending the cross-recipient decision.
+- **Review condition**: the delivery-feedback phase must decide whether a
+  token registered by a newer recipient invalidates the older registration.
+
+## The snapshot dropped the token value in favor of a dedicated reveal
+
+- **Assumption accepted**: `DeviceRegistration` no longer carries the token;
+  the fan-out uses ids and recency only, and the dispatcher reveals the
+  routing address at send time through `RevealDeviceTokenAsync`, never
+  cached.
+- **Evidence**: `Integration/V1/RecipientSnapshot.cs`,
+  `Integration/V1/IRecipientDirectory.cs` and the accepted deviation of the
+  dispatch slice: the narrower PII boundary makes every token egress an
+  explicit call site.
+- **Owner**: ContactConsent module maintainers with Arquitetura.
+- **Status**: accepted (deviation recorded in the phase document).
+- **Review condition**: a consumer that legitimately needs the token in the
+  snapshot reopens the contract discussion as a new decision.
 
 ## Profile preferences write through the contact-points declaration
 

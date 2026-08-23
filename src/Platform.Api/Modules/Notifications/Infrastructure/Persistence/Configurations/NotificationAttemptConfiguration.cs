@@ -35,6 +35,11 @@ internal sealed class NotificationAttemptConfiguration : IEntityTypeConfiguratio
         builder.Property(attempt => attempt.ContactPointId)
             .HasColumnName("contact_point_id");
 
+        // Logical reference into the contact directory, same regime as
+        // contact_point_id: no physical foreign key across module schemas.
+        builder.Property(attempt => attempt.DeviceTokenId)
+            .HasColumnName("device_token_id");
+
         builder.Property(attempt => attempt.ProviderMessageId)
             .HasColumnName("provider_message_id")
             .HasMaxLength(200);

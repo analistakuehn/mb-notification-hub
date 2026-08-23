@@ -3,6 +3,7 @@ using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
+using NotificationHub.Api.Modules.Notifications.Features.Fallback;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Rules;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
@@ -80,6 +81,7 @@ public sealed class CoreWorkerRole : IWorkerRoleModule
         services.AddScoped<RouteStage>();
         services.AddScoped(serviceProvider => new NotificationPipeline(StagesInOrder(serviceProvider)));
         services.AddScoped<PipelineCommitWriter>();
+        services.AddScoped<FallbackRequestHandler>();
         services.AddScoped<IPoisonMessageSink, CorePoisonMessageSink>();
 
         services.AddSqsQueueConsumer<CoreMessageProcessor>(QueueBindings(configuration));

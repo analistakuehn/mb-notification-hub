@@ -11,6 +11,7 @@ internal static class ContactConsentAuditVocabulary
     internal const string ContactPointsDeclared = "contact.points.declared";
     internal const string ConsentsDeclared = "consents.declared";
     internal const string DeviceRegistered = "device.registered";
+    internal const string DeviceInvalidated = "device.invalidated";
     internal const string MessageDiscarded = "message.discarded";
 
     internal const string EntityTypeRecipient = "recipient";

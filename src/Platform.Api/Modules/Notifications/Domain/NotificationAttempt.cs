@@ -1,13 +1,29 @@
 namespace NotificationHub.Api.Modules.Notifications.Domain;
 
 /// <summary>
-/// Attempt states the pipeline knows about. The Core only ever writes the
-/// first one; the dispatch side owns every later transition through its own
-/// optimistic lock over the queued state.
+/// Attempt states this context writes. The Core pipeline only ever writes the
+/// first one; the dispatcher owns every later transition through its
+/// optimistic lock over the stored status, so two concurrent claims of the
+/// same attempt can never both send.
 /// </summary>
 public static class NotificationAttemptStatuses
 {
     public const string Queued = "queued";
+
+    /// <summary>A dispatcher claimed the attempt and owns the provider call.</summary>
+    public const string Sending = "sending";
+
+    /// <summary>The provider took responsibility for the message.</summary>
+    public const string Sent = "sent";
+
+    /// <summary>Definitive failure: the provider rejected, or the target was unusable.</summary>
+    public const string Failed = "failed";
+
+    /// <summary>
+    /// No conclusive provider verdict (timeout, 5xx): whether the message
+    /// arrived is unknown, and reconciliation of a later phase resolves it.
+    /// </summary>
+    public const string Unknown = "unknown";
 }
 
 /// <summary>
@@ -31,7 +47,11 @@ public sealed class NotificationAttempt
 
     public Guid NotificationId { get; private set; }
 
-    /// <summary>1-based position inside the notification's delivery plan.</summary>
+    /// <summary>
+    /// 1-based monotonic creation order among the notification's attempts.
+    /// Push fan-out inserts one sibling per device token, so the sequence
+    /// orders creation, not delivery-plan steps.
+    /// </summary>
     public int Sequence { get; private set; }
 
     public string Channel { get; private set; }
@@ -41,6 +61,14 @@ public sealed class NotificationAttempt
 
     /// <summary>Contact point the attempt targets; null for push, whose targets are device tokens.</summary>
     public Guid? ContactPointId { get; private set; }
+
+    /// <summary>
+    /// Device token a push attempt targets: a logical reference into the
+    /// contact directory, stamped by the dispatcher at claim time when it
+    /// expands the fan-out. Null on non-push attempts and on a push attempt
+    /// the fan-out has not expanded yet.
+    /// </summary>
+    public Guid? DeviceTokenId { get; private set; }
 
     public string? ProviderMessageId { get; private set; }
 
@@ -87,13 +115,15 @@ public sealed class NotificationAttempt
             Channel = draft.Channel,
             ProviderKey = null,
             ContactPointId = draft.ContactPointId,
+            DeviceTokenId = draft.DeviceTokenId,
             ProviderMessageId = null,
             RenderedContentEncrypted = draft.RenderedContentEncrypted,
             ContentHashFull = draft.ContentHashFull,
             ContentHashMasked = draft.ContentHashMasked,
             Status = NotificationAttemptStatuses.Queued,
             ErrorCode = null,
-            FallbackDeadline = draft.FallbackTimeout is { } timeout ? draft.QueuedAt + timeout : null,
+            FallbackDeadline = draft.FallbackDeadline
+                ?? (draft.FallbackTimeout is { } timeout ? draft.QueuedAt + timeout : null),
             SentAt = null,
             DeliveredAt = null,
             CreatedAt = draft.QueuedAt,
@@ -112,6 +142,9 @@ public sealed record NotificationAttemptDraft
 
     public Guid? ContactPointId { get; init; }
 
+    /// <summary>Device token of a push sibling; null until the fan-out expansion stamps one.</summary>
+    public Guid? DeviceTokenId { get; init; }
+
     public required byte[] RenderedContentEncrypted { get; init; }
 
     public required string ContentHashFull { get; init; }
@@ -120,6 +153,13 @@ public sealed record NotificationAttemptDraft
 
     /// <summary>Wait before the fallback step of the plan; null when the plan has no next step.</summary>
     public TimeSpan? FallbackTimeout { get; init; }
+
+    /// <summary>
+    /// Absolute fallback instant copied verbatim onto a push sibling, so every
+    /// sibling shares the step's deadline instead of recomputing it from its
+    /// own creation instant. Takes precedence over <see cref="FallbackTimeout"/>.
+    /// </summary>
+    public DateTimeOffset? FallbackDeadline { get; init; }
 
     public required DateTimeOffset QueuedAt { get; init; }
 }

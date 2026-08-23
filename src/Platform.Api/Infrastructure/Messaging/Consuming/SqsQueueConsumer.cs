@@ -9,9 +9,15 @@ namespace NotificationHub.Api.Infrastructure.Messaging.Consuming;
 public sealed record SqsQueueBinding(string QueueName, int PriorityRank);
 
 /// <summary>Counters of one receive pass over one queue.</summary>
-public sealed record SqsConsumePassResult(int Received, int Processed, int Duplicates, int Discarded, int Failed)
+public sealed record SqsConsumePassResult(
+    int Received,
+    int Processed,
+    int Duplicates,
+    int Discarded,
+    int Failed,
+    int Postponed)
 {
-    public static readonly SqsConsumePassResult None = new(0, 0, 0, 0, 0);
+    public static readonly SqsConsumePassResult None = new(0, 0, 0, 0, 0, 0);
 }
 
 /// <summary>
@@ -70,7 +76,8 @@ internal sealed class SqsQueueConsumer<TProcessor>(
             settled.Count(result => result == SettleResult.Processed),
             settled.Count(result => result == SettleResult.Duplicate),
             settled.Count(result => result == SettleResult.Discarded),
-            settled.Count(result => result == SettleResult.Failed));
+            settled.Count(result => result == SettleResult.Failed),
+            settled.Count(result => result == SettleResult.Postponed));
     }
 
     private async Task<SettleResult> SettleAsync(
@@ -117,6 +124,7 @@ internal sealed class SqsQueueConsumer<TProcessor>(
             return SettleResult.Discarded;
         }
 
+        envelope = envelope with { SourceQueue = binding.QueueName };
         using IServiceScope scope = scopeFactory.CreateScope();
         TProcessor processor = scope.ServiceProvider.GetRequiredService<TProcessor>();
         if (!processor.Accepts(envelope.Type, envelope.SchemaVersion))
@@ -162,9 +170,47 @@ internal sealed class SqsQueueConsumer<TProcessor>(
                     },
                     cancellationToken);
                 return SettleResult.Discarded;
+            case MessageDisposition.Postponed postponed:
+                await PostponeAsync(queueUrl, message, postponed, cancellationToken);
+                return SettleResult.Postponed;
             default:
                 throw new InvalidOperationException(
                     $"Disposição de mensagem não suportada: {disposition.GetType().Name}.");
+        }
+    }
+
+    /// <summary>
+    /// Applies a deliberate return with delay: the message stays on the queue
+    /// and comes back after the requested wait, or after the standard backoff
+    /// when the processor named none. A failed visibility change is logged and
+    /// absorbed: the original visibility timeout still returns the message.
+    /// </summary>
+    private async Task PostponeAsync(
+        string queueUrl,
+        Message message,
+        MessageDisposition.Postponed postponed,
+        CancellationToken cancellationToken)
+    {
+        var delaySeconds = postponed.Delay is { } delay
+            ? (int)Math.Clamp(Math.Ceiling(delay.TotalSeconds), 1, MaxVisibilitySeconds)
+            : SqsBackoff.DelaySeconds(
+                ReadReceiveCount(message), options.Value.BackoffBaseSeconds, options.Value.BackoffMaxSeconds);
+        logger.ConsumerMessagePostponed(binding.QueueName, message.MessageId, postponed.Reason, delaySeconds);
+        try
+        {
+            await sqs.ChangeMessageVisibilityAsync(
+                new ChangeMessageVisibilityRequest
+                {
+                    QueueUrl = queueUrl,
+                    ReceiptHandle = message.ReceiptHandle,
+                    VisibilityTimeout = delaySeconds,
+                },
+                cancellationToken);
+        }
+        catch (Exception visibilityFailure) when (visibilityFailure is not OperationCanceledException)
+        {
+            logger.ConsumerVisibilityChangeFailed(
+                binding.QueueName, message.MessageId, timeProvider.GetUtcNow(), visibilityFailure);
         }
     }
 
@@ -221,6 +267,9 @@ internal sealed class SqsQueueConsumer<TProcessor>(
         }
     }
 
+    /// <summary>SQS caps a visibility timeout at 12 hours.</summary>
+    private const int MaxVisibilitySeconds = 43_200;
+
     private static int ReadReceiveCount(Message message)
         => message.Attributes is { } attributes
             && attributes.TryGetValue(nameof(MessageSystemAttributeName.ApproximateReceiveCount), out var raw)
@@ -234,5 +283,6 @@ internal sealed class SqsQueueConsumer<TProcessor>(
         Duplicate,
         Discarded,
         Failed,
+        Postponed,
     }
 }

@@ -17,8 +17,8 @@ public static class DevicePlatforms
 /// One push token registered by the recipient's app on one device. A
 /// re-registration of the same token refreshes the last-seen instant and the
 /// app version, which is what orders the dispatch fan-out. Invalidation is
-/// stamped by the provider feedback path of a later phase; nothing in this
-/// module writes it.
+/// stamped by the provider feedback path, through the published lifecycle
+/// contract, when the provider declares the token dead.
 /// </summary>
 public sealed class DeviceToken
 {
@@ -43,10 +43,20 @@ public sealed class DeviceToken
 
     public DateTimeOffset LastSeenAt { get; private set; }
 
-    /// <summary>Stamped by provider feedback in a later phase; null while the token is active.</summary>
+    /// <summary>Stamped by provider feedback; null while the token is active.</summary>
     public DateTimeOffset? InvalidatedAt { get; private set; }
 
     public bool IsActive => InvalidatedAt is null;
+
+    /// <summary>
+    /// Stamps the invalidation instant on provider feedback. Idempotent: an
+    /// already invalidated token keeps its first instant, so a repeated
+    /// report never rewrites history.
+    /// </summary>
+    public void Invalidate(DateTimeOffset now)
+    {
+        InvalidatedAt ??= now;
+    }
 
     public static DeviceToken Register(
         string recipientId,

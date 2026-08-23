@@ -10,11 +10,12 @@
   `src/Platform.Api/Modules/ContactConsent/Domain/`.
 - Keep use-case orchestration in the slices under
   `src/Platform.Api/Modules/ContactConsent/Features/`.
-- Sibling contexts read this module exclusively through the published contract
-  `Modules.ContactConsent.Integration.V1` (`IRecipientDirectory`). This module
-  reads siblings exclusively through `Modules.Audit.Integration.V1`
-  (transactional audit append). Never touch another context's data store or
-  internal types.
+- Sibling contexts read this module exclusively through the published
+  contracts of `Modules.ContactConsent.Integration.V1`:
+  `IRecipientDirectory` for reads and reveals, and `IDeviceTokenLifecycle`
+  for the provider-feedback invalidation write. This module reads siblings
+  exclusively through `Modules.Audit.Integration.V1` (transactional audit
+  append). Never touch another context's data store or internal types.
 - Platform infrastructure is a dependency, not a sibling: the outbox writer
   (`NotificationHub.Api.Infrastructure.Messaging.IOutboxWriter`) and the
   envelope cipher (`NotificationHub.Api.Infrastructure.Cryptography.IEnvelopeCipher`)
@@ -60,8 +61,12 @@ in its own short transaction.
 - Values are normalized before hashing (trim; lowercase for e-mail), so the
   deterministic hash serves equality search and the uniqueness of
   `(recipient, channel, value_hash)`.
-- Device tokens are routing addresses: stored in clear by design, exposed in
-  the snapshot for the push fan-out, and banned from logs and audit details.
+- Device tokens are routing addresses: stored in clear by design, banned
+  from logs and audit details, and absent from the snapshot, which exposes
+  only registration ids and recency for the push fan-out. The token value
+  leaves the module exclusively through
+  `IRecipientDirectory.RevealDeviceTokenAsync`, transient at send time,
+  never cached.
 
 ## Snapshot cache and degraded reads
 
@@ -100,8 +105,11 @@ in its own short transaction.
 - `POST .../devices` registers a token and creates the profile row on first
   contact; re-posting the same token refreshes `last_seen_at` and
   `app_version` without duplicating and without an invalidation event.
-  `invalidated_at` exists in the model; the provider feedback path of a later
-  phase is its only writer.
+  `invalidated_at` has exactly one writer: the provider feedback path,
+  through `IDeviceTokenLifecycle.InvalidateDeviceTokenAsync`, which commits
+  the stamp, the cache-invalidation event and the `device.invalidated`
+  audit in one transaction and answers a repeated report as a declarative
+  no-op with its own trail.
 
 ## Extension points (outside v1, with a named return trigger)
 
@@ -112,15 +120,18 @@ in its own short transaction.
 - **Kafka ingestion** (`contacts.events.v1`): a later slice adds the consumer
   path; it must reuse the same handlers' reconciliation semantics, never a
   parallel write path.
-- **Device token invalidation** by FCM feedback: later phase, writes
-  `invalidated_at` only.
+- **Device token invalidation** by FCM feedback: delivered through
+  `IDeviceTokenLifecycle`; webhooks of the delivery-feedback phase reuse the
+  same contract, never a parallel write path.
 
 ## Audit vocabulary
 
 Actions follow the platform dot vocabulary: `contact.points.declared`,
-`consents.declared`, `device.registered`; entity types `recipient` and
-`device_token`; actor type `system` for `appid` principals and `user` for
-human identities, with the stable id from the token. The constants live in
+`consents.declared`, `device.registered`, `device.invalidated`; entity types
+`recipient` and `device_token`; actor type `system` for `appid` principals
+and `user` for human identities, with the stable id from the token. The
+invalidation write records actor id `dispatcher`, the reporter of the
+provider feedback. The constants live in
 `Infrastructure/Auditing/ContactConsentAuditVocabulary.cs`; promoting them
 into the Audit `Integration/V1` vocabulary is a pending cross-module decision.
 

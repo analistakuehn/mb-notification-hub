@@ -93,6 +93,81 @@ public sealed class NotificationTransitionTests
         => NotificationAttempt.Queue(Draft(DateTimeOffset.UtcNow, fallbackTimeout: null))
             .FallbackDeadline.ShouldBeNull();
 
+    [Fact]
+    public void A_push_sibling_copies_the_absolute_deadline_instead_of_recomputing_it()
+    {
+        var stepDeadline = new DateTimeOffset(2026, 8, 23, 12, 0, 30, TimeSpan.Zero);
+        DateTimeOffset siblingQueuedAt = stepDeadline.AddSeconds(-10);
+        var tokenId = Guid.NewGuid();
+
+        NotificationAttempt sibling = NotificationAttempt.Queue(new NotificationAttemptDraft
+        {
+            NotificationId = Guid.NewGuid(),
+            Sequence = 2,
+            Channel = "push",
+            DeviceTokenId = tokenId,
+            RenderedContentEncrypted = [1, 2, 3],
+            ContentHashFull = "full",
+            ContentHashMasked = "masked",
+            FallbackTimeout = TimeSpan.FromMinutes(5),
+            FallbackDeadline = stepDeadline,
+            QueuedAt = siblingQueuedAt,
+        });
+
+        sibling.FallbackDeadline.ShouldBe(stepDeadline);
+        sibling.DeviceTokenId.ShouldBe(tokenId);
+        sibling.CreatedAt.ShouldBe(siblingQueuedAt);
+    }
+
+    [Fact]
+    public void The_first_accepted_push_sibling_delivers_the_notification()
+    {
+        Notification notification = AcceptedWithVariables();
+        notification.MarkDispatched(policyVersion: 4);
+
+        notification.MarkDelivered();
+
+        notification.Status.ShouldBe(NotificationStatuses.Delivered);
+        notification.VariablesEncrypted.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void An_exhausted_plan_fails_the_notification()
+    {
+        Notification notification = AcceptedWithVariables();
+        notification.MarkDispatched(policyVersion: 4);
+
+        notification.MarkFailedAfterDispatch();
+
+        notification.Status.ShouldBe(NotificationStatuses.Failed);
+    }
+
+    [Fact]
+    public void Expiring_during_fallback_purges_the_encrypted_variables()
+    {
+        Notification notification = AcceptedWithVariables();
+        notification.MarkDispatched(policyVersion: 4);
+
+        notification.MarkExpiredAfterDispatch();
+
+        notification.Status.ShouldBe(NotificationStatuses.Expired);
+        notification.VariablesEncrypted.ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_notification_outside_dispatched_refuses_a_dispatch_transition()
+    {
+        Notification accepted = AcceptedWithVariables();
+        Should.Throw<InvalidOperationException>(() => accepted.MarkDelivered());
+        Should.Throw<InvalidOperationException>(() => accepted.MarkFailedAfterDispatch());
+        Should.Throw<InvalidOperationException>(() => accepted.MarkExpiredAfterDispatch());
+
+        Notification delivered = AcceptedWithVariables();
+        delivered.MarkDispatched(policyVersion: 4);
+        delivered.MarkDelivered();
+        Should.Throw<InvalidOperationException>(() => delivered.MarkFailedAfterDispatch());
+    }
+
     private static NotificationAttemptDraft Draft(DateTimeOffset queuedAt, TimeSpan? fallbackTimeout)
         => new()
         {

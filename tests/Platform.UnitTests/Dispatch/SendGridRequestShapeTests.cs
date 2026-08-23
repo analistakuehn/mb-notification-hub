@@ -67,6 +67,33 @@ public sealed class SendGridRequestShapeTests
         root.GetProperty("content")[0].GetProperty("type").GetString().ShouldBe("text/plain");
     }
 
+    [Fact]
+    public void Correlation_ids_travel_in_custom_args_without_touching_the_content()
+    {
+        var correlation = new DispatchCorrelation(Guid.NewGuid(), Guid.NewGuid());
+
+        SendGridMailRequest request = SendGridChannelProvider.BuildRequest(
+            new EmailDeliveryTarget("person@example.com"), Message, Options(), correlation);
+
+        SendGridPersonalization personalization = request.Personalizations.ShouldHaveSingleItem();
+        personalization.CustomArgs.ShouldNotBeNull();
+        personalization.CustomArgs["notification_id"].ShouldBe(correlation.NotificationId.ToString());
+        personalization.CustomArgs["attempt_id"].ShouldBe(correlation.AttemptId.ToString());
+        request.Content[1].Value.ShouldBe("<html><body>Olá</body></html>");
+        request.Subject.ShouldBe("Confirme sua operação");
+    }
+
+    [Fact]
+    public void Without_correlation_the_custom_args_member_stays_off_the_wire()
+    {
+        SendGridMailRequest request = SendGridChannelProvider.BuildRequest(
+            new EmailDeliveryTarget("person@example.com"), Message, Options());
+
+        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(request));
+        document.RootElement.GetProperty("personalizations")[0]
+            .TryGetProperty("custom_args", out _).ShouldBeFalse();
+    }
+
     private static SendGridOptions Options(bool sandbox = true)
         => new()
         {

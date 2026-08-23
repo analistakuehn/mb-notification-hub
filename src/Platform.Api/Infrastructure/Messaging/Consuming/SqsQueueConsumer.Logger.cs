@@ -22,4 +22,7 @@ internal static partial class SqsQueueConsumerLogger
 
     [LoggerMessage(EventId = 7306, Level = LogLevel.Error, Message = "Falha na passada de consumo da fila {QueueName}; nova tentativa após o intervalo.")]
     internal static partial void ConsumerPassFailed(this ILogger logger, string queueName, Exception exception);
+
+    [LoggerMessage(EventId = 7307, Level = LogLevel.Information, Message = "Mensagem {SqsMessageId} devolvida à fila {QueueName} por decisão do processador ({Reason}); retorno em {DelaySeconds} s.")]
+    internal static partial void ConsumerMessagePostponed(this ILogger logger, string queueName, string sqsMessageId, string reason, int delaySeconds);
 }

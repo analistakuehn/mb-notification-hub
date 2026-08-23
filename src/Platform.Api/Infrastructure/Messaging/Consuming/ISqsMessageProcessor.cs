@@ -27,6 +27,16 @@ public abstract record MessageDisposition
     /// deletes the message.
     /// </summary>
     public sealed record Discard(string Reason) : MessageDisposition;
+
+    /// <summary>
+    /// The processor deliberately returned the message to the queue with an
+    /// explicit delay: no effect committed and the message must come back
+    /// after <see cref="Delay"/> (null falls back to the consumer's standard
+    /// backoff). Unlike the exception path, this is a decision, not a
+    /// failure: the consumer applies it through a visibility change and never
+    /// counts it against the redrive policy semantics of an error.
+    /// </summary>
+    public sealed record Postponed(TimeSpan? Delay, string Reason) : MessageDisposition;
 }
 
 /// <summary>

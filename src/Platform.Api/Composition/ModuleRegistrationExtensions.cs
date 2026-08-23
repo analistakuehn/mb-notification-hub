@@ -53,7 +53,10 @@ public static class ModuleRegistrationExtensions
                 ConfigureServicesMethod, BindingFlags.Public | BindingFlags.Static)
                 ?? throw new InvalidOperationException(
                     $"O papel de worker '{module.FullName}' não expõe o método estático {ConfigureServicesMethod}.");
-            if (!roles.TryAdd(role, (services, configuration) => configure.Invoke(null, [services, configuration])))
+            // A direct delegate, never MethodInfo.Invoke: a composition that
+            // refuses to boot must surface its own exception, not a
+            // reflection wrapper.
+            if (!roles.TryAdd(role, configure.CreateDelegate<Action<IServiceCollection, IConfiguration>>()))
             {
                 throw new InvalidOperationException(
                     $"O papel de worker '{role}' está declarado por mais de um módulo.");

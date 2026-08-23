@@ -227,7 +227,7 @@ Decisões que o MassTransit fazia e agora são nossas:
 - **Outbox → fila/tópico**: um `Outbox Relay Worker` lê `outbox` (em lotes, `FOR UPDATE SKIP LOCKED`), publica no destino da linha — SQS via `SendMessageBatch` ou Kafka via producer idempotente (`acks=all`, `enable.idempotence=true`) — e marca como enviado. At-least-once; dedupe no consumidor.
 - **Consumidor idempotente**: tabela `processed_messages(message_id, consumer, processed_at)` verificada na mesma transação do efeito. Usa o `messageId` do envelope da mensagem interna (gerado na escrita do outbox, estável entre republicações do relay) **e** a chave de negócio da mensagem; o `MessageId` de transporte do SQS muda a cada republicação e não serve como identidade.
 - **Retry com backoff**: consumidor chama `ChangeMessageVisibility` com delay exponencial + jitter em erro transitório; erro permanente → `DeleteMessage` + registro de falha (não vai para DLQ). DLQ fica só para o inesperado.
-- **Prioridade**: SQS não tem. Cada dispatcher faz *weighted polling* na ordem `auth > critical > transactional > operational` (§11.5): drena a fila `-auth` antes de qualquer outra, depois `critical`; `transactional` e `operational` em rodízio 3:1. Cada fila tem seu próprio scaler KEDA.
+- **Prioridade**: SQS não tem. A mecânica aceita da fase 1b é prioridade por alocação de vagas de processamento: cada consumidor faz *long polling* independente por fila e disputa as vagas compartilhadas na ordem `auth > critical > transactional > operational` (§11.5), de modo que uma rajada de baixa prioridade nunca esgota a capacidade das bandas superiores. O rodízio 3:1 entre `transactional` e `operational` será reavaliado no gate de carga ou na ativação da classe `operational`. Cada fila tem seu próprio scaler KEDA.
 - **Agendamento**: `DelaySeconds` até 15 min; além disso (`scheduled_at` distante, janela de silêncio) o Core grava `release_at` e um scheduler DB-backed (§4.3, Delivery Tracker) libera. Uniforme, auditável, sem EventBridge.
 - **Ordem**: não exigida; filas standard. Se um fluxo precisar ordem por cliente, troca-se a fila específica por FIFO com `MessageGroupId = recipient_id`. A abstração de consumidor é a mesma, mas a troca não é transparente: FIFO não tem `DelaySeconds` por mensagem, tem limite de mensagens em voo por fila, throughput limitado por grupo e consumo serializado por `MessageGroupId`.
 
@@ -240,7 +240,7 @@ Biblioteca: `AWSSDK.SQS` / `AWSSDK.SimpleNotificationService` direto, envolvidos
 | `core-{class}` e `core-auth` | `{ notificationId }`; o Core lê `NOTIFICATION` do banco |
 | `dispatch-{channel}-{class}` e `dispatch-{channel}-auth` | `{ notificationId, attemptId }`; o dispatcher lê o attempt e `rendered_content_enc` do banco |
 
-Gatilho de fallback: mensagem `type = FallbackRequested`, `payload = { notificationId, failedAttemptId }`, gravada pelo Delivery Tracker **via outbox** e roteada para a fila `core-*` correspondente (§5.1, §5.2).
+Gatilho de fallback: mensagem `type = FallbackRequested`, `payload = { notificationId, failedAttemptId }`, gravada **via outbox** e roteada para a fila `core-*` da classe (§5.1, §5.2). Dois produtores: o dispatcher, na transação do veredito, quando a falha é definitiva e imediata; e o Delivery Tracker, quando o `fallback_deadline` vence sem confirmação. O Tracker permanece o produtor por deadline.
 
 ### 4.3 Componentes
 
@@ -441,7 +441,12 @@ public interface IChannelProvider
     Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken ct);
 }
 
-public sealed record DispatchRequest(DeliveryTarget Target, RenderedMessage Message);
+public sealed record DispatchCorrelation(Guid NotificationId, Guid AttemptId);
+
+public sealed record DispatchRequest(
+    DeliveryTarget Target,
+    RenderedMessage Message,
+    DispatchCorrelation? Correlation = null);
 
 public sealed record ProviderResult(
     ProviderOutcome Outcome,             // Accepted | Rejected | Throttled | TransientError
@@ -451,11 +456,11 @@ public sealed record ProviderResult(
     TimeSpan? RetryAfter);
 ```
 
-`RenderedMessage` é uma hierarquia discriminada por canal: `EmailMessage(subject, preheader, htmlBody, textBody)`, `SmsMessage(body)`, `PushMessage(title, body, dataPayload)`, `WhatsAppMessage(contentSid, contentVariables)`. O destino viaja em `DeliveryTarget`, separado do conteúdo (fronteira de PII, §4.4); 429 e códigos de quota mapeiam para `Throttled` com `RetryAfter` propagado. A fonte normativa do contrato é `Modules/Dispatch/Integration/V1`.
+`RenderedMessage` é uma hierarquia discriminada por canal: `EmailMessage(subject, preheader, htmlBody, textBody)`, `SmsMessage(body)`, `PushMessage(title, body, dataPayload)`, `WhatsAppMessage(contentSid, contentVariables)`. O destino viaja em `DeliveryTarget`, separado do conteúdo (fronteira de PII, §4.4); a correlação é um membro opcional único, repasse puro que nunca entra no conteúdo renderizado nem nos hashes auditados; 429 e códigos de quota mapeiam para `Throttled` com `RetryAfter` propagado. A fonte normativa do contrato é `Modules/Dispatch/Integration/V1`.
 
 | Canal | Provedor | Detalhes do adapter |
 |---|---|---|
-| E-mail | **SendGrid** (Mail Send v3) | HTML renderizado por nós (não usar Dynamic Templates do SendGrid — o template é nosso, auditado); `custom_args.notification_id` e `attempt_id` para correlacionar Event Webhook; categoria = `application`; supressão gerida por nós, não pelos *suppression groups* do SendGrid. |
+| E-mail | **SendGrid** (Mail Send v3) | HTML renderizado por nós (não usar Dynamic Templates do SendGrid: o template é nosso, auditado); o membro opcional de correlação do `DispatchRequest` vira `custom_args.notification_id` e `custom_args.attempt_id` para correlacionar o Event Webhook; categoria = `application`; supressão gerida por nós, não pelos *suppression groups* do SendGrid. |
 | SMS | **Twilio Messaging** | Messaging Service por `application` (sender pool com número longo ou short code BR; operadoras brasileiras não entregam sender ID alfanumérico, pendente de confirmação nas country guidelines da Twilio); `StatusCallback` por mensagem; `ValidityPeriod` = `ttl` restante. |
 | WhatsApp | **Twilio Messaging** (`whatsapp:` sender) | Mesmo adapter base do SMS; envio por `ContentSid` + `ContentVariables` (template aprovado pela Meta); categoria `authentication` para OTP (botão *copy code*), `utility` para transacional; status `read` disponível. |
 | Push | **FCM HTTP v1** | Service account via Secrets Manager; `data` + `notification`; resposta `UNREGISTERED`/`INVALID_ARGUMENT` → invalida o token em `DEVICE_TOKEN` (ADR-0012); FCM **não tem webhook de entrega** — `delivered` para push = aceito pelo FCM; `read` só com *ack* opcional do app. Fan-out: um attempt por device token ativo (máximo 5, os mais recentes por `last_seen_at`); a notificação vai a `sent` quando o primeiro attempt for `sent`; o fallback só dispara se todos os attempts de push falharem. |
@@ -540,6 +545,7 @@ Tabela canônica por **tentativa** (attempt), com transição, gatilho e compone
 |---|---|---|
 | `queued → sending` | Dispatcher toma o lock (`UPDATE ... WHERE status = 'queued'`) | Dispatcher |
 | `sending → sent` | Provedor aceitou a mensagem | Dispatcher |
+| `sending → queued` | Devolução sem envio: throttling ou circuito aberto provam que o provedor não recebeu a chamada; a mensagem volta à fila honrando o `RetryAfter` | Dispatcher |
 | `sending → failed` \| `bounced` | Erro definitivo do provedor | Dispatcher / Delivery Tracker (webhook) |
 | `sending → unknown` | Falha do hub ou timeout sem resposta conclusiva do provedor | Dispatcher |
 | `queued → cancelled` | TTL vencido ou plano superado por fallback bem-sucedido | Core Worker / Delivery Tracker |
@@ -547,6 +553,8 @@ Tabela canônica por **tentativa** (attempt), com transição, gatilho e compone
 | `sent → delivered → read` | Webhooks do provedor | Delivery Tracker |
 
 Attempt `unknown` de fluxo `critical`/autenticação por mais de 60 s: o Delivery Tracker dispara fallback imediato (`FallbackRequested`, via outbox, §4.2), sem esperar a reconciliação diária. O risco de duplicata é aceito e documentado: preferível a OTP perdido.
+
+O `FallbackRequested` tem dois produtores: o dispatcher, na própria transação do veredito, quando o provedor rejeita definitivamente (para push, quando o último irmão não terminal falha); e o Delivery Tracker, quando o `fallback_deadline` vence sem confirmação. O Tracker permanece o produtor por deadline.
 
 Por **notificação**:
 
@@ -607,6 +615,7 @@ erDiagram
     string channel
     string provider_key
     uuid contact_point_id FK
+    uuid device_token_id
     string provider_message_id
     bytea rendered_content_enc
     string content_hash_full
@@ -772,6 +781,8 @@ Tabelas de infraestrutura:
 
 Notas:
 - Variáveis em duas fases: os valores originais não são persistidos em claro nem além do ciclo de vida do pipeline; a forma completa existe cifrada em `variables_enc` (envelope com key id, chave por escopo) até a notificação alcançar estado terminal, quando é expurgada; `variables_masked` é a projeção durável de consulta e auditoria.
+- `NOTIFICATION_ATTEMPT.device_token_id` (uuid, anulável) referencia o registro de dispositivo de um attempt de push: referência lógica, sem FK física entre esquemas de módulos, no mesmo regime de `contact_point_id`. Nulo em attempts de outros canais e no attempt de push que o fan-out ainda não expandiu; o dispatcher o carimba no claim.
+- `NOTIFICATION_ATTEMPT.sequence` é a ordem monotônica de criação dos attempts de uma notificação, não a posição no plano de entrega: o fan-out de push insere um irmão por token, então dois attempts consecutivos podem pertencer ao mesmo passo do plano.
 - `requested_by` = `appid`/`oid` do token Entra do produtor — quem pediu fica na notificação, não só no log.
 - `policy_version` e `template_version` na notificação: sabemos exatamente sob quais regras e qual texto ela foi processada. `policy_version` aponta para `CLASS_POLICY_VERSION(application, class, version)`.
 - `APPROVAL.content_hash` é o hash do que foi publicado: o publish grava a aprovação (oid do publicador, segundo ator) sobre o `content_hash` exato da versão, na mesma transação. Como a versão é imutável fora de `draft`, **não existe aprovar um texto e publicar outro**.
