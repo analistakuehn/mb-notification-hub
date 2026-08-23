@@ -13,7 +13,11 @@ internal sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEv
         builder.Property(auditEvent => auditEvent.Id)
             .HasColumnName("id")
             .ValueGeneratedNever();
-        builder.HasKey(auditEvent => auditEvent.Id);
+
+        // The table is partitioned by month on occurred_at; PostgreSQL requires
+        // the partition column inside the primary key, so the key is composite.
+        // The id stays globally unique in practice (UUID v7 generated in code).
+        builder.HasKey(auditEvent => new { auditEvent.Id, auditEvent.OccurredAt });
 
         builder.Property(auditEvent => auditEvent.Seq)
             .HasColumnName("seq")

@@ -1,0 +1,172 @@
+# Fluxo completo de autoria de templates (formato REST Client: VS Code / Rider).
+#
+# Pré-requisito: tokens de desenvolvimento gerados com dotnet user-jwts na pasta do host.
+#   cd src/Platform.Api
+#   dotnet user-jwts create --name autora-dev --role Templates.Author
+#   dotnet user-jwts create --name publicadora-dev --role Templates.Publish
+# Copie o token impresso por cada comando para as variáveis abaixo. O hub avalia
+# quatro olhos sobre o recurso: quem publica precisa ser um principal diferente de
+# quem criou ou editou a versão, por isso os dois tokens têm identidades distintas.
+#
+# Os rascunhos usam ETag por versão: todo PUT exige o If-Match atual e responde 412
+# quando ele está desatualizado. As requisições nomeadas abaixo (# @name) encadeiam
+# o ETag automaticamente no VS Code REST Client; em clientes sem esse recurso,
+# copie o cabeçalho ETag da resposta anterior manualmente.
+#
+# As chaves {{ orderId }} nos corpos são placeholders Scriban do template, não
+# variáveis deste arquivo; o espaço interno evita que o cliente as interprete.
+
+@host = http://localhost:5080
+@token = cole-aqui-o-token-de-Templates.Author
+@publisherToken = cole-aqui-o-token-de-Templates.Publish
+@templateKey = auth.otp.login
+
+### 1. Criar o template (somente metadados; nenhum conteúdo ainda)
+POST {{host}}/v1/templates
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "key": "{{templateKey}}",
+  "application": "araia-cambio",
+  "class": "transactional",
+  "ownerTeam": "growth-squad",
+  "purpose": "order-updates",
+  "legalBasis": "execucao-de-contrato",
+  "defaultLocale": "pt-BR",
+  "linkDomainsAllowed": null,
+  "sensitiveVariables": null
+}
+
+### 2. Abrir o rascunho da versão 1 (o ETag volta no cabeçalho da resposta)
+# @name rascunho
+POST {{host}}/v1/templates/{{templateKey}}/versions
+Authorization: Bearer {{token}}
+
+### 3. Gravar o conteúdo de email/pt-BR no rascunho (If-Match obrigatório)
+# @name conteudo
+PUT {{host}}/v1/templates/{{templateKey}}/versions/1/content/email/pt-BR
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: {{rascunho.response.headers.ETag}}
+
+{
+  "subject": "Pedido {{ orderId }}",
+  "body": "<p>Pedido {{ orderId }} atualizado.</p>",
+  "bodyText": "Pedido {{ orderId }} atualizado."
+}
+
+### 4. Declarar o schema das variáveis usadas pelo conteúdo
+# @name schema
+PUT {{host}}/v1/templates/{{templateKey}}/versions/1/variables-schema
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: {{conteudo.response.headers.ETag}}
+
+{
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" }
+  },
+  "required": ["orderId"]
+}
+
+### 5. (Opcional) Fixar um layout publicado no rascunho; ambos os campos nulos limpam o vínculo
+# @name layoutPin
+PUT {{host}}/v1/templates/{{templateKey}}/versions/1/layout
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: {{schema.response.headers.ETag}}
+
+{
+  "layoutKey": null,
+  "layoutVersion": null
+}
+
+### 6. Rodar a validação integral (devolve o relatório checks[] completo)
+POST {{host}}/v1/templates/{{templateKey}}/versions/1/validate
+Authorization: Bearer {{token}}
+
+### 7. Renderizar com variáveis de exemplo (nenhum envio acontece)
+POST {{host}}/v1/templates/{{templateKey}}/versions/1/render
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "channel": "email",
+  "locale": "pt-BR",
+  "variables": { "orderId": "12345" }
+}
+
+### 8. Publicar com o segundo usuário (quatro olhos: o hub nega publish da autora ou de quem editou)
+POST {{host}}/v1/templates/{{templateKey}}/versions/1/publish
+Authorization: Bearer {{publisherToken}}
+
+### 9. Consultar o catálogo com filtros e paginação por cursor
+GET {{host}}/v1/templates?application=araia-cambio&class=transactional&status=active&limit=20
+Authorization: Bearer {{token}}
+
+### 10. Consultar o template e a versão publicada
+GET {{host}}/v1/templates/{{templateKey}}
+Authorization: Bearer {{token}}
+
+### 11. Consultar uma versão específica
+GET {{host}}/v1/templates/{{templateKey}}/versions/1
+Authorization: Bearer {{token}}
+
+### 12. Abrir a versão 2 clonando a versão 1
+# @name rascunhoV2
+POST {{host}}/v1/templates/{{templateKey}}/versions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fromVersion": 1
+}
+
+### 13. Ajustar o conteúdo da versão 2
+PUT {{host}}/v1/templates/{{templateKey}}/versions/2/content/email/pt-BR
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: {{rascunhoV2.response.headers.ETag}}
+
+{
+  "subject": "Pedido {{ orderId }} confirmado",
+  "body": "<p>Pedido {{ orderId }} confirmado.</p>",
+  "bodyText": "Pedido {{ orderId }} confirmado."
+}
+
+### 14. Publicar a versão 2 com o segundo usuário
+POST {{host}}/v1/templates/{{templateKey}}/versions/2/publish
+Authorization: Bearer {{publisherToken}}
+
+### 15. Diff entre a versão 2 e a versão 1
+GET {{host}}/v1/templates/{{templateKey}}/versions/2/diff?against=1
+Authorization: Bearer {{token}}
+
+### 16. Rollback: republica o texto da versão 1 como versão 3 (quatro olhos de novo)
+POST {{host}}/v1/templates/{{templateKey}}/rollback
+Authorization: Bearer {{publisherToken}}
+Content-Type: application/json
+
+{
+  "toVersion": 1
+}
+
+### 17. Depreciar o template (novos usos desaconselhados; justificativa vai para a auditoria)
+POST {{host}}/v1/templates/{{templateKey}}/deprecate
+Authorization: Bearer {{publisherToken}}
+Content-Type: application/json
+
+{
+  "reason": "Substituído pela nova comunicação de pedidos"
+}
+
+### 18. Desabilitar o template (interrompe o uso; justificativa vai para a auditoria)
+POST {{host}}/v1/templates/{{templateKey}}/disable
+Authorization: Bearer {{publisherToken}}
+Content-Type: application/json
+
+{
+  "reason": "Comunicação encerrada"
+}

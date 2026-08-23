@@ -1,0 +1,95 @@
+# Fluxo completo de governança da configuração de classe (formato REST Client: VS Code / Rider).
+#
+# Pré-requisito: tokens de desenvolvimento gerados com dotnet user-jwts na pasta do host.
+#   cd src/Platform.Api
+#   dotnet user-jwts create --name autora-dev --role Templates.Author
+#   dotnet user-jwts create --name publicadora-dev --role Templates.Publish
+# Copie o token impresso por cada comando para as variáveis abaixo. Quatro olhos
+# vale também aqui: quem publica difere de quem criou ou editou o rascunho.
+#
+# Não existe rota separada de validação: o PUT do rascunho valida a definição
+# contra o vocabulário da versão 1 do schema e devolve o relatório checks[].
+# O primeiro PUT cria o rascunho sem If-Match; edições seguintes exigem o
+# If-Match atual e respondem 412 quando ele está desatualizado.
+
+@host = http://localhost:5080
+@token = cole-aqui-o-token-de-Templates.Author
+@publisherToken = cole-aqui-o-token-de-Templates.Publish
+@application = araia-cambio
+@class = transactional
+
+### 1. Criar o rascunho da política (o corpo é a própria definição JSON)
+# @name rascunho
+PUT {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/draft
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "schemaVersion": 1,
+  "channelsAllowed": ["push", "sms"],
+  "deliveryPlan": [
+    { "channel": "push", "timeout": "30s" },
+    { "channel": "sms" }
+  ],
+  "defaultTtl": "300s",
+  "dedupeWindow": "60s",
+  "quietHours": null,
+  "consentPurpose": null
+}
+
+### 2. Editar o rascunho existente (If-Match obrigatório a partir daqui)
+PUT {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/draft
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: {{rascunho.response.headers.ETag}}
+
+{
+  "schemaVersion": 1,
+  "channelsAllowed": ["push", "sms"],
+  "deliveryPlan": [
+    { "channel": "push", "timeout": "45s" },
+    { "channel": "sms" }
+  ],
+  "defaultTtl": "300s",
+  "dedupeWindow": "60s",
+  "quietHours": { "from": "22:00", "to": "07:00" },
+  "consentPurpose": null
+}
+
+### 3. Consultar a política: versão publicada e rascunho atual, se houver
+GET {{host}}/v1/applications/{{application}}/classes/{{class}}/policy
+Authorization: Bearer {{token}}
+
+### 4. Publicar com o segundo usuário (quatro olhos sobre o recurso)
+POST {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/publish
+Authorization: Bearer {{publisherToken}}
+
+### 5. Consultar uma versão específica
+GET {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/versions/1
+Authorization: Bearer {{token}}
+
+### 6. Abrir um segundo rascunho para evoluir a política
+# @name rascunhoV2
+PUT {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/draft
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "schemaVersion": 1,
+  "channelsAllowed": ["push"],
+  "deliveryPlan": [
+    { "channel": "push", "timeout": "30s" }
+  ],
+  "defaultTtl": "300s",
+  "dedupeWindow": "120s",
+  "quietHours": null,
+  "consentPurpose": null
+}
+
+### 7. Publicar a versão 2 com o segundo usuário
+POST {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/publish
+Authorization: Bearer {{publisherToken}}
+
+### 8. Diff entre a versão 2 e a versão 1
+GET {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/versions/2/diff?against=1
+Authorization: Bearer {{token}}

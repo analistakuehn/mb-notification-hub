@@ -1,0 +1,122 @@
+# Fluxo completo de autoria de layouts (formato REST Client: VS Code / Rider).
+#
+# Pré-requisito: tokens de desenvolvimento gerados com dotnet user-jwts na pasta do host.
+#   cd src/Platform.Api
+#   dotnet user-jwts create --name autora-dev --role Templates.Author
+#   dotnet user-jwts create --name publicadora-dev --role Templates.Publish
+# Copie o token impresso por cada comando para as variáveis abaixo. Quatro olhos
+# vale também para layouts: quem publica difere de quem criou ou editou a versão.
+#
+# Contrato do placeholder: cada wrapper de layout precisa ler a variável
+# {{ content }} do Scriban; a renderização primeiro resolve o campo do template
+# e depois envolve o resultado com o wrapper. As chaves com espaço interno são
+# Scriban, não variáveis deste arquivo.
+
+@host = http://localhost:5080
+@token = cole-aqui-o-token-de-Templates.Author
+@publisherToken = cole-aqui-o-token-de-Templates.Publish
+@layoutKey = base.transacional
+
+### 1. Criar o layout (somente metadados)
+POST {{host}}/v1/layouts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "key": "{{layoutKey}}",
+  "ownerTeam": "design-system",
+  "defaultLocale": "pt-BR"
+}
+
+### 2. Abrir o rascunho da versão 1 (o ETag volta no cabeçalho da resposta)
+# @name rascunho
+POST {{host}}/v1/layouts/{{layoutKey}}/versions
+Authorization: Bearer {{token}}
+
+### 3. Gravar o wrapper de email/pt-BR (body obrigatório; bodyText opcional)
+# @name conteudo
+PUT {{host}}/v1/layouts/{{layoutKey}}/versions/1/content/email/pt-BR
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: {{rascunho.response.headers.ETag}}
+
+{
+  "body": "<html><header>MB</header>{{ content }}<footer>rodapé</footer></html>",
+  "bodyText": "MB\n{{ content }}\nrodapé"
+}
+
+### 4. Rodar a validação do layout (devolve o relatório checks[] completo)
+POST {{host}}/v1/layouts/{{layoutKey}}/versions/1/validate
+Authorization: Bearer {{token}}
+
+### 5. Publicar com o segundo usuário (quatro olhos sobre o recurso)
+POST {{host}}/v1/layouts/{{layoutKey}}/versions/1/publish
+Authorization: Bearer {{publisherToken}}
+
+### 6. Consultar o catálogo de layouts
+GET {{host}}/v1/layouts?status=active&limit=20
+Authorization: Bearer {{token}}
+
+### 7. Consultar o layout e a versão publicada
+GET {{host}}/v1/layouts/{{layoutKey}}
+Authorization: Bearer {{token}}
+
+### 8. Consultar uma versão específica
+GET {{host}}/v1/layouts/{{layoutKey}}/versions/1
+Authorization: Bearer {{token}}
+
+### 9. Abrir a versão 2 clonando a versão 1
+# @name rascunhoV2
+POST {{host}}/v1/layouts/{{layoutKey}}/versions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fromVersion": 1
+}
+
+### 10. Ajustar o wrapper da versão 2
+PUT {{host}}/v1/layouts/{{layoutKey}}/versions/2/content/email/pt-BR
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: {{rascunhoV2.response.headers.ETag}}
+
+{
+  "body": "<html><header>Monte Bravo</header>{{ content }}<footer>rodapé</footer></html>",
+  "bodyText": "Monte Bravo\n{{ content }}\nrodapé"
+}
+
+### 11. Publicar a versão 2 com o segundo usuário
+POST {{host}}/v1/layouts/{{layoutKey}}/versions/2/publish
+Authorization: Bearer {{publisherToken}}
+
+### 12. Diff entre a versão 2 e a versão 1
+GET {{host}}/v1/layouts/{{layoutKey}}/versions/2/diff?against=1
+Authorization: Bearer {{token}}
+
+### 13. Rollback: republica o wrapper da versão 1 como versão 3 (quatro olhos de novo)
+POST {{host}}/v1/layouts/{{layoutKey}}/rollback
+Authorization: Bearer {{publisherToken}}
+Content-Type: application/json
+
+{
+  "toVersion": 1
+}
+
+### 14. Depreciar o layout (justificativa vai para a auditoria)
+POST {{host}}/v1/layouts/{{layoutKey}}/deprecate
+Authorization: Bearer {{publisherToken}}
+Content-Type: application/json
+
+{
+  "reason": "Substituído pelo layout com a nova identidade visual"
+}
+
+### 15. Desabilitar o layout (justificativa vai para a auditoria)
+POST {{host}}/v1/layouts/{{layoutKey}}/disable
+Authorization: Bearer {{publisherToken}}
+Content-Type: application/json
+
+{
+  "reason": "Identidade visual encerrada"
+}
