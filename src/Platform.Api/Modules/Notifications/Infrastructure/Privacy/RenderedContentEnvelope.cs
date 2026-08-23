@@ -129,6 +129,37 @@ internal static class RenderedContentEnvelope
             envelope[MaskedMember] is JsonObject);
     }
 
+    /// <summary>
+    /// Opens one envelope and reads the masked form it carries, wherever that
+    /// form currently sits: the companion member while the complete form is
+    /// still needed for the send, the top-level content once the terminal
+    /// verdict discarded the complete one. A disclosure reads through here, so
+    /// no caller has to know which phase the envelope is in and none of them can
+    /// reach the complete form by mistake.
+    /// </summary>
+    public static async Task<SealedRenderedContent> ReadMaskedAsync(
+        IEnvelopeCipher cipher,
+        string application,
+        byte[] sealedContent,
+        CancellationToken cancellationToken)
+    {
+        JsonObject envelope = await OpenAsync(cipher, application, sealedContent, cancellationToken);
+        var channel = Text(envelope, ChannelMember)
+            ?? throw new InvalidOperationException("O conteúdo selado não declara o canal.");
+        var locale = Text(envelope, LocaleMember)
+            ?? throw new InvalidOperationException("O conteúdo selado não declara o locale.");
+
+        JsonObject form = envelope[MaskedMember] as JsonObject ?? envelope;
+        return new SealedRenderedContent(
+            channel,
+            locale,
+            Text(form, SubjectMember),
+            Text(form, BodyMember)
+                ?? throw new InvalidOperationException("O conteúdo selado não carrega o corpo."),
+            Text(form, BodyTextMember),
+            envelope[MaskedMember] is JsonObject);
+    }
+
     private static JsonObject Content(
         string channel,
         string locale,

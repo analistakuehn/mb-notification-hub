@@ -26,6 +26,10 @@ public sealed class ContactConsentModule : IModule, IEndpointModule
         services.AddScoped<ContactConsentWriter>();
         services.AddScoped<IRecipientDirectory, RecipientDirectory>();
 
+        // Reconstruction surface: lifecycle stamps and the consent ledger for
+        // an evidence composer, never for the support query surface.
+        services.AddScoped<IContactHistory, ContactHistoryReader>();
+
         services.AddScoped<DeclareContactPoints.Handler>();
         services.AddScoped<DeclareConsents.Handler>();
         services.AddScoped<RegisterDevice.Handler>();

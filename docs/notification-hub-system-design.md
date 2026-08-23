@@ -789,6 +789,7 @@ Notas:
 - `policy_version` e `template_version` na notificação: sabemos exatamente sob quais regras e qual texto ela foi processada. `policy_version` aponta para `CLASS_POLICY_VERSION(application, class, version)`.
 - `APPROVAL.content_hash` é o hash do que foi publicado: o publish grava a aprovação (oid do publicador, segundo ator) sobre o `content_hash` exato da versão, na mesma transação. Como a versão é imutável fora de `draft`, **não existe aprovar um texto e publicar outro**.
 - `TEMPLATE_VERSION`, `TEMPLATE_CONTENT`, `LAYOUT_VERSION`, `APPROVAL` são append-only (§9.4); o único `UPDATE` permitido é de `status` via transição válida, auditada.
+- **Errata de 2026-08-23 sobre `change_note`.** O diagrama declara `TEMPLATE_VERSION.change_note` e `CLASS_POLICY_VERSION.change_note`, e **nenhuma das duas é materializada na v1**, porque nenhuma rota do §7.4 aceita o valor: não existe escritor. Coluna sem escritor devolve nulo em toda linha, e numa superfície de auditoria isso é pior que ausência, porque o auditor não distingue "ninguém escreveu" de "o sistema não coleta". O gatilho de materialização é nomeado: campo opcional no `publish` e no `rollback`; quando ele entrar, a coluna nasce junto e passa a ter significado. Até lá a pergunta 6 do §9.5 continua completa, respondida por `APPROVAL` mais a versão de origem do rollback, que o modelo já registra.
 - `AUDIT_EVENT` é particionada por mês em `occurred_at`; a cadeia de hash é **por partição mensal**: `hash = SHA-256(prev_hash || canonical)`, onde `canonical` guarda os bytes exatos (UTF-8) da canonicalização RFC 8785 (JCS) que foram hasheados. Detalhe em §9.4.
 - Particionar `NOTIFICATION`, `NOTIFICATION_ATTEMPT`, `DELIVERY_EVENT`, `POLICY_EVALUATION` (chave de partição `evaluated_at`) e `AUDIT_EVENT` por mês desde o dia 1; `IDEMPOTENCY_KEY` e `PROVIDER_EVENT_DEDUPE` ficam fora do particionamento (é o que viabiliza seus índices únicos).
 
@@ -941,11 +942,20 @@ Regras da consulta, com o recorte da fase 1b:
 
 | Rota | Retorna |
 |---|---|
-| `GET /v1/audit/notifications/{id}` | Trilha completa (§9.5): solicitação, política regra a regra, versão de template e layout com hashes, aprovações, tentativas, webhooks brutos, acessos anteriores |
-| `GET /v1/audit/notifications/{id}/attempts/{seq}/content` | Conteúdo renderizado decifrado + verificação de `content_hash_masked`. A verificação criptográfica do conteúdo completo não é possível após o mascaramento; `content_hash_full` serve para confronto com evidência externa (§10.2 A4) |
+| `GET /v1/audit/notifications/{id}` | Trilha completa (§9.5): solicitação, política regra a regra, versão de template e layout com hashes, aprovações, tentativas, acessos anteriores |
+| `GET /v1/audit/notifications/{id}/attempts/{seq}/content` | Conteúdo renderizado decifrado na forma mascarada + verificação de `content_hash_masked`. A verificação criptográfica do conteúdo completo não é possível após o mascaramento; `content_hash_full` serve para confronto com evidência externa (§10.2 A4) |
 | `GET /v1/audit/recipients/{recipientId}/consents` | Ledger de consentimento |
 | `GET /v1/audit/events?subjectType=&subjectId=&from=&to=&cursor=` | Eventos de auditoria de qualquer sujeito (template, política, provedor, principal) |
 | `POST /v1/audit/exports` | Exportação assíncrona (pseudonimização opcional) → `202` + `Location` |
+
+Regras da auditoria, com o recorte da fase 1b:
+- **Errata de 2026-08-23 sobre webhooks brutos.** A linha de `GET /v1/audit/notifications/{id}` não inclui webhooks brutos: eles chegam com o Delivery Tracker, em fase posterior, e a linha vale sem esse membro na 1b. A resposta não declara membro de entrega em forma alguma (§9.5).
+- **As rotas vivem num módulo próprio de composição de evidência**, que consome apenas os contratos publicados dos módulos donos e não hospeda tabela nenhuma. Pôr a rota no módulo de auditoria inverteria a direção que sustenta o append transacional, porque todo módulo depende do contrato da trilha; espalhá-la pelos módulos donos dissolveria a garantia que a superfície existe para dar, já que "toda chamada gera `audit.read`" precisa de um ponto de imposição, não de quatro lembretes.
+- **O `audit.read` é síncrono e vem antes do corpo.** A evidência é composta primeiro, o registro é gravado em transação própria e curta, e só então o primeiro byte da resposta sai. Falha ao gravar devolve `503` e nada é divulgado. Não há outbox: o outbox põe o registro depois do egresso e abre exatamente a janela que a ameaça de insider quer.
+- **O sujeito registrado é o sujeito lido.** Uma resposta que divulga notificação e destinatário grava um elo por sujeito, na mesma transação, para que "quem olhou isso depois" continue sendo consulta por sujeito. Os `details` carregam rota, escopo divulgado, sequência da tentativa e hashes divulgados, jamais valor de contato ou trecho de conteúdo.
+- **Rate limit próprio por rota.** A rota de conteúdo tem orçamento separado da rota de reconstrução, mais alarme por volume: o risco dela não é rajada, é varredura paciente que nunca encosta num teto por minuto.
+- **A evidência de política sai por lista de permissão por regra**, nunca o documento cru. Sob o papel de auditoria a lista inclui os campos de PII da regra de janela de silêncio (`timezone` e `localTime`), que continuam fora da API de consulta. Uma fitness function de completude falha quando uma regra emite chave que a lista não cobre.
+- **Conteúdo sai sempre na forma mascarada**, inclusive quando a tentativa ainda não atingiu veredito terminal e o selo ainda carrega a forma completa: a resposta declara qual forma serviu e se a forma completa ainda está armazenada. Uma superfície de divulgação que pudesse entregar um código de uso único derrotaria o próprio mascaramento.
 
 **Contatos e consentimento** (app role `Contacts.Write`; toda escrita gera `audit_event` na mesma transação; ADR-0012)
 
@@ -1081,7 +1091,7 @@ Toda linha abaixo vira `audit_event` gravado **na mesma transação** do efeito 
 | Domínio | Ações (`action`) | Ator típico |
 |---|---|---|
 | Solicitação | `notification.accepted` (com `source = rest\|kafka`; para Kafka: principal, tópico, partição, offset, `id` do CloudEvent), `notification.duplicate`, `notification.rejected_at_ingress` (com motivo, inclusive `producer-not-authorized` e `sensitive-variables-on-bus`) | produtor (`appid` ou principal Kafka) |
-| Política | `policy.evaluated` (uma linha por regra, em `POLICY_EVALUATION`, resumo em `audit_event`), `notification.rejected`, `notification.deferred` | sistema (Core) |
+| Política | `notification.dispatched`, `notification.rejected`, `notification.deferred`, `notification.expired`, cada um com o resumo da decisão em `details` | sistema (Core) |
 | Render | `notification.rendered` (`template_key`, `version`, `content_hash`) | sistema |
 | Entrega | `attempt.queued`, `attempt.sent`, `attempt.delivered`, `attempt.failed`, `attempt.bounced`, `fallback.triggered`, `notification.expired` | sistema / webhook do provedor |
 | Consentimento | `consent.granted`, `consent.revoked` (com `source` e versão do termo) | app do cliente, atendimento, importação |
@@ -1093,6 +1103,10 @@ Toda linha abaixo vira `audit_event` gravado **na mesma transação** do efeito 
 | Identidade | `admin.role.activated` (PIM), `principal.role.changed` | Entra (ingerido via log) |
 
 O `actor_id` é sempre o `oid`/`appid` do Entra. Para ações do sistema, `actor_type = system` e `actor_id` = nome do worker + versão da imagem.
+
+**Errata de 2026-08-23 sobre a linha de Política.** Não existe ação `policy.evaluated` na trilha, e o texto anterior a anunciava. O que o pipeline grava é o desfecho da notificação (`notification.dispatched`, `notification.rejected`, `notification.deferred`, `notification.expired`), com o resumo da decisão em `details`. A decisão regra a regra vive em `POLICY_EVALUATION`, que é tabela de domínio do módulo Notifications e fica **fora da cadeia de hash**: quem lê a evidência recebe essa projeção no bloco de estado da resposta de auditoria, nunca no bloco de trilha.
+
+**Errata de 2026-08-23 sobre a linha de Acesso.** `audit.read` passa a ser gravado a partir da fatia da API de auditoria, de forma síncrona, antes de qualquer byte do corpo sair. `403` e `404` naquela superfície geram log estruturado de segurança e **não** geram `audit_event`: um acesso que não divulgou nada não tem o que a cadeia ateste, e uma linha por tentativa deixaria uma varredura de identidades engordar a cadeia de graça.
 
 ### 9.4 Imutabilidade e integridade
 
@@ -1114,14 +1128,22 @@ Para qualquer `notification_id`, uma única chamada — `GET /v1/audit/notificat
 |---|---|
 | Quem pediu e quando? | `notification.requested_by`, `created_at`, `audit: notification.accepted` |
 | Sob qual base legal? | `TEMPLATE.legal_basis` vigente na versão publicada usada |
-| O cliente tinha consentimento/canal válido? | `POLICY_EVALUATION` + `consent` vigente naquele instante (consulta temporal no ledger) |
-| Por que foi para SMS e não push? | `fallback.triggered` com motivo, `policy_version` usada |
-| Qual texto exato foi enviado? | `rendered_content_enc` + `content_hash_masked` da tentativa (`content_hash_full` para confronto com evidência externa); `TEMPLATE_CONTENT.body_hash` e `LAYOUT_VERSION.body_hash` da versão usada |
-| Quem aprovou esse texto? | `APPROVAL[]` com `content_hash` igual ao da versão (publicador difere do autor, quatro olhos); `change_note`, quando presente |
-| O provedor confirmou entrega? | `delivery_event` com `raw_payload` do webhook |
-| Quem olhou isso depois? | `audit: audit.read` |
+| O cliente tinha consentimento/canal válido? | `POLICY_EVALUATION` (evidência da regra de consentimento, por lista de permissão) + o ledger de `consent` na janela declarada |
+| Por que foi para SMS e não push? | `fallback.triggered` com motivo, `policy_version` usada, evidência da regra de canal e a descrição histórica do registro de dispositivo |
+| Qual texto exato foi enviado? | `rendered_content_enc` na forma mascarada + `content_hash_masked` da tentativa, recomputado e conferido (`content_hash_full` sai declarado, sem verificação, para confronto com evidência externa); `content_hash` da versão de template e da versão de layout usadas |
+| Quem aprovou esse texto? | `APPROVAL[]` com `content_hash` igual ao da versão (publicador difere do autor, quatro olhos) |
+| O provedor confirmou entrega? | Não respondível na fase 1b, sem o Delivery Tracker |
+| Quem olhou isso depois? | `audit: audit.read`, apenas os acessos anteriores à chamada |
 
-Se alguma dessas perguntas não for respondível por esse endpoint, é bug de auditoria — tratado com a mesma severidade de bug de envio.
+Se alguma dessas perguntas não for respondível por esse endpoint, é bug de auditoria, tratado com a mesma severidade de bug de envio.
+
+**Erratas de 2026-08-23, com o recorte da fase 1b.**
+
+- **Base legal e hashes vêm da versão histórica.** A leitura é por versão exata, aquela que a notificação renderizou, e não pela versão publicada hoje. Responder com o catálogo corrente não seria resposta parcial, seria resposta errada: publicar uma versão nova depois não pode mover a resposta da notificação antiga.
+- **Consentimento sem parâmetro de instante.** A resposta entrega o ledger na janela e declara a janela; ela nunca afirma qual decisão estava vigente no instante do envio. Calcular o vigente naquele momento é leitura do auditor, e o hub afirmando isso seria o hub interpretando a própria evidência.
+- **Pergunta 7 não é declarada de forma alguma.** Não existe membro de eventos de entrega, nem lista vazia, nem carimbo de entrega na tentativa: sem a tabela de eventos, uma lista vazia afirmaria que nada aconteceu. O que sai é `status`, `sentAt` e `providerMessageId`, que afirmam **aceitação pelo provedor, nunca entrega**, e o OpenAPI diz isso com essas palavras. A errata da linha `GET /v1/audit/notifications/{id}` no §7.4 vale junto: webhooks brutos são de fase posterior.
+- **Pergunta 8 passa a ser respondível.** A lista traz os acessos anteriores à chamada, com o corte declarado na própria resposta, senão o auditor leria a própria pegada. Array vazio é legítimo aqui, porque a tabela existe.
+- **A resposta separa dois blocos com peso probatório diferente.** O bloco de trilha traz elos encadeados com `seq`, `hash` e `prev_hash`, montados a partir do parse do texto `canonical`; a coluna `details` é superfície de consulta e indexação, nunca payload de prova, porque é `jsonb` e reescreve os bytes na leitura. O bloco de estado traz projeções de domínio dos módulos donos, que cadeia nenhuma cobre, e `APPROVAL` vive nele, porque a tabela é append-only mas está fora da cadeia. Sem essa separação o auditor não sabe o que a cadeia cobre.
 
 ### 9.6 Retenção, acesso e evidências
 

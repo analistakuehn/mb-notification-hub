@@ -14,6 +14,7 @@ using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Compliance.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.ContactConsent;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
@@ -231,6 +232,19 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
         HttpClient client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", CreateToken(subject, [NotificationsAuthorizationSetup.ReadRole]));
+        return client;
+    }
+
+    /// <summary>Client authenticated as Compliance or Internal Audit: the audit role, nothing else.</summary>
+    public HttpClient CreateAuditorClient(string subject)
+        => CreateClientWithToken(subject, [ComplianceAuthorizationSetup.AuditRole]);
+
+    /// <summary>Auditor client for a host derived with <c>WithWebHostBuilder</c>.</summary>
+    public HttpClient CreateAuditorClient(WebApplicationFactory<Program> host, string subject)
+    {
+        HttpClient client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", CreateToken(subject, [ComplianceAuthorizationSetup.AuditRole]));
         return client;
     }
 

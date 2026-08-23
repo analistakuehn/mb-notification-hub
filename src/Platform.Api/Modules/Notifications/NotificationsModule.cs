@@ -13,6 +13,7 @@ using NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Reads;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Redis;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Templates;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Notifications;
 
@@ -68,6 +69,10 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         services.AddScoped<GetNotification.Handler>();
         services.AddScoped<ListRecipientNotifications.Handler>();
         services.AddScoped<ListNotificationsByCorrelation.Handler>();
+
+        // Reconstruction surface: the projected policy evidence and the stored
+        // render, opened inside this module and never handed over encrypted.
+        services.AddScoped<INotificationEvidence, NotificationEvidenceReader>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)

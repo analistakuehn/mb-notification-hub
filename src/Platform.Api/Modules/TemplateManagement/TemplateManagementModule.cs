@@ -65,6 +65,10 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<IPublishedCatalog, PublishedCatalog>();
         services.AddScoped<IPublishedVariablesValidator, PublishedVariablesValidator>();
         services.AddScoped<IPublishedTemplateRenderer, PublishedTemplateRenderer>();
+
+        // Reconstruction surface: the exact version a past notification used,
+        // never memoized as a current pointer.
+        services.AddScoped<IHistoricalCatalog, HistoricalCatalog>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
+using NotificationHub.Api.Modules.Audit.Infrastructure.Evidence;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
@@ -25,5 +26,11 @@ public sealed class AuditModule : IModule
 
         // Stateless by design: every write joins the caller's transaction.
         services.AddSingleton<IAuditTrail, TransactionalAuditTrail>();
+
+        // Evidence surface: reading links and approvals by subject, and the
+        // disclosure append that owns its own short transaction. Both are
+        // scoped because they ride this module's DbContext.
+        services.AddScoped<IAuditEvidence, AuditEvidenceReader>();
+        services.AddScoped<IAuditDisclosureTrail, DisclosureAuditTrail>();
     }
 }

@@ -18,6 +18,19 @@ public static class AuditEntityTypes
 
     /// <summary>One monthly partition of the trail, named as the store names it.</summary>
     public const string AuditPartition = "audit_partition";
+
+    /// <summary>
+    /// One notification, identified as its producing context names it. A
+    /// disclosure over a notification records this subject, so "who looked at
+    /// this afterwards" is a read by subject and never a scan of the trail.
+    /// </summary>
+    public const string Notification = "notification";
+
+    /// <summary>One recipient of the contact and consent source of truth.</summary>
+    public const string Recipient = "recipient";
+
+    /// <summary>One push registration of a recipient, as its owning context names it.</summary>
+    public const string DeviceToken = "device_token";
 }
 
 /// <summary>Canonical action names of the audit vocabulary.</summary>
@@ -46,6 +59,13 @@ public static class AuditActions
 
     /// <summary>A partition finished its closing cycle: verified, exported, copy checked, detached.</summary>
     public const string AuditPartitionClosed = "audit.partition.closed";
+
+    /// <summary>
+    /// Evidence about one subject left the hub through the audit surface. The
+    /// details carry the route, the disclosed scope and the disclosed hashes,
+    /// never a contact value and never a fragment of content.
+    /// </summary>
+    public const string AuditRead = "audit.read";
 }
 
 /// <summary>Everything an audit event must capture about one governed effect.</summary>
