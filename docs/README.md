@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # Notification Hub — Registro de Decisões de Arquitetura (ADRs)
 
 Formato: MADR (Markdown Architectural Decision Records), em pt-BR. Uma decisão por arquivo, numeração sequencial, nunca reescrita após aceita: mudanças viram nova ADR que substitui a anterior.
@@ -25,6 +29,15 @@ Documento-mãe: *Notification Hub — Design de Sistema*.
 - **Status**: Proposta → Aceita → (Substituída por ADR-NNNN | Depreciada).
 - A seção *Como saberemos que foi a decisão certa* define critérios verificáveis; devem ser revisitados na retrospectiva de cada fase do roadmap.
 - Decisões que exigem deploy por escolha (ex.: tipo de regra novo na ADR-0011) geram ADR curta própria quando acontecerem.
+
+## Documentos de fase
+
+Planos completos das fases pendentes do roadmap (§15 do documento-mãe), com evidência citada e estado real do repositório na data de autoria. A fase 1a foi concluída e vive no histórico do repositório.
+
+- [Fase 0: Governança](fases/fase-0-governanca.md)
+- [Fase 1b: Fundação](fases/fase-1b-fundacao.md)
+- [Fase 2: Resiliência e SMS](fases/fase-2-resiliencia-e-sms.md)
+- [Fase 3: WhatsApp](fases/fase-3-whatsapp.md)
 
 ## Próximas ADRs previstas
 
