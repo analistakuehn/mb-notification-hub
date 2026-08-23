@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 
@@ -46,10 +45,7 @@ internal static class AuditChain
     {
         using var details = JsonDocument.Parse(entry.DetailsJson);
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
-        {
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        }))
+        using (Utf8JsonWriter writer = CanonicalJson.CreateWriter(buffer))
         {
             // Property names are already in ordinal order; keep them sorted
             // when a field joins the vocabulary.
@@ -67,7 +63,7 @@ internal static class AuditChain
             }
 
             writer.WritePropertyName("details");
-            WriteCanonical(details.RootElement, writer);
+            CanonicalJson.Write(details.RootElement, writer);
             writer.WriteString("entityId", entry.EntityId);
             writer.WriteString("entityType", entry.EntityType);
             writer.WriteString("id", id.ToString("D"));
@@ -109,40 +105,5 @@ internal static class AuditChain
     {
         DateTimeOffset utc = value.ToUniversalTime();
         return new DateTimeOffset(utc.Ticks - utc.Ticks % (TimeSpan.TicksPerMillisecond / 1000), TimeSpan.Zero);
-    }
-
-    private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
-    {
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Object:
-                writer.WriteStartObject();
-                var properties = new SortedDictionary<string, JsonElement>(StringComparer.Ordinal);
-                foreach (JsonProperty property in element.EnumerateObject())
-                {
-                    properties[property.Name] = property.Value;
-                }
-
-                foreach ((var name, JsonElement value) in properties)
-                {
-                    writer.WritePropertyName(name);
-                    WriteCanonical(value, writer);
-                }
-
-                writer.WriteEndObject();
-                break;
-            case JsonValueKind.Array:
-                writer.WriteStartArray();
-                foreach (JsonElement item in element.EnumerateArray())
-                {
-                    WriteCanonical(item, writer);
-                }
-
-                writer.WriteEndArray();
-                break;
-            default:
-                element.WriteTo(writer);
-                break;
-        }
     }
 }

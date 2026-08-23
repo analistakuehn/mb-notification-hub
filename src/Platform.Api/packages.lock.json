@@ -11,6 +11,24 @@
           "Asp.Versioning.Abstractions": "10.0.0"
         }
       },
+      "AWSSDK.KeyManagementService": {
+        "type": "Direct",
+        "requested": "[4.0.100.10, )",
+        "resolved": "4.0.100.10",
+        "contentHash": "jj8LYJowmlBiFivYGxJvT/MK4qRYna/vGFlWatXI5S72ZKt/WWA6NxCTbRaEpsWNYFhzCW0sj4UCwbM3foFA2Q==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102, 5.0.0)"
+        }
+      },
+      "AWSSDK.S3": {
+        "type": "Direct",
+        "requested": "[4.0.102.3, )",
+        "resolved": "4.0.102.3",
+        "contentHash": "3UBPFahEW62lNqHutA94if/9YguOXswDkz+CMh8fo3qCl7PUdynwSEvE0rhHnRPok0rDkDEDpwddfk7h8Mg0gw==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102, 5.0.0)"
+        }
+      },
       "AWSSDK.SQS": {
         "type": "Direct",
         "requested": "[4.0.100.10, )",
@@ -32,8 +50,7 @@
         "resolved": "11.10.0",
         "contentHash": "hIe+i6P+ZUxFh6lJOBXRs4EGE/thcub0Lpdk2FF2/JBKJUqDqE2xDnBIiqTMkpXLoekgBN0SlhJT0vpeNr1J6g==",
         "dependencies": {
-          "FluentValidation": "11.10.0",
-          "Microsoft.Extensions.Dependencyinjection.Abstractions": "2.1.0"
+          "FluentValidation": "11.10.0"
         }
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
@@ -449,12 +466,6 @@
           "Microsoft.IdentityModel.JsonWebTokens": "8.19.2",
           "Microsoft.IdentityModel.Tokens": "8.19.2"
         }
-      },
-      "Microsoft.Extensions.DependencyInjection.Abstractions": {
-        "type": "CentralTransitive",
-        "requested": "[10.0.10, )",
-        "resolved": "10.0.10",
-        "contentHash": "z/2xXlFw2aLGjHyEm6E0tQ+In6VfzQzTrtArbQ2c0TQE16ZbyDCMGPvaUT9I0s8rgy9sRWlU2P9waW37qV04qA=="
       },
       "Microsoft.OpenApi": {
         "type": "CentralTransitive",

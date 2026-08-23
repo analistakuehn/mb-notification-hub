@@ -42,7 +42,7 @@ internal sealed class PartitionManagerService(
         {
             using IServiceScope scope = scopeFactory.CreateScope();
             await scope.ServiceProvider
-                .GetRequiredService<PartitionMaintenance>()
+                .GetRequiredService<PartitionMaintenanceRound>()
                 .RunAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

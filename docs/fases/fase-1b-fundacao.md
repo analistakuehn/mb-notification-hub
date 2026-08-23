@@ -66,6 +66,8 @@ Dono de `audit_event` e `approval` com a cadeia de hash por partição mensal ([
 
 Os workers da fase (Outbox Relay, Core, Kafka Ingress, dispatchers) rodam em um único projeto host `src/Platform.Worker`, com o papel selecionado por configuração `Worker:Role`. Na data de autoria o repositório contém apenas `src/Platform.Api`; o host de worker nasce na fatia B5.
 
+**Errata de 2026-08-23 (fatia B13).** O que o design chamava de job `audit export` e de job `partition-manager` consolida em um único papel de worker, `audit-maintenance`, de propriedade do módulo Audit e descoberto pelo catálogo de papéis (`IWorkerRoleModule`), sem que o host de worker referencie o módulo. O papel hospeda provisão de partições, export diário, ciclo de fechamento e verificação da cadeia; a API deixa de hospedar o `partition-manager` e mantém apenas o health check `audit-partitions`. A motivação é operacional e de segurança: o ciclo revoga permissões e destaca partições, e essas ações não podem rodar uma vez por réplica que atende requisição. As rodadas são serializadas por advisory lock de manutenção, com escopo distinto do lock da cadeia.
+
 ### 2.6 Infraestrutura de plataforma
 
 Outbox, Outbox Relay e `processed_messages` são infraestrutura de plataforma, não módulos de negócio: implementam os padrões transversais das ADRs [0002](../ADR-0002-sqs-sdk-direto.md) e [0008](../ADR-0008-at-least-once-com-idempotencia.md) para todos os módulos. O provisionamento de partições mensais também é infraestrutura de plataforma, promovido no commit `2a0dd86` (`src/Platform.Api/Infrastructure/Partitioning/`); a semântica de fechamento (revoke de escrita, retenção WORM) permanece no módulo Audit. A decisão determina registrar essa nota no [documento de padrões de arquitetura](../architecture/standards/modular-monolith-architecture.md); a nota foi registrada em 2026-08-23 (seção 9, item 8).
@@ -121,6 +123,7 @@ Status observado no repositório na data de autoria (2026-08-23):
 
 ```text
 $ git log --oneline
+c44222a feat(dispatch): implementar o despacho pelas filas dispatch-*
 5afe146 feat(core): implementar o pipeline de estágios consumindo core-*
 d293da9 docs: alinhar design, ADRs e padrões às decisões da fase 1b
 2a604dc feat(worker): criar host Platform.Worker com o Outbox Relay
@@ -145,16 +148,16 @@ e57f7db docs: adicionar documentos completos das fases pendentes
 | B6 | ContactConsent v1: modelo, escrita REST (ADR-0012); desvio aceito de escopo: o cache de contatos saiu da B6 e entrou na B7 (decisão de arquitetura: o cache pertence ao leitor no tempo, mas vive no módulo dono atrás do contrato) | B2, B4 | Concluída (commit `ead7d8b`) |
 | B7 | Core pipeline consumindo as filas `core-*` (ADR-0003, §4.3) | B3, B5, B6 | Concluída (commit `5afe146`) |
 | B8 | Módulo Dispatch: `IChannelProvider`, adapters SendGrid e FCM | B1 | Concluída (commit `208a81c`) |
-| B9 | Fatia de despacho: filas `dispatch-*`, estados do attempt, fan-out de push (§4.2, §4.3) | B6, B7, B8 | Em implementação |
+| B9 | Fatia de despacho: filas `dispatch-*`, estados do attempt, fan-out de push (§4.2, §4.3) | B6, B7, B8 | Concluída (commit `c44222a`) |
 | B10 | Kafka Ingress Worker (`notifications.requested.v1`, `.dlt`, `PRODUCER_REGISTRY`, §7.2), emissão de `notifications.events.v1` e publicador Kafka do outbox relay (§1.3) | B4, B5 | Não iniciada |
 | B11 | Ingestão de `contacts.events.v1` no ContactConsent (ADR-0012) | B6, B10 | Não iniciada |
 | B12 | API de consulta (`Notifications.Read`, §7.4) | B7, B9 | Não iniciada |
-| B13 | Export WORM e verificação da cadeia de hash (ADR-0006, §9.4) | B2 | Não iniciada |
+| B13 | Export WORM e verificação da cadeia de hash (ADR-0006, §9.4) | B2 | Em implementação |
 | B14 | API `/v1/audit/*` respondendo às 8 perguntas do §9.5 | B6, B7, B9, B13 | Não iniciada |
 | B15 | Gate de carga do risco 7: p99 de ingestão sob advisory lock; plano B por sub-cadeias | B4, B7, B9, B10, B13 | Não iniciada |
 | B16 | Guia de integração do produtor e biblioteca .NET compartilhada opcional (§15) | B10 | Não iniciada |
 
-Nota sobre a ordem: a decisão que ordenava B4 após B2 e B3 foi cumprida; entre B3 e B4 entrou também a promoção do provisionamento de partições a infraestrutura de plataforma (commit `2a0dd86`, §2.6). As erratas documentais das decisões de arquitetura da fase entraram no commit `d293da9`. B9 está em implementação na data, sem commit.
+Nota sobre a ordem: a decisão que ordenava B4 após B2 e B3 foi cumprida; entre B3 e B4 entrou também a promoção do provisionamento de partições a infraestrutura de plataforma (commit `2a0dd86`, §2.6). As erratas documentais das decisões de arquitetura da fase entraram no commit `d293da9`. B13 está em implementação na data, sem commit.
 
 ### 5.2 Paralelismos previstos na decisão
 
@@ -172,6 +175,8 @@ A suíte atual usa xUnit com Testcontainers PostgreSQL (`tests/Platform.Integrat
 - Object Lock em modo Compliance e KMS reais são exercidos apenas em AWS pré-prod, antes do gate de 90 dias sem falha da verificação de cadeia e do export WORM que a ADR-0006 exige para o go-live.
 
 A infraestrutura por fatia deriva do escopo de cada uma sobre esse roster: B4, B6 e B12 usam Postgres e Redis; B5, B7 e B9 acrescentam LocalStack SQS; B8 usa WireMock; B10 e B11 acrescentam Testcontainers Kafka; B13 usa LocalStack S3 e KMS; B15 exercita a stack completa.
+
+**Nota da B13 sobre o LocalStack (2026-08-23).** O suporte a assinatura assimétrica foi verificado antes da implementação: o LocalStack 4.4 cria chave `ECC_NIST_P256` com uso `SIGN_VERIFY`, assina sobre digest com `ECDSA_SHA_256`, devolve assinatura em DER e expõe a chave pública em SPKI que verifica a assinatura fora do emulador. O caminho de fallback previsto (assinar localmente no CI) não foi necessário e permanece disponível sem mudança de contrato, porque a attestation carrega keyId e algoritmo. Sobre Object Lock, o emulador aceita bucket criado com Object Lock habilitado e registra modo Compliance com data de retenção nos objetos, mas não impõe a imutabilidade; nenhum teste depende de deleção negada, e a demonstração de imutabilidade fica para o smoke de pré-prod.
 
 ## 6. Segurança
 
@@ -214,7 +219,7 @@ Rollback de fase não exige mecanismo próprio: enquanto um template não é mig
 | 4 | Regra `QuietHours` existe na ordem fixa da v1 do estágio Policy, mas a única classe com janela de silêncio (`operational`) entra apenas na fase 2: na 1b a regra roda sem classe que a exercite | Pendência documental registrada pelo architect; comportamento esperado: `quietHours` nulo para `critical` e `transactional` | §4.3 "Regras da v1, em ordem fixa"; §3; §15 fase 2 |
 | 5 | `KILL_SWITCH` consta do modelo de dados e da mecânica de segurança, mas nenhuma linha do roadmap atribui sua implementação a uma fase | Pendência documental registrada pelo architect; dono: Arquitetura, na próxima revisão do roadmap | §6; §10.3; §15 |
 | 6 | `delivered` de e-mail inexiste na 1b sem webhooks; critério de saída vale para `rejected`, `failed` e `delivered` de push | Ressalva formalizada na seção 8; fecha na fase 2 com o Delivery Tracker | §15; §16 risco 4 |
-| 7 | `.araia/stack-profile.yaml` declara `telemetry: none` e `messaging` sem kafka, divergindo do que a fase ainda introduz | Parcialmente resolvida em 2026-08-23: `messaging: [sqs]` aplicado; kafka e telemetria entram quando materializarem; dono: Engenharia | `.araia/stack-profile.yaml` |
+| 7 | `.araia/stack-profile.yaml` declara `telemetry: none` e `messaging` sem kafka, divergindo do que a fase ainda introduz | Parcialmente resolvida em 2026-08-23: `messaging: [sqs]` aplicado, mais os eixos `object-storage: [s3]`, `key-management: [local, kms]` e `distributed-locks: postgres-advisory` (convenção de advisory lock em espaços de chave disjuntos, cadeia e manutenção); kafka e telemetria entram quando materializarem; dono: Engenharia | `.araia/stack-profile.yaml` |
 | 8 | Nota de infraestrutura de plataforma (outbox, relay, `processed_messages`) precisava constar no documento de padrões | Resolvida em 2026-08-23: nota registrada em [modular-monolith-architecture.md](../architecture/standards/modular-monolith-architecture.md); dono: Arquitetura | Decisão do mapa de módulos (2026-08-23) |
 | 9 | Topologia de filas (`core-*`, `dispatch-*`, `contacts-changed`, DLQs) sem entrega Terraform | Pendência de entrega, pré-requisito de AWS pré-prod; dono: Engenharia de Plataforma | §4.2; §14; memorando B5/B6 (2026-08-23) |
 | 10 | Transporte de observabilidade do health do `Platform.Worker` em produção (endpoint mínimo, publisher ou probe) sem definição | Decisão em aberto | §12; memorando B5/B6 (2026-08-23) |
@@ -224,6 +229,14 @@ Rollback de fase não exige mecanismo próprio: enquanto um template não é mig
 | 14 | O evento Kafka de `failed` em `notifications.events.v1` aguarda a fatia B10: a notificação transita a `failed` no banco sem emissão externa até lá | Sequenciamento aceito; a B10 publica os eventos de saída; dono: Engenharia | §7.3; fatia B10 |
 | 15 | O snapshot do ContactConsent não expõe mais o token do dispositivo: o envio revela o token por leitura dedicada (`RevealDeviceTokenAsync`), desvio aceito do modelo que expunha o token no snapshot | Desvio aceito na decisão da fatia de despacho: fronteira de PII mais estreita, todo egresso de token vira ponto de chamada explícito; dono: Engenharia | §4.4; decisão da fatia de despacho (2026-08-23) |
 | 16 | `MaxConcurrency` por provedor segue em configuração com default de desenvolvimento; a calibração aos limites contratados de SendGrid e FCM está pendente | Calibrar antes do go-live junto ao gate de carga; dono: Engenharia de Plataforma | §11.3; decisão da fatia de despacho (2026-08-23) |
+| 17 | Prazo legal de retenção do bucket WORM ainda não confirmado; o código aplica cinco anos como piso conservador em cada objeto gravado, e a retenção em modo Compliance é irreversível por definição | Confirmar com o Jurídico antes do primeiro export em pré-prod; dono: Compliance com Jurídico | ADR-0006; §9.6 |
+| 18 | Residência em banco antes do drop da partição destacada usa noventa dias como default, sem decisão de negócio | Decidir com Produto e Compliance antes de ligar o gate de drop; dono: Produto com Compliance | §9.6; decisão da fatia B13 (2026-08-23) |
+| 19 | O ciclo completo de fechamento nunca rodou fora de teste; ligar os gates em produção sem ensaio arrisca destacar partição com evidência incompleta | Ensaio do ciclo completo em pré-prod é pré-requisito do gate de noventa dias sem falha que a ADR-0006 exige para o go-live; dono: Engenharia com SRE | ADR-0006; §15 |
+| 20 | Cadência da verificação integral (semanal por partição aberta) foi escolhida sem medição do custo de releitura da partição corrente | Calibrar no gate de carga da B15, junto com o p99 de ingestão; dono: Engenharia | §9.4; fatia B15 |
+| 21 | Usuários LOGIN por ambiente, bucket WORM com Object Lock, chave KMS de assinatura e o deployment do papel `audit-maintenance` não têm entrega Terraform | A migração cria apenas a role de concessão `audit_appender` (NOLOGIN) e os grants; o restante é entrega de infraestrutura declarativa; dono: Engenharia de Plataforma | §14; decisão da fatia B13 (2026-08-23) |
+| 22 | O ERD do §6 e a trilha divergem quanto ao `notification_id` do `audit_event`: a trilha grava `entity_type` mais `entity_id` genéricos | Decidir na fatia da API de auditoria (B14), que precisa consultar por notificação; dono: Arquitetura com Engenharia | §6; §9.5; fatia B14 |
+| 23 | A cadeia cobre o texto `canonical`; a verificação compara também as colunas escalares da linha com esse texto, mas não a coluna `details`, porque o armazenamento jsonb reescreve os bytes na leitura e uma comparação exata alarmaria por formatação | Critério de aceite da B14: a API `/v1/audit/*` monta a resposta a partir do parse do texto `canonical`, tratando `details` apenas como superfície de consulta e indexação, nunca como payload de prova; servir `details` da coluna exige trazer a comparação de volta com oráculo de valor parseado; dono: Engenharia com Arquitetura | §9.4; decisão da fatia B13 (2026-08-23) |
+| 24 | O manifest do export carrega `windowFrom` e `windowTo` sem declarar que a janela é do gatilho: a reivindicação autoritativa de cobertura é a faixa contígua de seq, e um auditor externo pode ler a janela como cobertura por `occurred_at` | Documentar a semântica no guia de verificação independente, ou acrescentar os limites de `occurred_at` do segmento com bump de `formatVersion` (barato enquanto nada foi exportado em produção); decidir antes do smoke de pré-prod; dono: Arquitetura com Engenharia | §9.4; ratificação da fatia B13 (2026-08-23) |
 
 ## 10. Referências
 

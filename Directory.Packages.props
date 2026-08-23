@@ -63,6 +63,11 @@
     <PackageVersion Include="AWSSDK.SQS" Version="4.0.100.10" />
   </ItemGroup>
 
+  <ItemGroup Label="Araia Long-Term Evidence">
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.102.3" />
+    <PackageVersion Include="AWSSDK.KeyManagementService" Version="4.0.100.10" />
+  </ItemGroup>
+
   <ItemGroup Label="Araia Cache">
     <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.16" />

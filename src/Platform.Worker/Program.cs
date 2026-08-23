@@ -33,6 +33,21 @@ public static class Program
                 + "Configure a chave do provedor de KMS real ou execute o host em Development.");
         }
 
+        // Same containment rule for the committed attestation signing key:
+        // evidence signed by a key anyone with repository access holds proves
+        // nothing, so outside Development the host refuses to start with it.
+        var attestationKeyId = configuration[$"{AttestationSignerOptions.SectionName}:KeyId"];
+        if (attestationKeyId is not null
+            && attestationKeyId.Contains(
+                AttestationSignerOptions.DevelopmentKeyIdMarker, StringComparison.OrdinalIgnoreCase)
+            && !environment.IsDevelopment())
+        {
+            throw new InvalidOperationException(
+                $"A chave de assinatura de atestado de desenvolvimento (key id '{attestationKeyId}') está "
+                + $"configurada, mas o ambiente é '{environment.EnvironmentName}'. "
+                + "Configure a chave do provedor de KMS real ou execute o host em Development.");
+        }
+
         await host.RunAsync();
     }
 }

@@ -15,6 +15,9 @@ public static class AuditEntityTypes
     public const string Layout = "layout";
     public const string LayoutVersion = "layout_version";
     public const string ClassPolicyVersion = "class_policy_version";
+
+    /// <summary>One monthly partition of the trail, named as the store names it.</summary>
+    public const string AuditPartition = "audit_partition";
 }
 
 /// <summary>Canonical action names of the audit vocabulary.</summary>
@@ -31,6 +34,18 @@ public static class AuditActions
     public const string LayoutDisabled = "layout.disabled";
     public const string LayoutRollback = "layout.rollback";
     public const string ClassPolicyVersionPublished = "class_policy.version.published";
+
+    /// <summary>A verification round closed with the chain intact over the range it covered.</summary>
+    public const string AuditChainVerified = "audit.chain.verified";
+
+    /// <summary>A verification round found a link that does not hold; the range and the reason travel in the details.</summary>
+    public const string AuditChainVerificationFailed = "audit.chain.verification_failed";
+
+    /// <summary>Evidence of one partition slice written to the immutable store.</summary>
+    public const string AuditExported = "audit.exported";
+
+    /// <summary>A partition finished its closing cycle: verified, exported, copy checked, detached.</summary>
+    public const string AuditPartitionClosed = "audit.partition.closed";
 }
 
 /// <summary>Everything an audit event must capture about one governed effect.</summary>

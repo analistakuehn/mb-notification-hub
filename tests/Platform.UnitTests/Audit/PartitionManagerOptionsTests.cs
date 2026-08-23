@@ -22,6 +22,12 @@ public sealed class PartitionManagerOptionsTests
         options.FutureWindowMinimumDays.ShouldBe(21);
         options.EnableRevokeOnClosedPartitions.ShouldBeFalse();
         options.EnableRetentionCycle.ShouldBeFalse();
+
+        // Destroying data has its own switch, and it is never the same switch
+        // that turns on exporting evidence.
+        options.EnableDropDetachedPartitions.ShouldBeFalse();
+        options.ClosingGraceDays.ShouldBe(2);
+        options.DatabaseResidencyDays.ShouldBe(90);
     }
 
     [Fact]
@@ -106,7 +112,7 @@ public sealed class PartitionManagerOptionsTests
             .Build();
 
         var services = new ServiceCollection();
-        services.AddAuditPartitionManager(configuration);
+        services.AddAuditPartitionHealth(configuration);
 
         using ServiceProvider provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IOptions<PartitionManagerOptions>>().Value;

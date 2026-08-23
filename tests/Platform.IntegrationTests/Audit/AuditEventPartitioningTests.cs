@@ -1,10 +1,10 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using NotificationHub.Api.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Audit.Infrastructure.Worm;
 using NotificationHub.IntegrationTests.TemplateManagement;
 
 namespace NotificationHub.IntegrationTests.Audit;
@@ -75,73 +75,85 @@ public sealed class AuditEventPartitioningTests(TemplateManagementApiFixture fix
     [RequiresDockerFact]
     public async Task The_partition_manager_recreates_a_missing_future_partition_and_a_second_run_changes_nothing()
     {
+        var futurePartition = MonthPartitionName(DateTimeOffset.UtcNow, 2);
         await fixture.ExecuteAuditDbAsync(async db =>
         {
-            var futurePartition = MonthPartitionName(DateTimeOffset.UtcNow, 2);
             var drop = $"DROP TABLE IF EXISTS audit.{futurePartition}";
             await db.Database.ExecuteSqlRawAsync(drop);
-
-            PartitionMaintenance maintenance = CreateMaintenance(
-                db, NullLogger<PartitionMaintenance>.Instance, new PartitionManagerOptions());
-
-            var createdOnFirstRun = await maintenance.RunAsync(CancellationToken.None);
-            var createdOnSecondRun = await maintenance.RunAsync(CancellationToken.None);
-
-            createdOnFirstRun.ShouldBe(1);
-            createdOnSecondRun.ShouldBe(0);
-            (await ListPartitionsAsync(db)).ShouldContain($"audit.{futurePartition}");
         });
+
+        await using ServiceProvider provider = CreateMaintenanceProvider();
+        var createdOnFirstRun = await RunRoundAsync(provider);
+        var createdOnSecondRun = await RunRoundAsync(provider);
+
+        createdOnFirstRun.ShouldBe(1);
+        createdOnSecondRun.ShouldBe(0);
+        await fixture.ExecuteAuditDbAsync(async db =>
+            (await ListPartitionsAsync(db)).ShouldContain($"audit.{futurePartition}"));
     }
 
     [RequiresDockerFact]
-    public async Task The_disabled_phase_gates_execute_nothing_and_log_their_inactive_state()
+    public async Task The_closing_cycle_stays_inactive_while_its_gate_is_off()
     {
-        await fixture.ExecuteAuditDbAsync(async db =>
-        {
-            var logger = new CapturingLogger<PartitionMaintenance>();
-            PartitionMaintenance maintenance = CreateMaintenance(db, logger, new PartitionManagerOptions());
+        var loggerProvider = new CapturingLoggerProvider();
+        await using ServiceProvider provider = CreateMaintenanceProvider(loggerProvider: loggerProvider);
 
-            await maintenance.RunAsync(CancellationToken.None);
+        await RunRoundAsync(provider);
 
-            logger.Messages.ShouldContain(message =>
-                message.Contains("REVOKE", StringComparison.Ordinal)
-                && message.Contains("inativa", StringComparison.Ordinal));
-            logger.Messages.ShouldContain(message =>
-                message.Contains("retenção", StringComparison.Ordinal)
-                && message.Contains("inativo", StringComparison.Ordinal));
-            logger.Messages.ShouldNotContain(message =>
-                message.Contains("não implementad", StringComparison.Ordinal));
-        });
+        loggerProvider.Messages.ShouldContain(message =>
+            message.Contains("Ciclo de retenção inativo", StringComparison.Ordinal));
+        loggerProvider.Messages.ShouldNotContain(message =>
+            message.Contains("destacada", StringComparison.Ordinal));
     }
 
     [RequiresDockerFact]
-    public async Task Enabling_the_phase_gates_only_reports_the_steps_as_not_yet_implemented()
+    public async Task The_closing_cycle_refuses_to_close_a_partition_while_the_write_revoke_gate_is_off()
     {
-        await fixture.ExecuteAuditDbAsync(async db =>
-        {
-            var logger = new CapturingLogger<PartitionMaintenance>();
-            PartitionMaintenance maintenance = CreateMaintenance(db, logger, new PartitionManagerOptions
+        var loggerProvider = new CapturingLoggerProvider();
+        await using ServiceProvider provider = CreateMaintenanceProvider(
+            new Dictionary<string, string?>
             {
-                EnableRevokeOnClosedPartitions = true,
-                EnableRetentionCycle = true,
-            });
+                ["Modules:Audit:PartitionManager:EnableRetentionCycle"] = "true",
+                ["Modules:Audit:PartitionManager:ClosingGraceDays"] = "0",
+            },
+            loggerProvider);
 
-            await maintenance.RunAsync(CancellationToken.None);
+        MonthlyPartitionWindow past = MonthlyPartitions.Plan(
+            "audit_event", DateTimeOffset.UtcNow.AddMonths(-3), 0)[0];
+        IReadOnlyList<PartitionClosingOutcome> outcomes;
+        using (IServiceScope scope = provider.CreateScope())
+        {
+            outcomes = await scope.ServiceProvider
+                .GetRequiredService<PartitionClosingCycle>()
+                .RunAsync([past], [], CancellationToken.None);
+        }
 
-            logger.Messages.ShouldContain(message =>
-                message.Contains("REVOKE", StringComparison.Ordinal)
-                && message.Contains("não implementada", StringComparison.Ordinal));
-            logger.Messages.ShouldContain(message =>
-                message.Contains("retenção", StringComparison.Ordinal)
-                && message.Contains("não implementado", StringComparison.Ordinal));
-        });
+        // A partition that can still receive rows must never be declared
+        // final, so the cycle stops before touching anything.
+        outcomes.ShouldHaveSingleItem().Failure.ShouldBe("revoke-gate-disabled");
+        loggerProvider.Messages.ShouldContain(message =>
+            message.Contains("Etapa de REVOKE", StringComparison.Ordinal)
+            && message.Contains("inativa", StringComparison.Ordinal));
+        loggerProvider.Messages.ShouldNotContain(message =>
+            message.Contains("destacada", StringComparison.Ordinal));
     }
 
-    private static PartitionMaintenance CreateMaintenance(
-        AuditDbContext db,
-        ILogger<PartitionMaintenance> logger,
-        PartitionManagerOptions options)
-        => new(db, Options.Create(options), TimeProvider.System, logger);
+    private ServiceProvider CreateMaintenanceProvider(
+        Dictionary<string, string?>? overrides = null,
+        CapturingLoggerProvider? loggerProvider = null)
+        => AuditMaintenanceComposition.Build(
+            fixture.PostgresConnectionString,
+            overrides,
+            services => services.AddSingleton<IWormObjectStore, InMemoryWormObjectStore>(),
+            loggerProvider);
+
+    private static async Task<int> RunRoundAsync(ServiceProvider provider)
+    {
+        using IServiceScope scope = provider.CreateScope();
+        return await scope.ServiceProvider
+            .GetRequiredService<PartitionMaintenanceRound>()
+            .RunAsync(CancellationToken.None);
+    }
 
     private static string MonthPartitionName(DateTimeOffset reference, int monthsAhead)
     {
@@ -174,20 +186,4 @@ public sealed class AuditEventPartitioningTests(TemplateManagementApiFixture fix
                  """)
             .SingleAsync();
 
-    private sealed class CapturingLogger<T> : ILogger<T>
-    {
-        public List<string> Messages { get; } = [];
-
-        IDisposable? ILogger.BeginScope<TState>(TState state) => null;
-
-        bool ILogger.IsEnabled(LogLevel logLevel) => true;
-
-        void ILogger.Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-            => Messages.Add(formatter(state, exception));
-    }
 }

@@ -23,11 +23,13 @@ persistence: [ef]
 messaging: [sqs]
 messaging-consumer-pattern: none
 cache: [redis]
+object-storage: [s3]
+key-management: [local, kms]
 resilience: http-resilience
 serialization: system-text-json
 telemetry: none
 auth: jwt-bearer
-distributed-locks: none
+distributed-locks: postgres-advisory
 slice-layout:
   features-root: src/Platform.Api/Modules
   slice-shape: module-with-vertical-slices

@@ -23,6 +23,7 @@ public sealed class AuditVocabularyTests
         AuditEntityTypes.Layout.ShouldBe("layout");
         AuditEntityTypes.LayoutVersion.ShouldBe("layout_version");
         AuditEntityTypes.ClassPolicyVersion.ShouldBe("class_policy_version");
+        AuditEntityTypes.AuditPartition.ShouldBe("audit_partition");
     }
 
     [Fact]
@@ -39,6 +40,10 @@ public sealed class AuditVocabularyTests
         AuditActions.LayoutDisabled.ShouldBe("layout.disabled");
         AuditActions.LayoutRollback.ShouldBe("layout.rollback");
         AuditActions.ClassPolicyVersionPublished.ShouldBe("class_policy.version.published");
+        AuditActions.AuditChainVerified.ShouldBe("audit.chain.verified");
+        AuditActions.AuditChainVerificationFailed.ShouldBe("audit.chain.verification_failed");
+        AuditActions.AuditExported.ShouldBe("audit.exported");
+        AuditActions.AuditPartitionClosed.ShouldBe("audit.partition.closed");
     }
 
     [Fact]

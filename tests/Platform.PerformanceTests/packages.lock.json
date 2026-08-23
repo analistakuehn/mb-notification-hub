@@ -569,6 +569,8 @@
       "NotificationHub.Api": {
         "type": "Project",
         "dependencies": {
+          "AWSSDK.KeyManagementService": "[4.0.100.10, )",
+          "AWSSDK.S3": "[4.0.102.3, )",
           "AWSSDK.SQS": "[4.0.100.10, )",
           "Asp.Versioning.Http": "[10.0.0, )",
           "FluentValidation": "[11.10.0, )",
@@ -592,6 +594,24 @@
         "contentHash": "xmNm9FM2d20NKy7i1osEQysf7pJ4iJjWnM6e8CoeIhUREqG8nugsfC82pGpmzlatjAJL5T52ieSpyW+GFdSsSQ==",
         "dependencies": {
           "Asp.Versioning.Abstractions": "10.0.0"
+        }
+      },
+      "AWSSDK.KeyManagementService": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.100.10, )",
+        "resolved": "4.0.100.10",
+        "contentHash": "jj8LYJowmlBiFivYGxJvT/MK4qRYna/vGFlWatXI5S72ZKt/WWA6NxCTbRaEpsWNYFhzCW0sj4UCwbM3foFA2Q==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102, 5.0.0)"
+        }
+      },
+      "AWSSDK.S3": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.102.3, )",
+        "resolved": "4.0.102.3",
+        "contentHash": "3UBPFahEW62lNqHutA94if/9YguOXswDkz+CMh8fo3qCl7PUdynwSEvE0rhHnRPok0rDkDEDpwddfk7h8Mg0gw==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102, 5.0.0)"
         }
       },
       "AWSSDK.SQS": {

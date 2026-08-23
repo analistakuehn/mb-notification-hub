@@ -38,18 +38,44 @@ public sealed class PartitionManagerOptions
     public int FutureWindowMinimumDays { get; init; } = 21;
 
     /// <summary>
-    /// Gate for the write REVOKE on closed monthly partitions. Off by default:
-    /// the step needs the dedicated database roles, not provisioned yet, and
-    /// the job only reports the gate state while the step does not exist.
+    /// Gate for the write REVOKE (and the closed-write trigger) on closed
+    /// monthly partitions. Off by default: it depends on the appender role
+    /// existing in the target database, and without it the closing cycle
+    /// refuses to proceed, because a partition that can still receive rows
+    /// must not be declared final.
     /// </summary>
     public bool EnableRevokeOnClosedPartitions { get; init; }
 
     /// <summary>
-    /// Gate for the retention cycle (DETACH, WORM export, drop). Off by
-    /// default: the step needs the WORM bucket, not provisioned yet, and the
-    /// job only reports the gate state while the step does not exist.
+    /// Gate for the closing cycle up to and including DETACH. Off by default:
+    /// it depends on the WORM bucket being provisioned. It never authorizes
+    /// destroying anything; that is a separate gate on purpose.
     /// </summary>
     public bool EnableRetentionCycle { get; init; }
+
+    /// <summary>
+    /// Gate for destroying a detached partition. Deliberately separate from
+    /// every other gate and off by default: exporting evidence is additive,
+    /// dropping a table is not, and the two must never share one switch.
+    /// </summary>
+    public bool EnableDropDetachedPartitions { get; init; }
+
+    /// <summary>
+    /// Days after the end of a month before its partition is closed. It gives
+    /// slow effects time to land, so a partition is declared final only once
+    /// nothing else is expected in it.
+    /// </summary>
+    [Range(0, 365)]
+    public int ClosingGraceDays { get; init; } = 2;
+
+    /// <summary>
+    /// How long a detached partition stays queryable in the database before
+    /// the drop gate may destroy it. The evidence lives in the immutable store
+    /// from the closing export onwards; this window is about operational
+    /// convenience, not about proof.
+    /// </summary>
+    [Range(1, 3650)]
+    public int DatabaseResidencyDays { get; init; } = 90;
 
     /// <summary>
     /// A table name this job accepts: the platform's safe-identifier rule for

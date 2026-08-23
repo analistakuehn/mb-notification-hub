@@ -154,6 +154,44 @@ namespace NotificationHub.Api.Modules.Audit.Infrastructure.Persistence.Migration
                             t.HasCheckConstraint("ck_audit_event_chain_complete", "(canonical IS NULL AND prev_hash IS NULL AND hash IS NULL) OR (canonical IS NOT NULL AND prev_hash IS NOT NULL AND hash IS NOT NULL)");
                         });
                 });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.Audit.Infrastructure.Verification.ChainVerificationCheckpoint", b =>
+                {
+                    b.Property<string>("PartitionName")
+                        .HasMaxLength(63)
+                        .HasColumnType("character varying(63)")
+                        .HasColumnName("partition_name");
+
+                    b.Property<long?>("FailedSeq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("failed_seq");
+
+                    b.Property<string>("Failure")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("failure");
+
+                    b.Property<DateTimeOffset?>("FullyVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fully_verified_at");
+
+                    b.Property<byte[]>("LastHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("last_hash");
+
+                    b.Property<long>("LastSeq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_seq");
+
+                    b.Property<DateTimeOffset>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_at");
+
+                    b.HasKey("PartitionName");
+
+                    b.ToTable("chain_verification_checkpoint", "audit");
+                });
 #pragma warning restore 612, 618
         }
     }

@@ -6,14 +6,20 @@
   proves, for years, what happened, who caused it, over which exact content,
   and who looked at it afterwards.
 - This module owns the `audit_event` and `approval` tables, the hash-chain
-  integrity columns, the monthly partitioning of `audit_event`, the partition
-  manager job, and the partition-coverage health check. The generic
-  provisioning mechanics (window planning, idempotent partition creation, the
-  coverage check implementation) live in
+  integrity columns, the monthly partitioning of `audit_event`, the WORM
+  export of the trail, the periodic chain verification and its checkpoint
+  table, the partition closing cycle, and the health checks over both. The
+  generic provisioning mechanics (window planning, idempotent partition
+  creation, the coverage check implementation) live in
   `src/Platform.Api/Infrastructure/Partitioning/`; this module registers its
   schema and tables on that infrastructure and keeps the partition-closing
-  steps (write revoke, WORM retention) as trail semantics that never leave
+  steps (write revoke, export, retention) as trail semantics that never leave
   the module.
+- The maintenance jobs run in the `audit-maintenance` worker role and nowhere
+  else. A request-serving host keeps the `audit-partitions` health check,
+  because it must see the coverage running out, and hosts none of the jobs:
+  revoking grants and detaching partitions is not work that may run once per
+  replica.
 - Do not read or write another context's data store, infrastructure types, or
   mutable domain types. Subject identities arrive already composed in the
   producing context's naming; this module never models foreign aggregates.
@@ -26,8 +32,10 @@
 |---|---|
 | `src/Platform.Api/Modules/Audit/Domain/` | audit event and approval entities, hash-chain arithmetic (canonical form, anchor, link) |
 | `src/Platform.Api/Modules/Audit/Integration/V1/` | `IAuditTrail` (transactional append and approval), `AuditEntry`, `ApprovalGrant`, audit vocabulary constants |
-| `src/Platform.Api/Modules/Audit/Infrastructure/` | `AuditDbContext` and migrations (schema `audit`), the transactional appender, partition manager, health check |
-| `src/Platform.Api/Modules/Audit/AuditModule.cs` | service registration for this context |
+| `src/Platform.Api/Modules/Audit/Infrastructure/` | `AuditDbContext` and migrations (schema `audit`), the transactional appender, partition maintenance and closing cycle, WORM export, chain verification, health checks |
+| `src/Platform.Api/Modules/Audit/Infrastructure/Worm/` | the module-owned write-once store contract and its object-store implementation |
+| `src/Platform.Api/Modules/Audit/AuditModule.cs` | service registration for a request-serving host (persistence, trail contract, coverage health check) |
+| `src/Platform.Api/Modules/Audit/AuditMaintenanceWorkerRole.cs` | composition of the `audit-maintenance` worker role (provisioning, export, closing cycle, verification) |
 
 ## Transactional append contract
 
@@ -78,10 +86,19 @@
   Nothing retroactive is fabricated; those partitions receive WORM protection
   at export because no chain vouches for them, and the chain of a partition
   that already holds pre-chain rows still starts at the partition anchor.
-- Continuity between partitions (closing anchor in the WORM manifest, next
-  partition linking to the anchored final hash) belongs to the partition
-  closing cycle, not yet built; until then every partition starts at its own
-  anchor.
+- **Continuity between partitions** is the manifest chain in the WORM store,
+  never a `prev_hash` that crosses a partition. Every partition is a
+  self-contained chain starting at its own deterministic anchor, and each
+  exported manifest references the key and the tail hash of the manifest
+  before it, including across the partition boundary. Tying the first link of
+  a month to the previous month's final hash would couple the start of a
+  month to a value that is still moving inside the stabilization window.
+- **Column drift**: the chain covers the canonical text, so editing a column
+  beside it would leave every hash valid. The verification compares the
+  scalar columns of each row against its canonical text and reports the one
+  that drifted. The `details` column is out of that comparison, because
+  `jsonb` re-serializes on read and an exact comparison would raise integrity
+  alarms about formatting; evidence consumers read `canonical`.
 
 ## Persistence and migrations
 
@@ -102,13 +119,69 @@
   degrades the host while there is still time to act. A missing month makes
   every audit insert fail, which aborts every governed effect in the same
   transaction: that is the designed behavior, not an accident.
+- The migration creates the `audit_appender` grant role (NOLOGIN) with
+  `INSERT` and `SELECT` on the trail, plus default privileges so a new
+  partition carries the same grant. Login users per environment are
+  provisioned by infrastructure and granted into the role.
+
+## WORM export
+
+- One engine, two triggers. The daily export slices a partition by day; the
+  closing export restates the whole partition and is the authoritative
+  artifact. Keys are deterministic
+  (`audit-export/v1/{table}/{partition}/{daily/{yyyy-MM-dd}|closing}/`), so a
+  rerun addresses exactly the objects the first run wrote and skips them when
+  the digest matches.
+- The events object is NDJSON with the stored `canonical` text **byte for
+  byte**, one line per row, in chain order. Nothing is reparsed or
+  re-serialized: the hash covers those exact bytes. Pre-chain rows travel in
+  a separate object, canonicalized at export time, with no hash fabricated
+  for them.
+- The authoritative claim of an export is its sequence range, not its
+  calendar window. A daily slice carries the contiguous range that ends at
+  the day's highest sequence, which keeps the segment replayable even when an
+  effect commits with an occurrence instant older than one already committed.
+- The manifest carries the anchor, the head and tail hashes, the sequence
+  range, the counts, the digests, and the reference to the previous manifest.
+  It contains no clock and no run identifier, because a rerun must produce
+  the same bytes. The attestation next to it signs the digest of the manifest
+  and names the key and the algorithm; the public key is archived in the same
+  bucket at the first export.
+- Verification from the bucket alone (`WormExportVerifier`) is the contract
+  that matters: check the signature with the archived key, check the digests,
+  replay the chain from the head to the tail, and follow the manifest
+  references backwards. The platform runs exactly this code before it
+  detaches or drops anything.
+
+## Closing cycle
+
+Order is the contract, and each stage that fails stops the cycle where it is:
+
+1. revoke writes on the closed partition (`Modules:Audit:PartitionManager:EnableRevokeOnClosedPartitions`);
+2. verify the whole partition from its anchor, green required;
+3. export the partition (closing export);
+4. verify the copy by reading the objects back and replaying them;
+5. record the closing in the trail with the manifest key and the tail hash;
+6. `DETACH`, never before step 4 succeeded;
+7. drop, only behind `EnableDropDetachedPartitions`, which is off by default,
+   only past the database residency, and only after the copy verifies again.
+
+Revoking the grant alone does not stop a write: a row inserted through the
+partitioned parent is routed to its partition and the privilege checked is
+the parent's. The closing step therefore also installs a row-level trigger
+that refuses inserts on the closed partition, which is what the accepted
+immutability design prescribes.
+
+`EnableRetentionCycle` governs up to `DETACH` and never authorizes
+destruction; the drop has a gate of its own on purpose. Exporting evidence is
+additive and reversible, dropping a table is not, and the two must never
+share one switch.
 
 ## Out of scope for now
 
-Hourly chain verification with stabilization watermark, WORM export with the
-KMS-signed manifest, partition closing anchoring, the `/v1/audit/*` read API
-(reads must generate `audit.read` through it), and the dedicated database
-roles. Do not work around their absence here.
+The `/v1/audit/*` read API (reads must generate `audit.read` through it), the
+pseudonymized export for the regulator, the monthly evidence reports, and the
+lifecycle rules of the bucket. Do not work around their absence here.
 
 ## Error axis and logging
 
