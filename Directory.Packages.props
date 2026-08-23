@@ -39,6 +39,7 @@
     <PackageVersion Include="NetArchTest.eNhancedEdition" Version="1.4.5" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.1.0" />
+    <PackageVersion Include="Testcontainers.Redis" Version="4.1.0" />
     <!-- Transitive pin: Testcontainers 4.1.0 pulls SSH.NET 2024.1.0, which carries
          a known high-severity advisory; 2026.0.0 is the first patched release. -->
     <PackageVersion Include="SSH.NET" Version="2026.0.0" />

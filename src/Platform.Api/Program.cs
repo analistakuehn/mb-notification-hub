@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using NotificationHub.Api.Composition;
+using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.EndpointFilters;
+using NotificationHub.Api.Infrastructure.Messaging;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +32,8 @@ builder.Services.AddAuthorizationBuilder()
         .Build());
 builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests);
+builder.Services.AddPlatformMessaging(builder.Configuration);
+builder.Services.AddEnvelopeEncryption(builder.Configuration);
 builder.Services.AddModules(builder.Configuration, SolutionAssemblies.All);
 
 builder.Services.AddScoped<RequestLoggingFilter>();
@@ -53,6 +57,20 @@ if (devSigningKeyConfigured && !app.Environment.IsDevelopment())
         $"A chave de assinatura de desenvolvimento (issuer '{devSigningIssuer}') está configurada, "
         + $"mas o ambiente é '{app.Environment.EnvironmentName}'. "
         + "Configure as chaves do provedor de identidade real ou execute o host em Development.");
+}
+
+// Same containment rule for the committed development envelope master key:
+// it only ever derives data keys in Development, because anyone with
+// repository access could decrypt stored variables protected by it.
+var envelopeKeyId = app.Configuration[$"{EnvelopeCipherOptions.SectionName}:KeyId"];
+if (envelopeKeyId is not null
+    && envelopeKeyId.Contains(EnvelopeCipherOptions.DevelopmentKeyIdMarker, StringComparison.OrdinalIgnoreCase)
+    && !app.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException(
+        $"A chave-mestra de cifra de desenvolvimento (key id '{envelopeKeyId}') está configurada, "
+        + $"mas o ambiente é '{app.Environment.EnvironmentName}'. "
+        + "Configure a chave do provedor de KMS real ou execute o host em Development.");
 }
 
 app.UseExceptionHandler();

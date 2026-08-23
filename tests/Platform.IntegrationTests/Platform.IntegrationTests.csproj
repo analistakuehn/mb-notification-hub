@@ -26,6 +26,7 @@
     <PackageReference Include="Shouldly" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Redis" />
   </ItemGroup>
 
 </Project>

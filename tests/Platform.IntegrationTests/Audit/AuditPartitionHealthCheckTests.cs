@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using Testcontainers.PostgreSql;
@@ -35,6 +36,12 @@ public sealed class AuditPartitionHealthCheckTests : IAsyncLifetime
                 .Database.MigrateAsync();
             await migrationScope.ServiceProvider
                 .GetRequiredService<AuditDbContext>()
+                .Database.MigrateAsync();
+
+            // The notifications coverage check probes the same database, so
+            // its partitioned parent must exist for the healthy baseline.
+            await migrationScope.ServiceProvider
+                .GetRequiredService<NotificationsDbContext>()
                 .Database.MigrateAsync();
         }
 
@@ -74,6 +81,7 @@ public sealed class AuditPartitionHealthCheckTests : IAsyncLifetime
                 => configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Modules:Audit:Persistence:Ef:ConnectionString"] = connectionString,
+                    ["Modules:Notifications:Persistence:Ef:ConnectionString"] = connectionString,
                     ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = connectionString,
                     ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = "localhost:6379",
                     ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
@@ -82,6 +90,7 @@ public sealed class AuditPartitionHealthCheckTests : IAsyncLifetime
                     // check must not race it.
                     ["Modules:Audit:PartitionManager:Enabled"] = "false",
                     ["Modules:Audit:PartitionManager:FutureWindowMinimumDays"] = "45",
+                    ["Modules:Notifications:PartitionManager:Enabled"] = "false",
                 }));
     }
 }
