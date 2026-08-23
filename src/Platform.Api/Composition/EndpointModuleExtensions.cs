@@ -12,9 +12,9 @@ public static class EndpointModuleExtensions
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        foreach (var module in ModuleRegistrationExtensions.DiscoverImplementations(typeof(IEndpointModule), assemblies))
+        foreach (Type module in ModuleRegistrationExtensions.DiscoverImplementations(typeof(IEndpointModule), assemblies))
         {
-            var method = module.GetMethod(
+            MethodInfo? method = module.GetMethod(
                 MapEndpointsMethod,
                 BindingFlags.Public | BindingFlags.Static);
 

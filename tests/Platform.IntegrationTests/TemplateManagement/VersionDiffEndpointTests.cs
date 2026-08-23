@@ -12,8 +12,8 @@ public sealed class VersionDiffEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Template_diff_reports_added_changed_contents_and_schema_fields_between_two_versions()
     {
-        var author = fixture.CreateAuthorClient("author-diff-1");
-        var publisher = fixture.CreatePublisherClient("publisher-diff-1");
+        HttpClient author = fixture.CreateAuthorClient("author-diff-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-diff-1");
         (var key, var first) = await TemplateApi.CreatePublishableDraftAsync(author);
         await TemplateApi.PublishAsync(publisher, key, first);
         HttpResponseMessage draftResponse = await author.PostAsJsonAsync(
@@ -73,7 +73,7 @@ public sealed class VersionDiffEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Template_diff_without_the_against_parameter_returns_400()
     {
-        var author = fixture.CreateAuthorClient("author-diff-2");
+        HttpClient author = fixture.CreateAuthorClient("author-diff-2");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await author.GetAsync(
@@ -87,7 +87,7 @@ public sealed class VersionDiffEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Template_diff_against_an_unknown_version_returns_404()
     {
-        var author = fixture.CreateAuthorClient("author-diff-3");
+        HttpClient author = fixture.CreateAuthorClient("author-diff-3");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await author.GetAsync(
@@ -101,8 +101,8 @@ public sealed class VersionDiffEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Layout_diff_reports_the_fields_that_changed_per_channel_and_locale()
     {
-        var author = fixture.CreateAuthorClient("author-diff-4");
-        var publisher = fixture.CreatePublisherClient("publisher-diff-4");
+        HttpClient author = fixture.CreateAuthorClient("author-diff-4");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-diff-4");
         (var key, var first) = await LayoutApi.CreatePublishableDraftAsync(author);
         await LayoutApi.PublishAsync(publisher, key, first);
         HttpResponseMessage draftResponse = await author.PostAsJsonAsync(

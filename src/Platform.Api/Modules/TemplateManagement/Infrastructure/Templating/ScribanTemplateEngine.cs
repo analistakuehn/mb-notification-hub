@@ -1,4 +1,6 @@
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using NotificationHub.SharedKernel;
 using Scriban;
@@ -75,28 +77,28 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options)
             StrictVariables = true,
             MemberFilter = static _ => false,
             CancellationToken = renderCancellation.Token,
+
+            // Aligned with the wall-clock deadline: a catastrophic regex stops
+            // burning the worker thread at the same moment the caller gives up.
+            RegexTimeOut = TimeSpan.FromMilliseconds(options.Value.RenderTimeoutMilliseconds),
         };
         context.PushGlobal(BuildGlobals(variables));
+        var output = new BoundedScriptOutput(options.Value.MaxOutputChars);
+        context.PushOutput(output);
 
-        var renderTask = Task.Run(() => template.Render(context));
+        Task<string> renderTask = Task.Run(() => template.Render(context));
         Task first = await Task.WhenAny(
                 renderTask,
                 Task.Delay(TimeSpan.FromMilliseconds(options.Value.RenderTimeoutMilliseconds), cancellationToken))
             .ConfigureAwait(false);
         if (first != renderTask)
         {
+            // Deadline or caller cancellation: either way the in-flight render
+            // is discarded before anything propagates, so the engine is asked
+            // to stop and its eventual failure is never orphaned.
+            await DiscardInFlightRenderAsync(renderCancellation, renderTask).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-
-            // Discard the in-flight render: the cancellation asks the engine to
-            // stop, and the continuation only observes the eventual exception.
-            await renderCancellation.CancelAsync().ConfigureAwait(false);
-            _ = renderTask.ContinueWith(
-                static task => _ = task.Exception,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted,
-                TaskScheduler.Default);
-            return Result.ValidationError<string>(
-                $"Rendering exceeded the {options.Value.RenderTimeoutMilliseconds}ms time limit and was discarded.");
+            return Result.ValidationError<string>(TimeLimitMessage());
         }
 
         try
@@ -105,9 +107,42 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options)
         }
         catch (ScriptRuntimeException exception)
         {
-            return Result.ValidationError<string>(exception.Message);
+            if (output.LimitExceeded)
+            {
+                return Result.ValidationError<string>(OutputLimitMessage());
+            }
+
+            return Result.ValidationError<string>(exception.InnerException is RegexMatchTimeoutException
+                ? TimeLimitMessage()
+                : exception.Message);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return Result.ValidationError<string>(TimeLimitMessage());
         }
     }
+
+    /// <summary>
+    /// Signals the engine to stop and attaches an observer to the in-flight
+    /// render task so its eventual exception never surfaces as unobserved.
+    /// </summary>
+    private static async Task DiscardInFlightRenderAsync(
+        CancellationTokenSource renderCancellation,
+        Task<string> renderTask)
+    {
+        await renderCancellation.CancelAsync().ConfigureAwait(false);
+        _ = renderTask.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
+
+    private string TimeLimitMessage()
+        => $"Rendering exceeded the {options.Value.RenderTimeoutMilliseconds}ms time limit and was discarded.";
+
+    private string OutputLimitMessage()
+        => $"The rendered output exceeded the {options.Value.MaxOutputChars} character limit and was discarded.";
 
     /// <summary>Builds the sandbox globals from a JSON object; only data crosses the boundary.</summary>
     private static ScriptObject BuildGlobals(JsonElement? variables)
@@ -160,6 +195,38 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options)
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// Output sink with a hard ceiling: the render aborts the moment the
+    /// accumulated output crosses the configured limit, instead of letting a
+    /// loop multiply fragments into an unbounded buffer.
+    /// </summary>
+    private sealed class BoundedScriptOutput(int maxChars) : IScriptOutput
+    {
+        private readonly StringBuilder _builder = new();
+
+        internal bool LimitExceeded { get; private set; }
+
+        public void Write(string text, int offset, int count)
+        {
+            if (_builder.Length + count > maxChars)
+            {
+                LimitExceeded = true;
+                throw new InvalidOperationException(
+                    $"The rendered output exceeded the {maxChars} character limit.");
+            }
+
+            _builder.Append(text, offset, count);
+        }
+
+        public ValueTask WriteAsync(string text, int offset, int count, CancellationToken cancellationToken)
+        {
+            Write(text, offset, count);
+            return ValueTask.CompletedTask;
+        }
+
+        public override string ToString() => _builder.ToString();
     }
 
     /// <summary>

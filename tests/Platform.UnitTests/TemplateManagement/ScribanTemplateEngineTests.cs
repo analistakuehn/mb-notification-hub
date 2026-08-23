@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
@@ -11,13 +12,15 @@ public sealed class ScribanTemplateEngineTests
         int loopLimit = 1000,
         int recursionLimit = 16,
         int maxSizeChars = 10_000,
-        int timeoutMs = 2000)
+        int timeoutMs = 2000,
+        int maxOutputChars = 1_000_000)
         => new(Options.Create(new TemplatingOptions
         {
             LoopLimit = loopLimit,
             RecursionLimit = recursionLimit,
             MaxTemplateSizeChars = maxSizeChars,
             RenderTimeoutMilliseconds = timeoutMs,
+            MaxOutputChars = maxOutputChars,
         }));
 
     private static JsonElement Variables(string json)
@@ -139,6 +142,37 @@ public sealed class ScribanTemplateEngineTests
 
         result.IsFailure.ShouldBeTrue();
         result.Error!.ShouldContain("time limit");
+    }
+
+    [Fact]
+    public async Task A_catastrophic_regex_releases_the_render_around_the_configured_deadline()
+    {
+        var watch = Stopwatch.StartNew();
+        Result<string> result = await Engine(timeoutMs: 500).RenderAsync(
+            """{{ "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!" | regex.match `(a+)+$` }}""",
+            variables: null,
+            CancellationToken.None);
+        watch.Stop();
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error!.ShouldContain("time limit");
+
+        // Well under the 10s default regex timeout: the engine regex deadline
+        // is aligned with the configured render deadline.
+        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Nested_loops_multiplying_output_hit_the_output_ceiling()
+    {
+        Result<string> result = await Engine(maxOutputChars: 1_000).RenderAsync(
+            "{{ for i in 1..100 }}{{ for j in 1..100 }}0123456789{{ end }}{{ end }}",
+            variables: null,
+            CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error!.ShouldContain("output");
+        result.Error!.ShouldContain("1000 character limit");
     }
 
     [Fact]

@@ -14,9 +14,9 @@ public static class ModuleRegistrationExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        foreach (var module in DiscoverImplementations(typeof(IModule), assemblies))
+        foreach (Type module in DiscoverImplementations(typeof(IModule), assemblies))
         {
-            var method = module.GetMethod(
+            MethodInfo? method = module.GetMethod(
                 ConfigureServicesMethod,
                 BindingFlags.Public | BindingFlags.Static);
 

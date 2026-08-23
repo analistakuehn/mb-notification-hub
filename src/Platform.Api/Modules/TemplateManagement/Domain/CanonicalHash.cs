@@ -7,14 +7,14 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 /// <summary>
 /// SHA-256 over a canonical byte representation. The canonical form is
 /// insertion-order independent (entries sorted by channel then locale) and
-/// distinguishes absent fields from empty ones, so the same logical content
-/// always produces the same hash.
+/// distinguishes absent fields from empty ones. Each field is length-prefixed
+/// (<c>A</c> for an absent field, <c>V{utf8ByteCount}:{value}</c> for a present
+/// one), so no field value can forge a field boundary and the same logical
+/// content always produces the same hash.
 /// </summary>
 internal static class CanonicalHash
 {
-    private const char FieldSeparator = (char)0x1F;
     private const char RecordSeparator = (char)0x1E;
-    private const char AbsentMarker = (char)0x00;
 
     internal static string OfFields(params string?[] fields)
         => Hash(AppendFields(new StringBuilder(), fields).ToString());
@@ -87,14 +87,15 @@ internal static class CanonicalHash
         {
             if (field is null)
             {
-                builder.Append(AbsentMarker);
+                builder.Append('A');
             }
             else
             {
-                builder.Append(field);
+                builder.Append('V')
+                    .Append(Encoding.UTF8.GetByteCount(field).ToString(CultureInfo.InvariantCulture))
+                    .Append(':')
+                    .Append(field);
             }
-
-            builder.Append(FieldSeparator);
         }
 
         return builder;

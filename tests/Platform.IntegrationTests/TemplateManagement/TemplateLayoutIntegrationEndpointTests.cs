@@ -10,7 +10,7 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     [RequiresDockerFact]
     public async Task Pinning_a_layout_on_a_draft_requires_the_current_entity_tag_and_changes_the_content_hash()
     {
-        var author = fixture.CreateAuthorClient("author-tl-1");
+        HttpClient author = fixture.CreateAuthorClient("author-tl-1");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         HttpResponseMessage current = await author.GetAsync($"/v1/templates/{key}/versions/{version}");
         var etag = current.Headers.ETag!.ToString();
@@ -36,7 +36,7 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     [RequiresDockerFact]
     public async Task A_partial_layout_reference_returns_400()
     {
-        var author = fixture.CreateAuthorClient("author-tl-2");
+        HttpClient author = fixture.CreateAuthorClient("author-tl-2");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         HttpResponseMessage current = await author.GetAsync($"/v1/templates/{key}/versions/{version}");
 
@@ -51,8 +51,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     [RequiresDockerFact]
     public async Task Referencing_a_layout_without_a_published_version_fails_the_layout_reference_check_and_blocks_publish()
     {
-        var author = fixture.CreateAuthorClient("author-tl-3");
-        var publisher = fixture.CreatePublisherClient("publisher-tl-3");
+        HttpClient author = fixture.CreateAuthorClient("author-tl-3");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-3");
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(author);
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
@@ -76,8 +76,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     [RequiresDockerFact]
     public async Task A_template_pinned_to_a_published_layout_validates_and_publishes()
     {
-        var author = fixture.CreateAuthorClient("author-tl-4");
-        var publisher = fixture.CreatePublisherClient("publisher-tl-4");
+        HttpClient author = fixture.CreateAuthorClient("author-tl-4");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-4");
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
@@ -98,8 +98,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     [RequiresDockerFact]
     public async Task Rendering_a_template_with_a_published_layout_wraps_body_and_text_exactly()
     {
-        var author = fixture.CreateAuthorClient("author-tl-5");
-        var publisher = fixture.CreatePublisherClient("publisher-tl-5");
+        HttpClient author = fixture.CreateAuthorClient("author-tl-5");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-5");
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
@@ -119,7 +119,7 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     [RequiresDockerFact]
     public async Task Without_a_layout_reference_the_render_stays_unwrapped()
     {
-        var author = fixture.CreateAuthorClient("author-tl-6");
+        HttpClient author = fixture.CreateAuthorClient("author-tl-6");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await author.PostAsJsonAsync(
@@ -134,8 +134,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     [RequiresDockerFact]
     public async Task Rendering_a_channel_the_layout_does_not_cover_returns_404_layout_content_not_found()
     {
-        var author = fixture.CreateAuthorClient("author-tl-7");
-        var publisher = fixture.CreatePublisherClient("publisher-tl-7");
+        HttpClient author = fixture.CreateAuthorClient("author-tl-7");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-7");
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey(), defaultLocale: "pt-BR");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -28,8 +29,11 @@ internal static partial class PublishTemplateVersion
                 return templateKey.AsFailure<TemplateKey, Outcome>();
             }
 
+            // Tracked on purpose: the publication touches the template row in
+            // the same transaction, so a concurrent lifecycle transition
+            // invalidates this publication instead of slipping past the
+            // status check below.
             Template? template = await dbContext.Templates
-                .AsNoTracking()
                 .WhereKey(templateKey.Value!)
                 .FirstOrDefaultAsync(cancellationToken);
             if (template is null)
@@ -119,6 +123,11 @@ internal static partial class PublishTemplateVersion
                 OccurredAt = now,
             }));
 
+            // Forcing the status write makes the update carry the template's
+            // concurrency token: a deprecate/disable committed after the load
+            // above turns this publication into a concurrency conflict.
+            dbContext.Entry(template).Property(entity => entity.Status).IsModified = true;
+
             try
             {
                 // One SaveChanges, one database transaction: the status flips,
@@ -130,6 +139,14 @@ internal static partial class PublishTemplateVersion
                 return Result.BusinessRuleViolation<Outcome>(DomainError.Format(
                     ErrorCodes.PreconditionFailed,
                     "The version changed while the publication was in flight. Validate and publish again."));
+            }
+            catch (DbUpdateException exception)
+                when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                return Result.BusinessRuleViolation<Outcome>(DomainError.Format(
+                    ErrorCodes.PublicationConflict,
+                    "Another publication for this template landed concurrently. "
+                    + "Fetch the current state and retry if still applicable."));
             }
 
             logger.VersionPublished(version.TemplateKey.Value, version.Version, current?.Version);

@@ -22,4 +22,12 @@ public sealed class TemplatingOptions
 
     [Range(1, 60_000)]
     public int RenderTimeoutMilliseconds { get; init; } = 2000;
+
+    /// <summary>
+    /// Ceiling for the rendered output. Loops multiplying large fragments can
+    /// inflate the output far beyond the template size; the render aborts the
+    /// moment the accumulated output crosses this limit.
+    /// </summary>
+    [Range(1, 16_000_000)]
+    public int MaxOutputChars { get; init; } = 1_000_000;
 }

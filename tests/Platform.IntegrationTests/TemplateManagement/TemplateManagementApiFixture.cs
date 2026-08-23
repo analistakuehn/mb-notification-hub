@@ -59,6 +59,20 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
         return client;
     }
 
+    /// <summary>
+    /// Client whose token carries distinct <c>oid</c> and <c>sub</c> claims,
+    /// mirroring identity-provider tokens where the object id, not the
+    /// subject, is the stable actor identity.
+    /// </summary>
+    public HttpClient CreateClientWithObjectId(string objectId, string subject, params string[] roles)
+    {
+        HttpClient client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            CreateToken(subject, roles, objectId));
+        return client;
+    }
+
     public async Task ExecuteDbAsync(Func<TemplateManagementDbContext, Task> action)
     {
         using IServiceScope scope = Services.CreateScope();
@@ -85,18 +99,24 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
         await _postgres.DisposeAsync();
     }
 
-    private string CreateToken(string subject, IReadOnlyList<string> roles)
+    private string CreateToken(string subject, IReadOnlyList<string> roles, string? objectId = null)
     {
+        var claims = new Dictionary<string, object>
+        {
+            ["sub"] = subject,
+            ["role"] = roles,
+        };
+        if (objectId is not null)
+        {
+            claims["oid"] = objectId;
+        }
+
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = Issuer,
             Audience = Audience,
             Expires = DateTime.UtcNow.AddMinutes(10),
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = subject,
-                ["role"] = roles,
-            },
+            Claims = claims,
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(_signingKey),
                 SecurityAlgorithms.HmacSha256),

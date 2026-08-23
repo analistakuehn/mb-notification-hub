@@ -8,16 +8,38 @@ namespace NotificationHub.UnitTests.TemplateManagement;
 public sealed class PartitionManagerOptionsTests
 {
     [Fact]
-    public void Defaults_run_daily_two_months_ahead_over_the_audit_table_with_the_phase_gates_off()
+    public void Defaults_run_daily_two_months_ahead_with_the_phase_gates_off()
     {
         var options = new PartitionManagerOptions();
 
         options.Enabled.ShouldBeTrue();
         options.Interval.ShouldBe(TimeSpan.FromDays(1));
         options.MonthsAhead.ShouldBe(2);
-        options.PartitionedTables.ShouldBe(["audit_event"]);
+
+        // Empty on purpose: configuration binding appends to a non-empty
+        // default, so the table default lives on the consumer side.
+        options.PartitionedTables.ShouldBeEmpty();
+        options.FutureWindowMinimumDays.ShouldBe(21);
         options.EnableRevokeOnClosedPartitions.ShouldBeFalse();
         options.EnableRetentionCycle.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void The_consumer_falls_back_to_the_audit_table_when_no_table_is_configured()
+    {
+        PartitionMaintenance.EffectiveTables(new PartitionManagerOptions())
+            .ShouldBe(["audit_event"]);
+    }
+
+    [Fact]
+    public void A_configured_table_list_replaces_the_default_instead_of_appending_to_it()
+    {
+        PartitionManagerOptions options = ResolveOptions(new Dictionary<string, string?>
+        {
+            ["Modules:TemplateManagement:PartitionManager:PartitionedTables:0"] = "outbox_event",
+        });
+
+        PartitionMaintenance.EffectiveTables(options).ShouldBe(["outbox_event"]);
     }
 
     [Fact]
@@ -45,6 +67,19 @@ public sealed class PartitionManagerOptionsTests
     }
 
     [Fact]
+    public void Rejects_an_interval_longer_than_thirty_days()
+    {
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(
+            () => ResolveOptions(new Dictionary<string, string?>
+            {
+                ["Modules:TemplateManagement:PartitionManager:Interval"] = "31.00:00:00",
+            }));
+
+        exception.Failures.ShouldContain(failure =>
+            failure.Contains("trinta dias", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Rejects_a_month_window_outside_one_to_twelve()
     {
         Should.Throw<OptionsValidationException>(
@@ -59,7 +94,8 @@ public sealed class PartitionManagerOptionsTests
     {
         PartitionManagerOptions options = ResolveOptions([]);
 
-        options.PartitionedTables.ShouldBe(["audit_event"]);
+        options.PartitionedTables.ShouldBeEmpty();
+        PartitionMaintenance.EffectiveTables(options).ShouldBe(["audit_event"]);
         options.Interval.ShouldBe(TimeSpan.FromDays(1));
     }
 

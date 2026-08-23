@@ -49,9 +49,19 @@ internal static partial class DeprecateLayout
                 OccurredAt = timeProvider.GetUtcNow(),
             }));
 
-            // One SaveChanges, one transaction: the transition and its audit
-            // event land together or not at all.
-            await dbContext.SaveChangesAsync(cancellationToken);
+            try
+            {
+                // One SaveChanges, one transaction: the transition and its audit
+                // event land together or not at all.
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Result.BusinessRuleViolation<Response>(DomainError.Format(
+                    ErrorCodes.PreconditionFailed,
+                    "The layout changed while the transition was in flight. Fetch the current state and retry."));
+            }
+
             logger.LayoutDeprecated(key.Value!.Value);
             return Result.Success(new Response(key.Value!.Value, layout.Status.Canonical()));
         }

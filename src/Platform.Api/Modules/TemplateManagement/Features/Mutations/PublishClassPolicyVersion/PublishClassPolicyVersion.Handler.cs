@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -123,6 +124,14 @@ internal static partial class PublishClassPolicyVersion
                 return Result.BusinessRuleViolation<Outcome>(DomainError.Format(
                     ErrorCodes.PreconditionFailed,
                     "The draft changed while the publication was in flight. Validate and publish again."));
+            }
+            catch (DbUpdateException exception)
+                when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                return Result.BusinessRuleViolation<Outcome>(DomainError.Format(
+                    ErrorCodes.PublicationConflict,
+                    "Another publication for this class policy landed concurrently. "
+                    + "Fetch the current state and retry if still applicable."));
             }
 
             logger.ClassPolicyVersionPublished(app, canonicalClass, draft.Version, current?.Version);

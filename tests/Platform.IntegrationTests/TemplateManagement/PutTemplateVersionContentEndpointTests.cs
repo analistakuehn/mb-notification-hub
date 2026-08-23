@@ -58,6 +58,19 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
     }
 
     [RequiresDockerFact]
+    public async Task A_wildcard_if_match_returns_412()
+    {
+        HttpClient client = fixture.CreateAuthorClient("editor-1");
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, _) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
+
+        HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, EmailContent, "*"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.PreconditionFailed);
+    }
+
+    [RequiresDockerFact]
     public async Task A_stale_entity_tag_returns_412()
     {
         HttpClient client = fixture.CreateAuthorClient("editor-1");

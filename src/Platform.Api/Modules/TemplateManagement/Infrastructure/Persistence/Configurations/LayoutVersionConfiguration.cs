@@ -64,6 +64,14 @@ internal sealed class LayoutVersionConfiguration : IEntityTypeConfiguration<Layo
             .HasFilter("status = 'draft'")
             .HasDatabaseName("ux_layout_version_single_draft");
 
+        // Database backstop for the one-published-version-per-layout
+        // invariant: concurrent publish/rollback races surface as a unique
+        // violation instead of two published versions.
+        builder.HasIndex([EntityKeyQueries.VersionLayoutKeyProperty], "ux_layout_version_single_published")
+            .IsUnique()
+            .HasFilter("status = 'published'")
+            .HasDatabaseName("ux_layout_version_single_published");
+
         builder.OwnsMany(version => version.Contents, content =>
         {
             content.ToTable("layout_content");

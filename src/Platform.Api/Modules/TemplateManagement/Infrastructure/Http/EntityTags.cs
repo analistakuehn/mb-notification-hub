@@ -21,7 +21,18 @@ internal static class EntityTags
         }
 
         var normalized = Normalize(ifMatch);
-        if (normalized == "*" || string.Equals(normalized, currentEntityTag, StringComparison.Ordinal))
+
+        // The wildcard would defeat the lost-update protection: it matches any
+        // representation, so a stale editor could silently overwrite a newer
+        // draft. Draft edits always require the current tag.
+        if (normalized == "*")
+        {
+            return PreconditionFailure(
+                "If-Match: * is not accepted for draft edits. "
+                + "Fetch the version and supply its current entity tag.");
+        }
+
+        if (string.Equals(normalized, currentEntityTag, StringComparison.Ordinal))
         {
             return Result.Success();
         }

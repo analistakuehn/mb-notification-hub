@@ -32,9 +32,11 @@ internal sealed class TemplateVersionConfiguration : IEntityTypeConfiguration<Te
                 value => value.Canonical(),
                 value => TemplateVersionStatuses.Trusted(value));
 
+        // Plain text on purpose: the canonical hash covers the submitted
+        // bytes, and jsonb would rewrite number literals, whitespace and key
+        // order on round trip, breaking hash verification after a reload.
         builder.Property(version => version.VariablesSchemaJson)
-            .HasColumnName("variables_schema")
-            .HasColumnType("jsonb");
+            .HasColumnName("variables_schema");
 
         builder.Property(version => version.LayoutKey)
             .HasColumnName("layout_key")
@@ -74,6 +76,14 @@ internal sealed class TemplateVersionConfiguration : IEntityTypeConfiguration<Te
             .IsUnique()
             .HasFilter("status = 'draft'")
             .HasDatabaseName("ux_template_version_single_draft");
+
+        // Database backstop for the one-published-version-per-template
+        // invariant: concurrent publish/rollback races surface as a unique
+        // violation instead of two published versions.
+        builder.HasIndex([EntityKeyQueries.VersionTemplateKeyProperty], "ux_template_version_single_published")
+            .IsUnique()
+            .HasFilter("status = 'published'")
+            .HasDatabaseName("ux_template_version_single_published");
 
         builder.OwnsMany(version => version.Contents, content =>
         {

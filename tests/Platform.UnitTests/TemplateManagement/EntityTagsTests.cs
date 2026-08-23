@@ -11,7 +11,6 @@ public sealed class EntityTagsTests
     [InlineData("abc123")]
     [InlineData("W/\"abc123\"")]
     [InlineData("  \"abc123\"  ")]
-    [InlineData("*")]
     public void Accepts_the_current_tag_in_every_transported_form(string ifMatch)
     {
         Result result = EntityTags.CheckIfMatch(ifMatch, "abc123");
@@ -24,7 +23,9 @@ public sealed class EntityTagsTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("\"stale\"")]
-    public void Rejects_absent_or_stale_tags_as_a_failed_precondition(string? ifMatch)
+    [InlineData("*")]
+    [InlineData("\"*\"")]
+    public void Rejects_absent_stale_or_wildcard_tags_as_a_failed_precondition(string? ifMatch)
     {
         Result result = EntityTags.CheckIfMatch(ifMatch, "abc123");
 

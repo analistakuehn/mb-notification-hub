@@ -35,5 +35,13 @@ internal sealed class LayoutConfiguration : IEntityTypeConfiguration<Layout>
             .HasConversion(
                 value => value.Canonical(),
                 value => LayoutStatuses.Trusted(value));
+
+        // Optimistic concurrency over the identity row through the xmin
+        // system column: publish and rollback touch the layout in their
+        // transaction, so a concurrent lifecycle transition (deprecate or
+        // disable) surfaces as a concurrency conflict instead of publishing
+        // under a status that no longer accepts it.
+        builder.Property<uint>("xmin")
+            .IsRowVersion();
     }
 }

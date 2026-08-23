@@ -39,9 +39,11 @@ internal sealed class ClassPolicyVersionConfiguration : IEntityTypeConfiguration
         builder.Property(version => version.SchemaVersion)
             .HasColumnName("schema_version");
 
+        // Plain text on purpose: the canonical hash covers the submitted
+        // bytes, and jsonb would rewrite number literals, whitespace and key
+        // order on round trip, breaking hash verification after a reload.
         builder.Property(version => version.DefinitionJson)
-            .HasColumnName("definition")
-            .HasColumnType("jsonb");
+            .HasColumnName("definition");
 
         builder.Property(version => version.ContentHash)
             .HasColumnName("content_hash")
@@ -71,5 +73,15 @@ internal sealed class ClassPolicyVersionConfiguration : IEntityTypeConfiguration
             .IsUnique()
             .HasFilter("status = 'draft'")
             .HasDatabaseName("ux_class_policy_version_single_draft");
+
+        // Database backstop for the one-published-version-per-policy
+        // invariant: concurrent publications surface as a unique violation
+        // instead of two published versions.
+        builder.HasIndex(
+                [nameof(ClassPolicyVersion.Application), nameof(ClassPolicyVersion.Class)],
+                "ux_class_policy_version_single_published")
+            .IsUnique()
+            .HasFilter("status = 'published'")
+            .HasDatabaseName("ux_class_policy_version_single_published");
     }
 }

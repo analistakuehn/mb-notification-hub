@@ -38,6 +38,14 @@
   effect, through the same `SaveChanges` call; a separate save is a defect.
 - `details` carries compact JSON evidence (content hash, validation outcome,
   reason). Never personal data, variables, or rendered content.
+- The hand-over to the dedicated Audit module MUST cover three points beyond
+  the column move: (1) the initial anchor of the hash chain accounts for the
+  partitions that pre-date the chain, so the first chained event links to a
+  recorded anchor instead of an empty predecessor; (2) the pre-chain
+  partitions receive WORM protection when they are exported, because no hash
+  chain vouches for them retroactively; (3) every retention and export date
+  calculation respects the 90-day verification criterion, counting from the
+  partition's upper boundary, not from the export moment.
 
 ## Layouts
 

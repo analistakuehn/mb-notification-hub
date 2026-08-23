@@ -21,15 +21,20 @@ internal sealed class PartitionMaintenance(
 {
     private const string Schema = "templatemanagement";
 
+    /// <summary>
+    /// Tables maintained when configuration declares none. The default lives
+    /// on the consumer side so a configured list fully replaces it: binding
+    /// would append to a non-empty default and make entries irremovable.
+    /// </summary>
+    private static readonly string[] DefaultPartitionedTables = ["audit_event"];
+
     /// <summary>Runs one round and returns how many partitions were created.</summary>
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
         PartitionManagerOptions value = options.Value;
         var created = 0;
 
-        // Configuration binding appends configured names to the default list;
-        // Distinct keeps one maintenance pass per table.
-        foreach (var table in value.PartitionedTables.Distinct(StringComparer.Ordinal))
+        foreach (var table in EffectiveTables(value))
         {
             created += await EnsureMonthlyPartitionsAsync(table, value.MonthsAhead, cancellationToken);
         }
@@ -37,6 +42,12 @@ internal sealed class PartitionMaintenance(
         ReportGatedSteps(value);
         return created;
     }
+
+    /// <summary>The configured tables, deduplicated; the module default when none is configured.</summary>
+    internal static IReadOnlyList<string> EffectiveTables(PartitionManagerOptions value)
+        => value.PartitionedTables.Count == 0
+            ? DefaultPartitionedTables
+            : value.PartitionedTables.Distinct(StringComparer.Ordinal).ToList();
 
     private async Task<int> EnsureMonthlyPartitionsAsync(
         string table,

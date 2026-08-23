@@ -13,13 +13,17 @@ public static class PartitionManagerSetup
                 options => options.Interval >= TimeSpan.FromMinutes(1),
                 "O intervalo do gerenciador de partições deve ser de pelo menos um minuto.")
             .Validate(
-                options => options.PartitionedTables.Count > 0
-                    && options.PartitionedTables.All(PartitionManagerOptions.IsSafeTableName),
+                options => options.Interval <= TimeSpan.FromDays(30),
+                "O intervalo do gerenciador de partições deve ser de no máximo trinta dias; acima disso a provisão mensal perde rodadas.")
+            .Validate(
+                options => options.PartitionedTables.All(PartitionManagerOptions.IsSafeTableName),
                 "A lista de tabelas particionadas deve conter apenas identificadores PostgreSQL em minúsculas (letras, dígitos e sublinhado).")
             .ValidateOnStart();
 
         services.AddScoped<PartitionMaintenance>();
         services.AddHostedService<PartitionManagerService>();
+        services.AddHealthChecks()
+            .AddCheck<AuditPartitionCoverageHealthCheck>("template-management-audit-partitions");
         return services;
     }
 }

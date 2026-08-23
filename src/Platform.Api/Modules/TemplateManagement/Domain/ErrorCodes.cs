@@ -11,6 +11,7 @@ public static class ErrorCodes
     public const string TemplateNotFound = "template-not-found";
     public const string TemplateVersionNotFound = "template-version-not-found";
     public const string DraftAlreadyExists = "draft-already-exists";
+    public const string PublicationConflict = "publication-conflict";
     public const string PreconditionFailed = "precondition-failed";
     public const string ActorUnidentified = "actor-unidentified";
     public const string TemplateContentNotFound = "template-content-not-found";

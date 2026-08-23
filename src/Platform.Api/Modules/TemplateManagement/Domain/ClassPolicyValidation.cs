@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 
@@ -448,7 +449,7 @@ public static class ClassPolicyValidation
             return null;
         }
 
-        var created = Channel.Create(element.GetString());
+        Result<Channel> created = Channel.Create(element.GetString());
         return created.IsSuccess ? created.Value : null;
     }
 

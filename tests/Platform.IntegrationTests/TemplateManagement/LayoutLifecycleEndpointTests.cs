@@ -13,7 +13,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task Creating_a_layout_returns_201_and_writes_its_creation_to_the_audit_trail()
     {
-        var author = fixture.CreateAuthorClient("author-lay-1");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-1");
         var key = LayoutApi.NewKey();
 
         HttpResponseMessage response = await author.PostAsJsonAsync(
@@ -36,7 +36,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task Editing_a_layout_draft_requires_the_current_entity_tag()
     {
-        var author = fixture.CreateAuthorClient("author-lay-2");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-2");
         var key = await LayoutApi.CreateLayoutAsync(author, LayoutApi.NewKey());
         (var version, _) = await LayoutApi.CreateDraftAsync(author, key);
 
@@ -51,7 +51,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task Validating_a_wrapper_without_the_content_placeholder_reports_the_failed_check()
     {
-        var author = fixture.CreateAuthorClient("author-lay-3");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-3");
         var key = await LayoutApi.CreateLayoutAsync(author, LayoutApi.NewKey());
         (var version, var etag) = await LayoutApi.CreateDraftAsync(author, key);
         await LayoutApi.PutContentAsync(author, key, version, "email/pt-BR", new
@@ -74,8 +74,8 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task A_wrapper_without_the_placeholder_does_not_publish_returning_422_with_the_report()
     {
-        var author = fixture.CreateAuthorClient("author-lay-4");
-        var publisher = fixture.CreatePublisherClient("publisher-lay-4");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-4");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lay-4");
         var key = await LayoutApi.CreateLayoutAsync(author, LayoutApi.NewKey());
         (var version, var etag) = await LayoutApi.CreateDraftAsync(author, key);
         await LayoutApi.PutContentAsync(author, key, version, "email/pt-BR", new
@@ -98,7 +98,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task The_author_cannot_publish_their_own_layout_draft_even_with_the_publisher_role()
     {
-        var authorPublisher = fixture.CreateClientWithToken(
+        HttpClient authorPublisher = fixture.CreateClientWithToken(
             "author-lay-5",
             AuthorizationSetup.AuthorRole,
             AuthorizationSetup.PublisherRole);
@@ -118,8 +118,8 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task A_distinct_publisher_publishes_recording_approval_and_audit_together()
     {
-        var author = fixture.CreateAuthorClient("author-lay-6");
-        var publisher = fixture.CreatePublisherClient("publisher-lay-6");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-6");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lay-6");
         (var key, var version) = await LayoutApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage response = await publisher.PostAsync(
@@ -149,8 +149,8 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task Publishing_the_next_version_supersedes_the_previous_one()
     {
-        var author = fixture.CreateAuthorClient("author-lay-7");
-        var publisher = fixture.CreatePublisherClient("publisher-lay-7");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-7");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lay-7");
         (var key, var first) = await LayoutApi.CreatePublishableDraftAsync(author);
         await LayoutApi.PublishAsync(publisher, key, first);
         HttpResponseMessage draftResponse = await author.PostAsJsonAsync(
@@ -171,8 +171,8 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task Rollback_republishes_a_previous_version_and_audits_it()
     {
-        var author = fixture.CreateAuthorClient("author-lay-8");
-        var publisher = fixture.CreatePublisherClient("publisher-lay-8");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-8");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lay-8");
         (var key, var first) = await LayoutApi.CreatePublishableDraftAsync(author);
         await LayoutApi.PublishAsync(publisher, key, first);
         HttpResponseMessage draftResponse = await author.PostAsJsonAsync(
@@ -205,8 +205,8 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task Deprecating_and_disabling_a_layout_are_audited_as_their_own_events()
     {
-        var author = fixture.CreateAuthorClient("author-lay-9");
-        var publisher = fixture.CreatePublisherClient("publisher-lay-9");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-9");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lay-9");
         var key = await LayoutApi.CreateLayoutAsync(author, LayoutApi.NewKey());
 
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
@@ -231,8 +231,8 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task A_deprecated_layout_does_not_publish()
     {
-        var author = fixture.CreateAuthorClient("author-lay-10");
-        var publisher = fixture.CreatePublisherClient("publisher-lay-10");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-10");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-lay-10");
         (var key, var version) = await LayoutApi.CreatePublishableDraftAsync(author);
         (await publisher.PostAsJsonAsync($"/v1/layouts/{key}/deprecate", new { reason = "aposentando" }))
             .EnsureSuccessStatusCode();
@@ -249,7 +249,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task The_catalog_lists_the_layout_and_the_detail_shows_its_versions()
     {
-        var author = fixture.CreateAuthorClient("author-lay-11");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-11");
         (var key, var version) = await LayoutApi.CreatePublishableDraftAsync(author);
 
         HttpResponseMessage list = await author.GetAsync($"/v1/layouts?owner=design-system&limit=200");
@@ -268,7 +268,7 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
     [RequiresDockerFact]
     public async Task Only_one_draft_can_be_open_per_layout()
     {
-        var author = fixture.CreateAuthorClient("author-lay-12");
+        HttpClient author = fixture.CreateAuthorClient("author-lay-12");
         var key = await LayoutApi.CreateLayoutAsync(author, LayoutApi.NewKey());
         await LayoutApi.CreateDraftAsync(author, key);
 

@@ -80,9 +80,10 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persiste
                 table: "audit_event",
                 columns: new[] { "entity_type", "entity_id" });
 
-            // Append-only by construction: the audit trail and the approval
-            // record only ever accept inserts. Updates and deletes fail at the
-            // database, regardless of the caller's privileges.
+            // Append-only against DML: the row triggers reject UPDATE and
+            // DELETE for every role. TRUNCATE and owner-issued DDL (dropping
+            // the trigger, altering the table) remain possible until the
+            // dedicated database roles arrive in the roles phase.
             migrationBuilder.Sql("""
                 CREATE FUNCTION templatemanagement.reject_append_only_mutation()
                 RETURNS trigger AS $$

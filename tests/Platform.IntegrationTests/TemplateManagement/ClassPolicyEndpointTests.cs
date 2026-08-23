@@ -12,7 +12,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Putting_a_definition_without_a_draft_opens_version_1_and_returns_its_entity_tag()
     {
-        var author = fixture.CreateAuthorClient("author-cp-1");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-1");
         var application = ClassPolicyApi.NewApplication();
 
         HttpResponseMessage response = await author.SendAsync(TemplateApi.PutJson(
@@ -30,7 +30,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Editing_an_open_draft_requires_the_current_entity_tag()
     {
-        var author = fixture.CreateAuthorClient("author-cp-2");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-2");
         (var application, _, var etag) = await ClassPolicyApi.CreateDraftAsync(author);
 
         HttpResponseMessage missing = await author.SendAsync(TemplateApi.PutJson(
@@ -57,7 +57,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task A_structurally_invalid_definition_returns_422_with_the_checks_and_saves_nothing()
     {
-        var author = fixture.CreateAuthorClient("author-cp-3");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-3");
         var application = ClassPolicyApi.NewApplication();
         var invalidDefinition = new
         {
@@ -87,7 +87,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task The_author_cannot_publish_their_own_draft_even_with_the_publisher_role()
     {
-        var authorPublisher = fixture.CreateClientWithToken(
+        HttpClient authorPublisher = fixture.CreateClientWithToken(
             "author-cp-4",
             AuthorizationSetup.AuthorRole,
             AuthorizationSetup.PublisherRole);
@@ -108,8 +108,8 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task A_distinct_publisher_publishes_recording_approval_and_audit_together()
     {
-        var author = fixture.CreateAuthorClient("author-cp-5");
-        var publisher = fixture.CreatePublisherClient("publisher-cp-5");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-5");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-cp-5");
         (var application, var version, _) = await ClassPolicyApi.CreateDraftAsync(author);
 
         HttpResponseMessage response = await publisher.PostAsync(
@@ -140,8 +140,8 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task The_combined_view_returns_the_published_version_and_the_open_draft()
     {
-        var author = fixture.CreateAuthorClient("author-cp-6");
-        var publisher = fixture.CreatePublisherClient("publisher-cp-6");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-6");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-cp-6");
         (var application, _, _) = await ClassPolicyApi.CreateDraftAsync(author);
         await ClassPolicyApi.PublishAsync(publisher, application);
         (_, var draftVersion, var draftEtag) = await ClassPolicyApi.CreateDraftAsync(
@@ -161,8 +161,8 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Publishing_the_next_version_supersedes_the_previous_one()
     {
-        var author = fixture.CreateAuthorClient("author-cp-7");
-        var publisher = fixture.CreatePublisherClient("publisher-cp-7");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-7");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-cp-7");
         (var application, var first, _) = await ClassPolicyApi.CreateDraftAsync(author);
         await ClassPolicyApi.PublishAsync(publisher, application);
         (_, var second, _) = await ClassPolicyApi.CreateDraftAsync(
@@ -184,8 +184,8 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task The_definition_diff_reports_the_fields_that_changed_between_versions()
     {
-        var author = fixture.CreateAuthorClient("author-cp-8");
-        var publisher = fixture.CreatePublisherClient("publisher-cp-8");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-8");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-cp-8");
         (var application, var first, _) = await ClassPolicyApi.CreateDraftAsync(author);
         await ClassPolicyApi.PublishAsync(publisher, application);
         (_, var second, _) = await ClassPolicyApi.CreateDraftAsync(
@@ -208,7 +208,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task A_class_outside_the_vocabulary_is_rejected_on_the_route()
     {
-        var author = fixture.CreateAuthorClient("author-cp-9");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-9");
         var application = ClassPolicyApi.NewApplication();
 
         HttpResponseMessage response = await author.SendAsync(TemplateApi.PutJson(
@@ -225,7 +225,7 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task An_application_and_class_without_any_policy_returns_404()
     {
-        var author = fixture.CreateAuthorClient("author-cp-10");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-10");
 
         HttpResponseMessage response = await author.GetAsync(
             ClassPolicyApi.PolicyUrl(ClassPolicyApi.NewApplication()));
@@ -238,8 +238,8 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
     [RequiresDockerFact]
     public async Task Publishing_without_an_open_draft_returns_404()
     {
-        var author = fixture.CreateAuthorClient("author-cp-11");
-        var publisher = fixture.CreatePublisherClient("publisher-cp-11");
+        HttpClient author = fixture.CreateAuthorClient("author-cp-11");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-cp-11");
         (var application, _, _) = await ClassPolicyApi.CreateDraftAsync(author);
         await ClassPolicyApi.PublishAsync(publisher, application);
 

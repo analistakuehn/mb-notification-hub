@@ -65,5 +65,13 @@ internal sealed class TemplateConfiguration : IEntityTypeConfiguration<Template>
 
         builder.HasIndex(nameof(Template.Application), nameof(Template.Class))
             .HasDatabaseName("ix_template_application_class");
+
+        // Optimistic concurrency over the identity row through the xmin
+        // system column: publish and rollback touch the template in their
+        // transaction, so a concurrent lifecycle transition (deprecate or
+        // disable) surfaces as a concurrency conflict instead of publishing
+        // under a status that no longer accepts it.
+        builder.Property<uint>("xmin")
+            .IsRowVersion();
     }
 }

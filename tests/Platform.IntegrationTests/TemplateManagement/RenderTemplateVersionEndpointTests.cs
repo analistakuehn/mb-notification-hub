@@ -40,6 +40,25 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     }
 
     [RequiresDockerFact]
+    public async Task An_oversized_variables_payload_returns_400_before_reaching_the_engine()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+
+        // No template setup on purpose: validation must reject the payload
+        // before the handler touches the catalog or the engine.
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{TemplateApi.NewKey()}/versions/1/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new { blob = new string('x', 300_000) },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [RequiresDockerFact]
     public async Task A_regional_locale_falls_back_to_its_base_language_content()
     {
         HttpClient client = fixture.CreateAuthorClient("author-1");

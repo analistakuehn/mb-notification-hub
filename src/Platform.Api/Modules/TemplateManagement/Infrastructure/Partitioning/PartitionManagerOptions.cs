@@ -24,10 +24,18 @@ public sealed partial class PartitionManagerOptions
 
     /// <summary>
     /// Monthly-partitioned tables of this module's schema that the job keeps
-    /// provisioned. Configuration binding appends to the default list, so the
-    /// consumer deduplicates entries.
+    /// provisioned. Empty means the module default; a configured list replaces
+    /// the default entirely, because configuration binding appends to any
+    /// non-empty default and would make entries impossible to remove.
     /// </summary>
-    public IReadOnlyList<string> PartitionedTables { get; init; } = ["audit_event"];
+    public IReadOnlyList<string> PartitionedTables { get; init; } = [];
+
+    /// <summary>
+    /// Minimum days of contiguous future partition coverage; below it the
+    /// module health check reports degradation.
+    /// </summary>
+    [Range(1, 365)]
+    public int FutureWindowMinimumDays { get; init; } = 21;
 
     /// <summary>
     /// Gate for the write REVOKE on closed monthly partitions. Off by default:
