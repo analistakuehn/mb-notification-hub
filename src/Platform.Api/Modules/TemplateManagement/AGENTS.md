@@ -65,6 +65,31 @@
   template resolution landed on and follows exact -> base language -> layout
   default locale.
 
+## Class policies
+
+- This module owns the class policy **definition and its governance**: one
+  aggregate per `(application, class)` with immutable versions, a JSON
+  definition carrying `schemaVersion` plus the six version-1 fields
+  (`channelsAllowed`, `deliveryPlan`, `defaultTtl`, `dedupeWindow`,
+  `quietHours`, `consentPurpose`), structural validation returning the shared
+  `checks[]` report, canonical content hash over the definition, a single open
+  draft edited through `PUT .../policy/draft` with `If-Match`, version
+  lifecycle `draft -> published -> superseded`, four-eyes publication
+  evaluated against the resource, `approval` rows with subject
+  `class_policy_version`, and audited transitions under the `class_policy.*`
+  action vocabulary in the same transaction as the effect.
+- The **Policy stage of the Core pipeline is the consumer**: it loads the
+  published definition and executes an ordered list of `IPolicyRule`
+  implementations. This module owns the `IPolicyRule` and `PolicyRuleResult`
+  contracts (`Allow | FilterChannels(set) | Defer(releaseAt) | Reject(reason)`,
+  always with compact JSON evidence) together with the tolerant definition
+  reader, but ships no rule implementation: rules execute outside this module.
+- The definition reader tolerates unknown fields on purpose: a field the
+  version-1 vocabulary does not know belongs to a newer writer, never to an
+  error. Delivery-plan steps are objects so an optional property extends them
+  without a data migration. A field new to the vocabulary is a new
+  `schemaVersion`, never a silent edit of version 1.
+
 ## Error axis
 
 - This module has exactly one error axis: `Result`/`Result<T>` from the

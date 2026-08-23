@@ -11,7 +11,7 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 /// </summary>
 public sealed partial class Template
 {
-    public const int MaxApplicationLength = 100;
+    public const int MaxApplicationLength = ApplicationName.MaxLength;
     public const int MaxTextLength = 200;
     public const int MaxLinkDomains = 50;
     public const int MaxLinkDomainLength = 255;
@@ -74,15 +74,10 @@ public sealed partial class Template
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(metadata);
 
-        var application = metadata.Application?.Trim() ?? string.Empty;
-        if (application.Length == 0
-            || application.Length > MaxApplicationLength
-            || !ApplicationPattern().IsMatch(application))
+        Result<string> application = ApplicationName.Create(metadata.Application);
+        if (application.IsFailure)
         {
-            return Result.ValidationError<Template>(DomainError.Format(
-                ErrorCodes.InvalidRequest,
-                $"Application must be 1-{MaxApplicationLength} lowercase alphanumeric characters "
-                + "in segments separated by '-'."));
+            return new Result<Template>(false, null, application.ErrorKind, application.Error);
         }
 
         Result<string> ownerTeam = RequiredText(metadata.OwnerTeam, "ownerTeam");
@@ -117,7 +112,7 @@ public sealed partial class Template
 
         var normalized = new TemplateMetadata
         {
-            Application = application,
+            Application = application.Value!,
             Class = metadata.Class,
             OwnerTeam = ownerTeam.Value!,
             Purpose = purpose.Value!,
@@ -260,9 +255,6 @@ public sealed partial class Template
 
         return Result.Success(normalized);
     }
-
-    [GeneratedRegex(@"^[a-z0-9]+(?:-[a-z0-9]+)*$")]
-    private static partial Regex ApplicationPattern();
 
     [GeneratedRegex(@"^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$")]
     private static partial Regex LinkDomainPattern();

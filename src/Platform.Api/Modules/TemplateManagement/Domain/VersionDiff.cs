@@ -17,7 +17,10 @@ public sealed record ContentSetDiff(
     IReadOnlyList<ContentUnit> Removed,
     IReadOnlyList<ContentChange> Changed);
 
-/// <summary>Field-level difference between the variables schemas of two versions.</summary>
+/// <summary>
+/// Field-level difference between two versioned JSON documents: the variables
+/// schema of a template version or the definition of a class policy version.
+/// </summary>
 public sealed record SchemaFieldDiff(
     IReadOnlyList<string> AddedFields,
     IReadOnlyList<string> RemovedFields,
@@ -83,10 +86,26 @@ public static class VersionDiff
     /// removed instead of failing the diff.
     /// </summary>
     public static SchemaFieldDiff DiffVariablesSchemas(string? baseSchemaJson, string? againstSchemaJson)
-    {
-        Dictionary<string, string> baseFields = ReadFieldDeclarations(baseSchemaJson);
-        Dictionary<string, string> againstFields = ReadFieldDeclarations(againstSchemaJson);
+        => DiffFieldMaps(
+            ReadFieldDeclarations(baseSchemaJson),
+            ReadFieldDeclarations(againstSchemaJson));
 
+    /// <summary>
+    /// Compares the top-level fields of two JSON object documents by canonical
+    /// value: the class policy definition is the canonical case. A document
+    /// that is absent or unreadable contributes no fields, so its
+    /// counterpart's fields surface as added or removed instead of failing the
+    /// diff.
+    /// </summary>
+    public static SchemaFieldDiff DiffObjectFields(string? baseJson, string? againstJson)
+        => DiffFieldMaps(
+            ReadTopLevelFields(baseJson),
+            ReadTopLevelFields(againstJson));
+
+    private static SchemaFieldDiff DiffFieldMaps(
+        Dictionary<string, string> baseFields,
+        Dictionary<string, string> againstFields)
+    {
         var added = baseFields.Keys
             .Where(name => !againstFields.ContainsKey(name))
             .Order(StringComparer.Ordinal)
@@ -115,6 +134,43 @@ public static class VersionDiff
                 StringComparison.Ordinal))
             .Order(StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>
+    /// Top-level field name mapped to the canonical JSON form of its value. An
+    /// explicitly null field is skipped: the policy vocabulary reads null and
+    /// absent the same way, so the diff must not report one against the other.
+    /// </summary>
+    private static Dictionary<string, string> ReadTopLevelFields(string? json)
+    {
+        Dictionary<string, string> fields = new(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return fields;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return fields;
+            }
+
+            foreach (JsonProperty property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.Null)
+                {
+                    fields[property.Name] = CanonicalJson.Normalize(property.Value.GetRawText());
+                }
+            }
+
+            return fields;
+        }
+        catch (JsonException)
+        {
+            return fields;
+        }
+    }
 
     /// <summary>Field name mapped to its canonical declaration plus required flag.</summary>
     private static Dictionary<string, string> ReadFieldDeclarations(string? schemaJson)

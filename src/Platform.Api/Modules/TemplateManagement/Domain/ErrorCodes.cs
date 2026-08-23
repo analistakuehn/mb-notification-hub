@@ -24,4 +24,8 @@ public static class ErrorCodes
     public const string LayoutVersionNotFound = "layout-version-not-found";
     public const string LayoutContentNotFound = "layout-content-not-found";
     public const string LayoutValidationFailed = "layout-validation-failed";
+    public const string ClassPolicyNotFound = "class-policy-not-found";
+    public const string ClassPolicyDraftNotFound = "class-policy-draft-not-found";
+    public const string ClassPolicyVersionNotFound = "class-policy-version-not-found";
+    public const string ClassPolicyValidationFailed = "class-policy-validation-failed";
 }

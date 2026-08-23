@@ -5,6 +5,7 @@ public static class ApprovalSubjectTypes
 {
     public const string TemplateVersion = "template_version";
     public const string LayoutVersion = "layout_version";
+    public const string ClassPolicyVersion = "class_policy_version";
 }
 
 /// <summary>Canonical roles under which an approval is granted.</summary>
@@ -90,6 +91,27 @@ public sealed class Approval
         ArgumentException.ThrowIfNullOrWhiteSpace(approverOid);
 
         var subject = new ApprovalSubject(ApprovalSubjectTypes.LayoutVersion, layoutKey.Value, version, contentHash);
+        return new Approval(subject, ApprovalRoles.Publisher, approverOid, approvedAt);
+    }
+
+    public static Approval ForClassPolicyVersion(
+        string application,
+        NotificationClass notificationClass,
+        int version,
+        string contentHash,
+        string approverOid,
+        DateTimeOffset approvedAt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(application);
+        ArgumentOutOfRangeException.ThrowIfLessThan(version, 1);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentHash);
+        ArgumentException.ThrowIfNullOrWhiteSpace(approverOid);
+
+        var subject = new ApprovalSubject(
+            ApprovalSubjectTypes.ClassPolicyVersion,
+            $"{application}:{notificationClass.Canonical()}",
+            version,
+            contentHash);
         return new Approval(subject, ApprovalRoles.Publisher, approverOid, approvedAt);
     }
 

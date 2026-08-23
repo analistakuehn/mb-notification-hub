@@ -52,6 +52,11 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<GetLayoutVersion.Handler>();
         services.AddScoped<ValidateLayoutVersion.Handler>();
         services.AddScoped<DiffLayoutVersions.Handler>();
+        services.AddScoped<PutClassPolicyDraft.Handler>();
+        services.AddScoped<PublishClassPolicyVersion.Handler>();
+        services.AddScoped<GetClassPolicy.Handler>();
+        services.AddScoped<GetClassPolicyVersion.Handler>();
+        services.AddScoped<DiffClassPolicyVersions.Handler>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)
@@ -86,5 +91,12 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         GetLayoutVersion.MapEndpoint(layouts);
         ValidateLayoutVersion.MapEndpoint(layouts);
         DiffLayoutVersions.MapEndpoint(layouts);
+
+        RouteGroupBuilder classPolicies = app.MapGroup("/v1/applications/{application}/classes/{class}/policy");
+        PutClassPolicyDraft.MapEndpoint(classPolicies);
+        PublishClassPolicyVersion.MapEndpoint(classPolicies);
+        GetClassPolicy.MapEndpoint(classPolicies);
+        GetClassPolicyVersion.MapEndpoint(classPolicies);
+        DiffClassPolicyVersions.MapEndpoint(classPolicies);
     }
 }

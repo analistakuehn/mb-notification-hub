@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Net;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -53,6 +54,48 @@ public sealed class AuditTrailGuaranteesTests(TemplateManagementApiFixture fixtu
                     && candidate.EntityId == $"{key}:{version}"))
                 .ShouldBeFalse();
         });
+    }
+
+    [RequiresDockerFact]
+    public async Task A_failure_on_the_audit_insert_rolls_back_the_whole_policy_publication()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-at-4");
+        (var application, _, _) = await ClassPolicyApi.CreateDraftAsync(author);
+
+        // Same handler the endpoint uses, over a connection that fails exactly
+        // when the audit event is inserted: if the publication survived, the
+        // status flip, the approval and the audit row would not share a
+        // transaction.
+        DbContextOptions<TemplateManagementDbContext> options =
+            new DbContextOptionsBuilder<TemplateManagementDbContext>()
+                .UseNpgsql(fixture.PostgresConnectionString)
+                .AddInterceptors(new FailOnAuditInsertInterceptor())
+                .Options;
+        await using (var db = new TemplateManagementDbContext(options))
+        {
+            var handler = new PublishClassPolicyVersion.Handler(
+                db,
+                TimeProvider.System,
+                NullLogger<PublishClassPolicyVersion.Handler>.Instance);
+
+            DbUpdateException exception = await Should.ThrowAsync<DbUpdateException>(
+                () => handler.HandleAsync(
+                    application,
+                    ClassPolicyApi.DefaultClass,
+                    "publisher-at-4",
+                    CancellationToken.None));
+            exception.InnerException.ShouldBeOfType<InvalidOperationException>();
+        }
+
+        HttpResponseMessage policy = await author.GetAsync(ClassPolicyApi.PolicyUrl(application));
+        policy.StatusCode.ShouldBe(HttpStatusCode.OK);
+        JsonElement body = await TemplateApi.ReadJsonAsync(policy);
+        body.GetProperty("published").ValueKind.ShouldBe(JsonValueKind.Null);
+        body.GetProperty("draft").GetProperty("status").GetString().ShouldBe("draft");
+        await fixture.ExecuteDbAsync(async db =>
+            (await db.Approvals.AsNoTracking().AnyAsync(candidate =>
+                candidate.SubjectId == $"{application}:{ClassPolicyApi.DefaultClass}"))
+                .ShouldBeFalse());
     }
 
     [RequiresDockerFact]

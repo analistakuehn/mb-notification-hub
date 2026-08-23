@@ -24,6 +24,24 @@ public sealed class ApprovalTests
     }
 
     [Fact]
+    public void A_class_policy_approval_identifies_the_application_class_pair()
+    {
+        var approval = Approval.ForClassPolicyVersion(
+            "araia-cambio",
+            NotificationClass.Critical,
+            2,
+            ContentHash,
+            "publisher-2",
+            ApprovedAt);
+
+        approval.SubjectType.ShouldBe("class_policy_version");
+        approval.SubjectId.ShouldBe("araia-cambio:critical");
+        approval.SubjectVersion.ShouldBe(2);
+        approval.ContentHash.ShouldBe(ContentHash);
+        approval.ApproverOid.ShouldBe("publisher-2");
+    }
+
+    [Fact]
     public void An_approval_requires_a_content_hash()
         => Should.Throw<ArgumentException>(
             () => Approval.ForTemplateVersion(Key, 1, " ", "publisher-1", ApprovedAt));
