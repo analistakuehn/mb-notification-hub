@@ -138,7 +138,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
     private static readonly string[] RequiredOrderId = ["orderId"];
 
     private static TemplateVersionAnalyzer Analyzer()
-        => new(new ScribanTemplateEngine(Options.Create(new TemplatingOptions())));
+        => new(new ScribanTemplateEngine(Options.Create(new TemplatingOptions()), new ScribanParseCache()));
 
     /// <summary>Second publishable draft on an existing template, mirroring the shared helper.</summary>
     private static async Task<int> CreatePublishableDraftOnAsync(HttpClient client, string key)

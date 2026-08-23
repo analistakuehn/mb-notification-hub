@@ -18,7 +18,8 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integrat
 /// </summary>
 internal sealed class PublishedTemplateRenderer(
     TemplateManagementDbContext dbContext,
-    ScribanTemplateEngine engine) : IPublishedTemplateRenderer
+    ScribanTemplateEngine engine,
+    PublishedReadCache cache) : IPublishedTemplateRenderer
 {
     public async Task<Result<PublishedTemplateRender>> RenderAsync(
         PublishedRenderRequest request,
@@ -38,7 +39,7 @@ internal sealed class PublishedTemplateRenderer(
             return locale.AsFailure<Locale, PublishedTemplateRender>();
         }
 
-        Result<PublishedTemplateContext> context = await dbContext.FindPublishedTemplateAsync(
+        Result<PublishedTemplateContext> context = await LoadPublishedContextAsync(
             request.Application, request.TemplateKey, cancellationToken);
         if (context.IsFailure)
         {
@@ -110,6 +111,33 @@ internal sealed class PublishedTemplateRenderer(
             Full = full.Value!,
             Masked = masked,
         });
+    }
+
+    /// <summary>
+    /// The published context of (application, templateKey), memoized as a
+    /// "current published" pointer: hot renders skip the store and converge
+    /// on a new publication within the pointer window. The entities are
+    /// no-tracking reads of immutable published state, safe to share.
+    /// </summary>
+    private async Task<Result<PublishedTemplateContext>> LoadPublishedContextAsync(
+        string application,
+        string templateKey,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = $"render-context:{application}:{templateKey}";
+        if (cache.TryGetPointer(cacheKey, out PublishedTemplateContext cached))
+        {
+            return Result.Success(cached);
+        }
+
+        Result<PublishedTemplateContext> loaded = await dbContext.FindPublishedTemplateAsync(
+            application, templateKey, cancellationToken);
+        if (loaded.IsSuccess)
+        {
+            cache.SetPointer(cacheKey, loaded.Value!);
+        }
+
+        return loaded;
     }
 
     /// <summary>
@@ -212,29 +240,38 @@ internal sealed class PublishedTemplateRenderer(
             return Result.Success<LayoutWrapper?>(null);
         }
 
-        var key = LayoutKey.Trusted(layoutKey);
         var pinnedNumber = version.LayoutVersion!.Value;
-        LayoutVersion? pinned = await dbContext.LayoutVersions
-            .AsNoTracking()
-            .WhereLayoutKey(key)
-            .FirstOrDefaultAsync(candidate => candidate.Version == pinnedNumber, cancellationToken);
-        if (pinned is null)
+        var cacheKey = $"layout:{layoutKey}:{pinnedNumber}";
+        if (!cache.TryGetImmutable(cacheKey, out PinnedLayout pinnedLayout))
         {
-            return Result.NotFound<LayoutWrapper?>(DomainError.Format(
-                ErrorCodes.LayoutVersionNotFound,
-                $"The version pins layout '{layoutKey}' version {pinnedNumber}, which does not exist."));
+            var key = LayoutKey.Trusted(layoutKey);
+            LayoutVersion? pinned = await dbContext.LayoutVersions
+                .AsNoTracking()
+                .WhereLayoutKey(key)
+                .FirstOrDefaultAsync(candidate => candidate.Version == pinnedNumber, cancellationToken);
+            if (pinned is null)
+            {
+                return Result.NotFound<LayoutWrapper?>(DomainError.Format(
+                    ErrorCodes.LayoutVersionNotFound,
+                    $"The version pins layout '{layoutKey}' version {pinnedNumber}, which does not exist."));
+            }
+
+            Layout? layout = await dbContext.Layouts
+                .AsNoTracking()
+                .WhereKey(key)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            // A pinned layout version is published and immutable: memoize it
+            // without expiration.
+            pinnedLayout = new PinnedLayout(pinned, layout?.DefaultLocale);
+            cache.SetImmutable(cacheKey, pinnedLayout);
         }
 
-        Layout? layout = await dbContext.Layouts
-            .AsNoTracking()
-            .WhereKey(key)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var channelContents = pinned.Contents
+        var channelContents = pinnedLayout.Version.Contents
             .Where(candidate => candidate.Channel == channel)
             .ToList();
         var availableLocales = channelContents.Select(candidate => candidate.Locale).ToList();
-        Locale? layoutLocale = LocaleResolution.Resolve(resolved, availableLocales, layout?.DefaultLocale);
+        Locale? layoutLocale = LocaleResolution.Resolve(resolved, availableLocales, pinnedLayout.DefaultLocale);
         if (layoutLocale is null)
         {
             return Result.NotFound<LayoutWrapper?>(DomainError.Format(
@@ -332,4 +369,7 @@ internal sealed class PublishedTemplateRenderer(
 
     /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
     private sealed record LayoutWrapper(string Body, string? BodyText);
+
+    /// <summary>One pinned layout version with the identity's default locale, memoized without expiration.</summary>
+    private sealed record PinnedLayout(LayoutVersion Version, Locale? DefaultLocale);
 }

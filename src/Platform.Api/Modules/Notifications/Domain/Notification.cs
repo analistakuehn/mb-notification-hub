@@ -1,9 +1,18 @@
 namespace NotificationHub.Api.Modules.Notifications.Domain;
 
-/// <summary>Lifecycle states of a notification. Ingestion only ever writes the first one.</summary>
+/// <summary>
+/// Lifecycle states of a notification. Ingestion only ever writes the first
+/// one; the pipeline commit writes the others. There is no persisted
+/// intermediate processing state: the queue visibility timeout is the claim,
+/// and one commit lands directly on the resulting state.
+/// </summary>
 public static class NotificationStatuses
 {
     public const string Accepted = "accepted";
+    public const string Dispatched = "dispatched";
+    public const string Rejected = "rejected";
+    public const string Expired = "expired";
+    public const string Deferred = "deferred";
 }
 
 /// <summary>
@@ -63,6 +72,71 @@ public sealed class Notification
     public DateTimeOffset ExpiresAt { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
+
+    /// <summary>
+    /// Stamps the policy version that ruled the notification and records the
+    /// dispatch: the first attempt is queued and the pipeline is done with
+    /// this notification until delivery feedback arrives.
+    /// </summary>
+    public void MarkDispatched(int policyVersion)
+    {
+        EnsurePipelineCanTransition();
+        PolicyVersion = policyVersion;
+        Status = NotificationStatuses.Dispatched;
+    }
+
+    /// <summary>
+    /// Records a policy or validation rejection: a valid business outcome,
+    /// never an error. The encrypted variables are purged because the render
+    /// stage will never need them again.
+    /// </summary>
+    public void MarkRejected(int? policyVersion)
+    {
+        EnsurePipelineCanTransition();
+        PolicyVersion = policyVersion ?? PolicyVersion;
+        Status = NotificationStatuses.Rejected;
+        VariablesEncrypted = null;
+    }
+
+    /// <summary>Records TTL expiry before any dispatch; purges the encrypted variables.</summary>
+    public void MarkExpired()
+    {
+        EnsurePipelineCanTransition();
+        Status = NotificationStatuses.Expired;
+        VariablesEncrypted = null;
+    }
+
+    /// <summary>
+    /// Parks the notification until the release instant. The variables stay
+    /// encrypted because the pipeline resumes from here after the release.
+    /// </summary>
+    public void MarkDeferred(DateTimeOffset releaseAt, int policyVersion)
+    {
+        EnsurePipelineCanTransition();
+        PolicyVersion = policyVersion;
+        ReleaseAt = releaseAt;
+        Status = NotificationStatuses.Deferred;
+    }
+
+    /// <summary>
+    /// Re-stamps the template version when the published version moved
+    /// between ingestion and render: the notification always records exactly
+    /// the version whose content it rendered.
+    /// </summary>
+    public void RestampTemplateVersion(int renderedVersion)
+    {
+        EnsurePipelineCanTransition();
+        TemplateVersion = renderedVersion;
+    }
+
+    private void EnsurePipelineCanTransition()
+    {
+        if (Status != NotificationStatuses.Accepted)
+        {
+            throw new InvalidOperationException(
+                $"A notificação {Id} está em '{Status}' e não aceita transição do pipeline.");
+        }
+    }
 
     public static Notification Accept(NotificationDraft draft)
     {

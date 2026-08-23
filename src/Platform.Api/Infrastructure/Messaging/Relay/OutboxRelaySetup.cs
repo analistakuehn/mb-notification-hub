@@ -1,5 +1,3 @@
-using Amazon;
-using Amazon.Runtime;
 using Amazon.SQS;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -30,9 +28,9 @@ public static class OutboxRelaySetup
             .Bind(configuration.GetSection(OutboxSqsOptions.SectionName));
 
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<IAmazonSQS>(serviceProvider => CreateSqsClient(
+        services.TryAddSingleton<IAmazonSQS>(serviceProvider => SqsClientFactory.Create(
             serviceProvider.GetRequiredService<IOptions<OutboxSqsOptions>>().Value));
-        services.AddSingleton<SqsQueueUrlResolver>();
+        services.TryAddSingleton<SqsQueueUrlResolver>();
         services.AddSingleton<OutboxRelayHealthState>();
         services.AddSingleton<IOutboxPublisher, SqsOutboxPublisher>();
         services.AddScoped<IOutboxPendingStore, PostgresOutboxPendingStore>();
@@ -41,28 +39,5 @@ public static class OutboxRelaySetup
         services.AddHealthChecks()
             .AddCheck<OutboxRelayHealthCheck>("outbox-relay");
         return services;
-    }
-
-    private static AmazonSQSClient CreateSqsClient(OutboxSqsOptions options)
-    {
-        var config = new AmazonSQSConfig();
-        if (options.ServiceUrl is not null)
-        {
-            config.ServiceURL = options.ServiceUrl;
-            if (options.Region is not null)
-            {
-                config.AuthenticationRegion = options.Region;
-            }
-        }
-        else if (options.Region is not null)
-        {
-            config.RegionEndpoint = RegionEndpoint.GetBySystemName(options.Region);
-        }
-
-        // Without static keys the SDK falls back to its default credential
-        // chain (instance profile, environment), which is the production path.
-        return options is { AccessKey: not null, SecretKey: not null }
-            ? new AmazonSQSClient(new BasicAWSCredentials(options.AccessKey, options.SecretKey), config)
-            : new AmazonSQSClient(config);
     }
 }

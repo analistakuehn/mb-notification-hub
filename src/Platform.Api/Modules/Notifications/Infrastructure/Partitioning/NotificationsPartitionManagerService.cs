@@ -5,11 +5,11 @@ using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Partitioning;
 
 /// <summary>
-/// Keeps the monthly partitions of the notification table provisioned ahead
-/// of time: one idempotent round at host start, then one per configured
-/// interval, delegating the mechanics to the platform partitioning
-/// infrastructure over this module's schema. A failed round is logged and
-/// retried on the next tick; the job never brings the host down.
+/// Keeps the monthly partitions of this module's partitioned tables
+/// provisioned ahead of time: one idempotent round at host start, then one
+/// per configured interval, delegating the mechanics to the platform
+/// partitioning infrastructure over this module's schema. A failed round is
+/// logged and retried on the next tick; the job never brings the host down.
 /// </summary>
 internal sealed class NotificationsPartitionManagerService(
     IServiceScopeFactory scopeFactory,
@@ -17,7 +17,10 @@ internal sealed class NotificationsPartitionManagerService(
     ILogger<NotificationsPartitionManagerService> logger) : BackgroundService
 {
     private const string Schema = "notifications";
-    private const string Table = "notification";
+
+    /// <summary>Every partitioned table this module owns, provisioned together.</summary>
+    internal static readonly string[] PartitionedTables =
+        ["notification", "notification_attempt", "policy_evaluation"];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -51,7 +54,10 @@ internal sealed class NotificationsPartitionManagerService(
             NotificationsDbContext db = scope.ServiceProvider.GetRequiredService<NotificationsDbContext>();
             TimeProvider timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
             var provisioner = new MonthlyPartitionProvisioner(db.Database, Schema, timeProvider, logger);
-            await provisioner.EnsureMonthlyPartitionsAsync(Table, options.Value.MonthsAhead, cancellationToken);
+            foreach (var table in PartitionedTables)
+            {
+                await provisioner.EnsureMonthlyPartitionsAsync(table, options.Value.MonthsAhead, cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

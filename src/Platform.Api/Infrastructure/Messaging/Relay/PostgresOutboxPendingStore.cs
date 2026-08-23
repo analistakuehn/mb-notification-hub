@@ -17,7 +17,8 @@ internal sealed class PostgresOutboxPendingStore(PlatformMessagingDbContext db) 
         FROM platform.outbox
         WHERE sent_at IS NULL
           AND CASE
-                WHEN destination = 'core-auth' THEN 0
+                WHEN destination = 'core-auth'
+                  OR (destination LIKE 'dispatch-%' AND destination LIKE '%-auth') THEN 0
                 WHEN priority_class = 'critical' THEN 1
                 WHEN priority_class = 'transactional' THEN 2
                 ELSE 3

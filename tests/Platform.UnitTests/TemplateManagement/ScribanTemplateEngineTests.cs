@@ -21,7 +21,7 @@ public sealed class ScribanTemplateEngineTests
             MaxTemplateSizeChars = maxSizeChars,
             RenderTimeoutMilliseconds = timeoutMs,
             MaxOutputChars = maxOutputChars,
-        }));
+        }), new ScribanParseCache());
 
     private static JsonElement Variables(string json)
     {

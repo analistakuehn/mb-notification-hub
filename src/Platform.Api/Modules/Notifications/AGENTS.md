@@ -3,19 +3,24 @@
 ## Boundary
 
 - Keep one bounded context in this module: the notification lifecycle, from
-  ingestion to dispatch. This unit ships the REST ingestion; pipeline,
-  dispatch-side state and the query API arrive in later slices.
+  ingestion to dispatch. This unit ships the REST ingestion and the Core
+  pipeline that consumes the `core-*` queues; dispatch-side state and the
+  query API arrive in later slices.
 - Keep invariants in the entities and pure functions under
   `src/Platform.Api/Modules/Notifications/Domain/`.
 - Keep use-case orchestration in the slices under
   `src/Platform.Api/Modules/Notifications/Features/`.
 - Read sibling contexts exclusively through their published contracts:
-  `Modules.TemplateManagement.Integration.V1` (published catalog and variables
-  validation) and `Modules.Audit.Integration.V1` (transactional audit append).
-  Never touch another context's data store or internal types.
+  `Modules.TemplateManagement.Integration.V1` (published catalog, variables
+  validation, renderer and the policy rule contract),
+  `Modules.ContactConsent.Integration.V1` (recipient directory) and
+  `Modules.Audit.Integration.V1` (transactional audit append). Never touch
+  another context's data store or internal types.
 - Platform infrastructure is a dependency, not a sibling: the outbox writer
-  (`NotificationHub.Api.Infrastructure.Messaging.IOutboxWriter`), the envelope
-  cipher (`NotificationHub.Api.Infrastructure.Cryptography.IEnvelopeCipher`)
+  (`NotificationHub.Api.Infrastructure.Messaging.IOutboxWriter`), the SQS
+  consuming surface (`NotificationHub.Api.Infrastructure.Messaging.Consuming`),
+  the envelope cipher
+  (`NotificationHub.Api.Infrastructure.Cryptography.IEnvelopeCipher`)
   and the partition provisioning live outside `Modules.*` and never reference
   module types back.
 
@@ -23,14 +28,16 @@
 
 | Path | Responsibility |
 |---|---|
-| `src/Platform.Api/Modules/Notifications/Domain/` | notification and idempotency entities, class vocabulary, canonical JSON, variables masking, public id form |
-| `src/Platform.Api/Modules/Notifications/Features/` | vertical slices for this context |
-| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistence (schema `notifications`), Redis controls, template gate, privacy, partition manager, purge job |
+| `src/Platform.Api/Modules/Notifications/Domain/` | notification, attempt, policy evaluation and idempotency entities, class vocabulary, canonical JSON, variables masking, public id form |
+| `src/Platform.Api/Modules/Notifications/Features/` | vertical slices for this context, including the Core pipeline under `Features/Pipeline/` |
+| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistence (schema `notifications`), Redis controls, template gate, privacy, partition manager, purge job, pipeline commit writer, poison sink |
 | `src/Platform.Api/Modules/Notifications/NotificationsModule.cs` | service registration and endpoint mapping for this context |
+| `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs` | composition of the `core` worker role, discovered by the worker host |
 
-Owned state: `notification` (partitioned parent), `idempotency_key`. The
-platform `outbox` belongs to the messaging infrastructure; this module only
-appends through the contract.
+Owned state: `notification`, `notification_attempt` and `policy_evaluation`
+(monthly partitioned parents), `idempotency_key`. The platform `outbox` and
+`processed_messages` belong to the messaging infrastructure; this module only
+writes through their contracts, on its own transaction.
 
 ## Transactional invariant of the ingestion
 
@@ -56,6 +63,41 @@ has no business effect and records its trail in its own short transaction.
 - The canonical payload hash is documented on
   `Features/Mutations/RequestNotification/RequestNotification.PayloadHash.cs`.
 
+## Core pipeline
+
+- One mutable `NotificationContext` crosses the ordered stage list Validate,
+  Resolve, Policy, Render, Route; the commit at the end writes everything the
+  run produced in one database transaction: the notification transition, the
+  first attempt (`queued`, `fallback_deadline` stamped at enqueue time), the
+  `policy_evaluation` rows, the outbox message to
+  `dispatch-{channel}-{class}` or `dispatch-{channel}-auth` (claim check
+  `{notificationId, attemptId}`), the `audit_event` through `IAuditTrail`,
+  and the consumer dedupe mark in `platform.processed_messages`
+  (`Infrastructure/Persistence/PipelineCommitWriter.cs`).
+- Business rejection is an explicit stage outcome with a stable reason, never
+  an exception; an unexpected exception propagates, the message returns to the
+  queue with backoff, and only the redrive policy reaches the DLQ. A missing
+  published class policy is an operational failure, not a rejection.
+- Notification states written by the commit: `dispatched` (attempt#1 queued),
+  `rejected` (policy or validation decision), `expired` (TTL over), and
+  `deferred` (`release_at` set, run parked; the releaser arrives in a later
+  slice). `variables_enc` is purged on `rejected` and `expired`; `deferred`
+  keeps it sealed because the pipeline resumes from there.
+- Policy stage: `IPolicyRule<NotificationContext>` implementations under
+  `Features/Pipeline/Rules/`, in fixed v1 order `ConsentGate`, `QuietHours`,
+  `DedupeWindow`, `ChannelSelection`. Every rule records one
+  `policy_evaluation` row with compact JSON evidence; canonical rejection
+  reasons: `no-consent`, `duplicate-window`, `no-valid-contact`. A hard guard
+  in code keeps critical and authentication flows out of any deferral.
+- The dedupe barrier is Redis `SET NX` keyed by
+  `(application, templateKey, recipientId)` with the policy window as TTL and
+  the notification id as value, so a redelivery recognizes its own mark. Redis
+  failure fails open with the fail-open recorded in the evidence.
+- The `core` worker role consumes the four `core-*` queues concurrently with
+  processing slots prioritized `auth > critical > transactional >
+  operational`; an optional band restriction mirrors the relay
+  (`Modules:Notifications:CoreWorker:Bands`, empty = all).
+
 ## Variables and PII
 
 - `variables_masked` (jsonb, mandatory) stores the canonical variables object
@@ -64,11 +106,11 @@ has no business effect and records its trail in its own short transaction.
 - `variables_enc` (bytea, nullable) stores the envelope-encrypted canonical
   form of the **whole** variables object, sealed by the platform envelope
   cipher with the data key of the application.
-- **Purge ownership**: erasing `variables_enc` after the notification leaves
-  the pipeline belongs to the Core pipeline of a later phase, not to this
-  unit; the column is nullable from birth precisely so that purge can null it
-  without schema change. Nothing in this module may implement or depend on
-  that purge.
+- **Purge ownership**: the Core pipeline commit purges `variables_enc` on the
+  reachable terminal states `rejected` and `expired`, in the same transaction
+  as the transition. The terminals of the dispatch side (`delivered`,
+  `failed`) purge in a later phase; `deferred` keeps the ciphertext because
+  the pipeline resumes from there.
 - No recipient existence check happens at ingestion (anti-enumeration): the
   API answers 202 whether or not the recipient exists.
 
@@ -84,11 +126,14 @@ has no business effect and records its trail in its own short transaction.
 
 ## Partitioning
 
-- `notification` is partitioned by month on `created_at`; the creation
-  migration provisions the initial partitions and the module scheduler
-  (`Modules:Notifications:PartitionManager`) keeps future months provisioned
-  through the platform provisioner. Health check: `notifications-partitions`.
-- Never revoke writes on notification partitions: write revoke is a closing
+- `notification` (on `created_at`), `notification_attempt` (on `created_at`)
+  and `policy_evaluation` (on `evaluated_at`) are partitioned by month; each
+  creation migration provisions the initial partitions and the module
+  scheduler (`Modules:Notifications:PartitionManager`) keeps future months
+  provisioned for the three tables through the platform provisioner. Health
+  checks: `notifications-partitions`, `notifications-attempt-partitions`,
+  `notifications-policy-evaluation-partitions`.
+- Never revoke writes on this module's partitions: write revoke is a closing
   semantic exclusive to the Audit trail.
 - `idempotency_key` stays outside the partitioning so its unique key exists.
 
@@ -98,9 +143,12 @@ Ingestion actions follow the platform dot vocabulary: `notification.accepted`
 (details carry `source = rest`), `notification.duplicate`,
 `notification.rejected_at_ingress` (details carry the stable reason). Actor
 type is `producer` with the token identity (`appid`/`oid`) as actor id. The
-constants live in `Infrastructure/Auditing/IngestionAuditVocabulary.cs`;
-promoting them into the Audit `Integration/V1` vocabulary is a pending
-cross-module decision.
+pipeline adds `notification.dispatched`, `notification.rejected`,
+`notification.deferred`, `notification.expired`, `notification.duplicate` and
+`message.discarded`, with actor type `system` and actor id `core-worker`
+(`Infrastructure/Auditing/PipelineAuditVocabulary.cs`). The constants live
+module-locally; promoting them into the Audit `Integration/V1` vocabulary is
+a pending cross-module decision.
 
 ## Error axis
 

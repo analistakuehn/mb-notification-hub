@@ -61,6 +61,7 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<DiffClassPolicyVersions.Handler>();
 
         // Published read contracts consumed in-process by sibling modules.
+        services.AddSingleton<PublishedReadCache>();
         services.AddScoped<IPublishedCatalog, PublishedCatalog>();
         services.AddScoped<IPublishedVariablesValidator, PublishedVariablesValidator>();
         services.AddScoped<IPublishedTemplateRenderer, PublishedTemplateRenderer>();

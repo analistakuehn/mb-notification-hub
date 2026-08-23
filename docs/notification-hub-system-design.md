@@ -395,7 +395,7 @@ Opt-out não é campo de política na v1: deriva da classe (`critical` nunca; de
 
 **Composição.** Cada regra recebe o conjunto de canais remanescente; `FilterChannels` é interseção; o primeiro `Reject` ou `Defer` encerra o pipeline de política; o resultado de cada regra é auditado (`POLICY_EVALUATION`).
 
-**`channelsHint`.** Reordena a preferência **dentro** dos canais permitidos pela política; nunca adiciona canal; registrado em auditoria.
+**`channelsHint`.** Reordena a preferência **dentro** dos canais permitidos pela política; nunca adiciona canal; registrado em auditoria. Na v1 o hint é aceito, validado e participa do `payload_hash` de idempotência, mas **não é aplicado nem persistido**: a ordem efetiva é a do plano da política publicada. A reordenação por requisição é ponto de extensão; critério de retorno: o primeiro produtor com necessidade evidenciada de ordenação por requisição dispara a persistência de `channels_hint` na ingestão e a aplicação do reorder dentro do plano sobrevivente.
 
 **Barreira atômica do `DedupeWindow`.** Redis `SET NX` com TTL da janela sobre `(application, templateKey, recipientId)`; em falha do Redis, fail-open (duplicata possível, risco aceito e auditado).
 
@@ -811,7 +811,7 @@ Location: /v1/notifications/ntf_01J5XA...
 { "notificationId": "ntf_01J5XA...", "status": "accepted" }
 ```
 
-- `channelsHint` é sugestão; a política publicada decide (reordena a preferência dentro dos canais permitidos, nunca adiciona canal, §4.3).
+- `channelsHint` é sugestão; a política publicada decide (reordena a preferência dentro dos canais permitidos, nunca adiciona canal, §4.3). Na v1 o hint é aceito e ignorado; a ordem efetiva é a do plano da política. O `locale` da requisição é igualmente aceito e não persistido; o locale de render vem do perfil do destinatário ou do default do template.
 - `scheduledAt` (ISO 8601, opcional): agendamento (RF-08); até 15 min via `DelaySeconds`, além disso via `release_at` (§4.2).
 - O escopo da idempotência é `(application, idempotency_key)`. Replay com mesma `Idempotency-Key` em 24 h → `200` com o mesmo `notificationId`. Mesma chave com payload diferente → `409`, detectado por comparação de `payload_hash` (SHA-256 do corpo canônico da requisição), gravado em `IDEMPOTENCY_KEY` (§6).
 - Erros em RFC 9457: `422 template-variables-invalid`, `403 class-not-allowed-for-principal`, `409 idempotency-key-conflict`.

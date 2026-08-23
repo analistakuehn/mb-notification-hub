@@ -29,6 +29,20 @@ public static class NotificationsPartitioningSetup
                 table: "notification",
                 minimumFutureDays: serviceProvider => serviceProvider
                     .GetRequiredService<IOptions<NotificationsPartitionOptions>>()
+                    .Value.FutureWindowMinimumDays)
+            .AddMonthlyPartitionCoverageCheck<NotificationsDbContext>(
+                name: "notifications-attempt-partitions",
+                schema: "notifications",
+                table: "notification_attempt",
+                minimumFutureDays: serviceProvider => serviceProvider
+                    .GetRequiredService<IOptions<NotificationsPartitionOptions>>()
+                    .Value.FutureWindowMinimumDays)
+            .AddMonthlyPartitionCoverageCheck<NotificationsDbContext>(
+                name: "notifications-policy-evaluation-partitions",
+                schema: "notifications",
+                table: "policy_evaluation",
+                minimumFutureDays: serviceProvider => serviceProvider
+                    .GetRequiredService<IOptions<NotificationsPartitionOptions>>()
                     .Value.FutureWindowMinimumDays);
         return services;
     }

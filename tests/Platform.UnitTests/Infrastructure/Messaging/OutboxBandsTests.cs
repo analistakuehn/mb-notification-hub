@@ -13,10 +13,19 @@ public sealed class OutboxBandsTests
         => OutboxBands.Classify("core-auth", priorityClass).ShouldBe(OutboxBand.Auth);
 
     [Theory]
+    [InlineData("critical")]
+    [InlineData("transactional")]
+    [InlineData("operational")]
+    public void Dispatch_destinations_with_the_auth_suffix_classify_into_the_auth_band(string priorityClass)
+        => OutboxBands.Classify("dispatch-push-auth", priorityClass).ShouldBe(OutboxBand.Auth);
+
+    [Theory]
     [InlineData("core-critical", "critical", "critical")]
     [InlineData("core-transactional", "transactional", "transactional")]
     [InlineData("contacts-changed", "transactional", "transactional")]
     [InlineData("core-operational", "operational", "operational")]
+    [InlineData("dispatch-push-critical", "critical", "critical")]
+    [InlineData("dispatch-sms-transactional", "transactional", "transactional")]
     public void Other_destinations_classify_by_their_stored_priority_class(
         string destination, string priorityClass, string expectedBandName)
     {

@@ -10,10 +10,36 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integrat
 /// <summary>
 /// Published catalog reads backed by this module's store. Only published state
 /// crosses the boundary, always as contract values, never as domain entities.
+/// Successful lookups memoize as "current published" pointers: the hot path
+/// re-reads them from memory and converges on a new publication within the
+/// pointer window.
 /// </summary>
-internal sealed class PublishedCatalog(TemplateManagementDbContext dbContext) : IPublishedCatalog
+internal sealed class PublishedCatalog(
+    TemplateManagementDbContext dbContext,
+    PublishedReadCache cache) : IPublishedCatalog
 {
     public async Task<Result<PublishedTemplateLookup>> FindTemplateAsync(
+        string application,
+        string templateKey,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = $"template:{application}:{templateKey}";
+        if (cache.TryGetPointer(cacheKey, out PublishedTemplateLookup cached))
+        {
+            return Result.Success(cached);
+        }
+
+        Result<PublishedTemplateLookup> lookedUp =
+            await FindTemplateFromStoreAsync(application, templateKey, cancellationToken);
+        if (lookedUp.IsSuccess)
+        {
+            cache.SetPointer(cacheKey, lookedUp.Value!);
+        }
+
+        return lookedUp;
+    }
+
+    private async Task<Result<PublishedTemplateLookup>> FindTemplateFromStoreAsync(
         string application,
         string templateKey,
         CancellationToken cancellationToken)
@@ -65,6 +91,27 @@ internal sealed class PublishedCatalog(TemplateManagementDbContext dbContext) : 
     }
 
     public async Task<Result<PublishedClassPolicy>> FindClassPolicyAsync(
+        string application,
+        string notificationClass,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = $"policy:{application}:{notificationClass}";
+        if (cache.TryGetPointer(cacheKey, out PublishedClassPolicy cached))
+        {
+            return Result.Success(cached);
+        }
+
+        Result<PublishedClassPolicy> published =
+            await FindClassPolicyFromStoreAsync(application, notificationClass, cancellationToken);
+        if (published.IsSuccess)
+        {
+            cache.SetPointer(cacheKey, published.Value!);
+        }
+
+        return published;
+    }
+
+    private async Task<Result<PublishedClassPolicy>> FindClassPolicyFromStoreAsync(
         string application,
         string notificationClass,
         CancellationToken cancellationToken)

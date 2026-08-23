@@ -1,3 +1,5 @@
+using NotificationHub.Api.Infrastructure.Cryptography;
+
 namespace NotificationHub.Worker;
 
 /// <summary>
@@ -12,6 +14,25 @@ public static class Program
     {
         HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
         WorkerRoleCatalog.Register(builder.Services, builder.Configuration);
-        await builder.Build().RunAsync();
+        IHost host = builder.Build();
+
+        // Same containment rule as the API host for the committed development
+        // envelope master key: it only ever derives data keys in Development.
+        // Checked after Build() on purpose: only the built host sees the
+        // final configuration, including deployment overlays.
+        IConfiguration configuration = host.Services.GetRequiredService<IConfiguration>();
+        IHostEnvironment environment = host.Services.GetRequiredService<IHostEnvironment>();
+        var envelopeKeyId = configuration[$"{EnvelopeCipherOptions.SectionName}:KeyId"];
+        if (envelopeKeyId is not null
+            && envelopeKeyId.Contains(EnvelopeCipherOptions.DevelopmentKeyIdMarker, StringComparison.OrdinalIgnoreCase)
+            && !environment.IsDevelopment())
+        {
+            throw new InvalidOperationException(
+                $"A chave-mestra de cifra de desenvolvimento (key id '{envelopeKeyId}') está configurada, "
+                + $"mas o ambiente é '{environment.EnvironmentName}'. "
+                + "Configure a chave do provedor de KMS real ou execute o host em Development.");
+        }
+
+        await host.RunAsync();
     }
 }

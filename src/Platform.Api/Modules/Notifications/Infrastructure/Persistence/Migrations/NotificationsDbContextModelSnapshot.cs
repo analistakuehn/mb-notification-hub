@@ -144,11 +144,149 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                     b.HasIndex("CorrelationId")
                         .HasDatabaseName("ix_notification_correlation");
 
+                    b.HasIndex("ReleaseAt")
+                        .HasDatabaseName("ix_notification_release")
+                        .HasFilter("release_at IS NOT NULL");
+
                     b.HasIndex("RecipientId", "CreatedAt")
                         .IsDescending(false, true)
                         .HasDatabaseName("ix_notification_recipient");
 
                     b.ToTable("notification", "notifications");
+                });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Domain.NotificationAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("channel");
+
+                    b.Property<Guid?>("ContactPointId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("contact_point_id");
+
+                    b.Property<string>("ContentHashFull")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash_full");
+
+                    b.Property<string>("ContentHashMasked")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash_masked");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivered_at");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("error_code");
+
+                    b.Property<DateTimeOffset?>("FallbackDeadline")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fallback_deadline");
+
+                    b.Property<Guid>("NotificationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("notification_id");
+
+                    b.Property<string>("ProviderKey")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("provider_key");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_message_id");
+
+                    b.Property<byte[]>("RenderedContentEncrypted")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("rendered_content_enc");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id", "CreatedAt");
+
+                    b.HasIndex("NotificationId")
+                        .HasDatabaseName("ix_notification_attempt_notification");
+
+                    b.HasIndex("Status", "FallbackDeadline")
+                        .HasDatabaseName("ix_notification_attempt_fallback")
+                        .HasFilter("fallback_deadline IS NOT NULL");
+
+                    b.ToTable("notification_attempt", "notifications");
+                });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Domain.PolicyEvaluation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("evaluated_at");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("evidence");
+
+                    b.Property<Guid>("NotificationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("notification_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("result");
+
+                    b.Property<string>("Rule")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("rule");
+
+                    b.HasKey("Id", "EvaluatedAt");
+
+                    b.HasIndex("NotificationId")
+                        .HasDatabaseName("ix_policy_evaluation_notification");
+
+                    b.ToTable("policy_evaluation", "notifications");
                 });
 #pragma warning restore 612, 618
         }

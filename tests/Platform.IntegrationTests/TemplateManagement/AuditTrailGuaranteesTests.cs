@@ -39,7 +39,7 @@ public sealed class AuditTrailGuaranteesTests(TemplateManagementApiFixture fixtu
             var handler = new PublishTemplateVersion.Handler(
                 db,
                 new TransactionalAuditTrail(),
-                new TemplateVersionAnalyzer(new ScribanTemplateEngine(Options.Create(new TemplatingOptions()))),
+                new TemplateVersionAnalyzer(new ScribanTemplateEngine(Options.Create(new TemplatingOptions()), new ScribanParseCache())),
                 new FrozenClock(BeyondPartitionCoverage),
                 NullLogger<PublishTemplateVersion.Handler>.Instance);
 

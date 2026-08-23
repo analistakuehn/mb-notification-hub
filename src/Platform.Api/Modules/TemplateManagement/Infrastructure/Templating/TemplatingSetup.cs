@@ -10,6 +10,7 @@ public static class TemplatingSetup
             .Bind(configuration.GetSection(TemplatingOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddSingleton<ScribanParseCache>();
         services.AddSingleton<ScribanTemplateEngine>();
         services.AddSingleton<TemplateVersionAnalyzer>();
         services.AddSingleton<LayoutVersionAnalyzer>();

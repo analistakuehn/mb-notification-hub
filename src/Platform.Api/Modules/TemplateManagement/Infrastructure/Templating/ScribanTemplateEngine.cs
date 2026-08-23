@@ -22,7 +22,7 @@ internal sealed record TemplateSourceAnalysis(
 /// timeout is imposed externally by running the render in a task and discarding
 /// its result when the deadline passes.
 /// </summary>
-internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options)
+internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options, ScribanParseCache parseCache)
 {
     /// <summary>Globals every template can read without declaring them (engine builtins).</summary>
     private static readonly string[] BuiltinGlobals =
@@ -62,7 +62,9 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options)
             return Result.ValidationError<string>(SizeLimitMessage(source.Length));
         }
 
-        var template = Template.Parse(source);
+        // Published sources are immutable, so the parse memoizes per source
+        // text; each render still gets its own context over the shared AST.
+        Template template = parseCache.GetOrParse(source);
         if (template.HasErrors)
         {
             return Result.ValidationError<string>(

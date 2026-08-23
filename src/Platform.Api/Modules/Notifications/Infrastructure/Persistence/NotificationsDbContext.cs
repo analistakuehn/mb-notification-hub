@@ -15,6 +15,10 @@ public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbConte
 {
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<NotificationAttempt> NotificationAttempts => Set<NotificationAttempt>();
+
+    public DbSet<PolicyEvaluation> PolicyEvaluations => Set<PolicyEvaluation>();
+
     public DbSet<IdempotencyRegistration> IdempotencyRegistrations => Set<IdempotencyRegistration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

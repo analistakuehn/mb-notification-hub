@@ -2,7 +2,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NotificationHub.Api.Infrastructure.Messaging;
+using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
+using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Worker;
 
 namespace NotificationHub.IntegrationTests.Messaging;
@@ -35,6 +39,72 @@ public sealed class WorkerHostCompositionTests
         // The platform messaging composition came along: the relay reads the
         // same outbox the producing modules append to.
         host.Services.GetRequiredService<IOutboxWriter>().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void The_core_role_hosts_exactly_the_core_consumer_and_the_processed_purge()
+    {
+        HostApplicationBuilder builder = CreateBuilder(new Dictionary<string, string?>
+        {
+            ["Worker:Role"] = WorkerRoleCatalog.CoreRole,
+            ["Platform:Messaging:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Platform:Cryptography:Envelope:KeyId"] = "test-key",
+            ["Platform:Cryptography:Envelope:MasterKey"] = Convert.ToBase64String(new byte[32]),
+            ["Modules:Notifications:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:Notifications:Redis:ConnectionString"] = "localhost:6379",
+            ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:ContactConsent:Redis:ConnectionString"] = "localhost:6379",
+            ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+        });
+
+        WorkerRoleCatalog.Register(builder.Services, builder.Configuration);
+        using IHost host = builder.Build();
+
+        IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
+        hosted.OfType<SqsConsumerService<CoreMessageProcessor>>().ShouldHaveSingleItem();
+        hosted.OfType<ProcessedMessagePurgeService>().ShouldHaveSingleItem();
+        hosted
+            .Where(service => service is not SqsConsumerService<CoreMessageProcessor>
+                && service is not ProcessedMessagePurgeService)
+            .ShouldAllBe(service => service.GetType().Namespace!.StartsWith("Microsoft.", StringComparison.Ordinal));
+
+        // The role consumes the sibling contexts through their published
+        // read contracts and the pipeline resolves end to end.
+        using IServiceScope scope = host.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IRecipientDirectory>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<NotificationPipeline>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<CoreMessageProcessor>().ShouldNotBeNull();
+        host.Services.GetRequiredService<SqsConsumerPlan<CoreMessageProcessor>>()
+            .Queues.Select(binding => binding.QueueName)
+            .ShouldBe(["core-auth", "core-critical", "core-transactional", "core-operational"]);
+    }
+
+    [Fact]
+    public void The_contact_consent_role_hosts_exactly_the_invalidation_consumer_and_the_processed_purge()
+    {
+        HostApplicationBuilder builder = CreateBuilder(new Dictionary<string, string?>
+        {
+            ["Worker:Role"] = WorkerRoleCatalog.ContactConsentRole,
+            ["Platform:Messaging:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Platform:Cryptography:Envelope:KeyId"] = "test-key",
+            ["Platform:Cryptography:Envelope:MasterKey"] = Convert.ToBase64String(new byte[32]),
+            ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:ContactConsent:Redis:ConnectionString"] = "localhost:6379",
+        });
+
+        WorkerRoleCatalog.Register(builder.Services, builder.Configuration);
+        using IHost host = builder.Build();
+
+        IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
+        hosted.OfType<SqsConsumerService<ContactsChangedProcessor>>().ShouldHaveSingleItem();
+        hosted.OfType<ProcessedMessagePurgeService>().ShouldHaveSingleItem();
+        hosted
+            .Where(service => service is not SqsConsumerService<ContactsChangedProcessor>
+                && service is not ProcessedMessagePurgeService)
+            .ShouldAllBe(service => service.GetType().Namespace!.StartsWith("Microsoft.", StringComparison.Ordinal));
+
+        host.Services.GetRequiredService<SqsConsumerPlan<ContactsChangedProcessor>>()
+            .Queues.ShouldHaveSingleItem().QueueName.ShouldBe("contacts-changed");
     }
 
     [Fact]

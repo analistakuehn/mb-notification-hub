@@ -57,6 +57,38 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
 - **Review condition**: an explicit ruling from Compliance that consent must
   be re-collected when the contact value changes reverses this computation.
 
+## The published contract gained a degradation-aware read overload
+
+- **Assumption accepted**: `IRecipientDirectory` now carries a second
+  `FindAsync` overload taking `RecipientReadFallback`, because the accepted
+  degradation rule is class-dependent (critical and authentication flows may
+  act on the last known snapshot; other classes must fail and retry) and the
+  class is only visible to the caller. The addition is additive: the original
+  member is untouched and the store-backed implementation ignores the
+  fallback.
+- **Evidence**: `Integration/V1/IRecipientDirectory.cs`,
+  `Infrastructure/Reads/CachedRecipientDirectory.cs`, and the stage that
+  declares the fallback in the Notifications module.
+- **Owner**: ContactConsent module maintainers with Arquitetura.
+- **Status**: accepted, pending ratification of the contract addition.
+- **Review condition**: the next architecture review of the published
+  contracts either ratifies the overload or replaces it with an accepted
+  alternative for expressing per-read degradation tolerance.
+
+## Invalidation marks the cache entry stale instead of deleting it
+
+- **Assumption accepted**: the `contacts-changed` consumer rewrites the
+  cached snapshot with a stale flag rather than deleting it, so the entry
+  still serves as the last known value for callers that declared the
+  fallback; the 24 h TTL is the staleness ceiling.
+- **Evidence**: `Infrastructure/Reads/RecipientSnapshotCache.cs` and the
+  accepted stale-while-revalidate rule for critical and authentication flows.
+- **Owner**: ContactConsent module maintainers.
+- **Status**: accepted.
+- **Review condition**: a compliance ruling that a revoked consent must never
+  be acted on, even under degradation, replaces the stale mark with a hard
+  delete and removes the last-known fallback.
+
 ## Write vocabulary lives module-locally
 
 - **Assumption accepted**: the `contact.points.declared`, `consents.declared`

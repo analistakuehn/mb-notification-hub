@@ -79,6 +79,30 @@ namespace NotificationHub.Api.Infrastructure.Messaging.Migrations
 
                     b.ToTable("outbox", "platform");
                 });
+
+            modelBuilder.Entity("NotificationHub.Api.Infrastructure.Messaging.ProcessedMessage", b =>
+                {
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("Consumer")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("consumer");
+
+                    b.Property<DateTimeOffset>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.HasKey("MessageId", "Consumer");
+
+                    b.HasIndex("ProcessedAt")
+                        .HasDatabaseName("ix_processed_messages_processed_at");
+
+                    b.ToTable("processed_messages", "platform");
+                });
 #pragma warning restore 612, 618
         }
     }

@@ -11,7 +11,12 @@ internal static class ContactConsentAuditVocabulary
     internal const string ContactPointsDeclared = "contact.points.declared";
     internal const string ConsentsDeclared = "consents.declared";
     internal const string DeviceRegistered = "device.registered";
+    internal const string MessageDiscarded = "message.discarded";
 
     internal const string EntityTypeRecipient = "recipient";
     internal const string EntityTypeDeviceToken = "device_token";
+    internal const string EntityTypeMessage = "message";
+
+    internal const string ActorTypeSystem = "system";
+    internal const string ActorIdCacheWorker = "contact-consent-worker";
 }

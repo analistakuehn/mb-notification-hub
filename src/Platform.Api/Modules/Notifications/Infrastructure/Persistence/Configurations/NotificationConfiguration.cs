@@ -79,5 +79,11 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
 
         builder.HasIndex(nameof(Notification.CorrelationId))
             .HasDatabaseName("ix_notification_correlation");
+
+        // The release job scans deferred notifications; the filter keeps the
+        // index to the rows that actually carry a release instant.
+        builder.HasIndex(nameof(Notification.ReleaseAt))
+            .HasDatabaseName("ix_notification_release")
+            .HasFilter("release_at IS NOT NULL");
     }
 }

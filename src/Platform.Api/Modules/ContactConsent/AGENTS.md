@@ -26,9 +26,10 @@
 |---|---|
 | `src/Platform.Api/Modules/ContactConsent/Domain/` | profile, contact point, consent and device entities; channel, source and platform vocabularies; value normalization |
 | `src/Platform.Api/Modules/ContactConsent/Features/` | vertical slices for this context |
-| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory` and the snapshot records other modules consume |
-| `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, authorization, problems |
+| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, the degradation-aware read fallback and the snapshot records other modules consume |
+| `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, snapshot cache, invalidation consumer, authorization, problems |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentModule.cs` | service registration and endpoint mapping for this context |
+| `src/Platform.Api/Modules/ContactConsent/ContactConsentWorkerRole.cs` | composition of the `contact-consent` worker role, discovered by the worker host |
 
 Owned state: `recipient_profile`, `contact_point`, `consent` (append-only),
 `device_token`. None is partitioned. The platform `outbox` belongs to the
@@ -61,6 +62,22 @@ in its own short transaction.
   `(recipient, channel, value_hash)`.
 - Device tokens are routing addresses: stored in clear by design, exposed in
   the snapshot for the push fan-out, and banned from logs and audit details.
+
+## Snapshot cache and degraded reads
+
+- The hot-path read of `IRecipientDirectory` runs behind a cache-aside layer
+  inside this module (`Infrastructure/Reads/CachedRecipientDirectory.cs`):
+  snapshots sealed with the module's dedicated key scope in the module's own
+  Redis (`Modules:ContactConsent:Redis`, TTL 24 h), so contact data never
+  sits in a cache in the clear nor under an application key.
+- Invalidation marks the entry stale instead of deleting it: a stale entry
+  forces the next read back to the store while staying available as the last
+  known value. The `contact-consent` worker role consumes `contacts-changed`
+  and applies the mark; the effect is idempotent by design.
+- Degradation is the caller's declaration, per read: only a caller that asked
+  for `RecipientReadFallback.LastKnown` receives the cached snapshot when the
+  local read fails; every other caller sees the failure and its queue retry
+  owns the degradation. The reveal read is never cached.
 
 ## Declarative semantics
 

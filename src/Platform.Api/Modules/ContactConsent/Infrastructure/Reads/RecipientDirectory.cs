@@ -17,6 +17,17 @@ internal sealed class RecipientDirectory(
     ContactConsentDbContext db,
     ContactValueProtector protector) : IRecipientDirectory
 {
+    /// <summary>
+    /// The store read has no stale concept: it is the source of truth, so the
+    /// fallback preference changes nothing here. The cached decorator is the
+    /// layer that honors it.
+    /// </summary>
+    public Task<Result<RecipientSnapshot>> FindAsync(
+        string recipientId,
+        RecipientReadFallback fallback,
+        CancellationToken cancellationToken)
+        => FindAsync(recipientId, cancellationToken);
+
     public async Task<Result<RecipientSnapshot>> FindAsync(
         string recipientId,
         CancellationToken cancellationToken)

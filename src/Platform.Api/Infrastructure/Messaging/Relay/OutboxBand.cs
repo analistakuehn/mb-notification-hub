@@ -27,11 +27,17 @@ internal enum OutboxBand
 internal static class OutboxBands
 {
     /// <summary>
-    /// The one destination classified into the auth band regardless of the
-    /// stored priority class. Dispatch queues with an auth suffix join this
-    /// classification when they start receiving rows in a later phase.
+    /// The core destination classified into the auth band regardless of the
+    /// stored priority class. Dispatch destinations join the band through the
+    /// auth suffix over the dispatch prefix.
     /// </summary>
     internal const string AuthDestination = "core-auth";
+
+    /// <summary>Prefix of every dispatch queue destination.</summary>
+    internal const string DispatchDestinationPrefix = "dispatch-";
+
+    /// <summary>Suffix that routes a dispatch destination into the auth band.</summary>
+    internal const string AuthDestinationSuffix = "-auth";
 
     private const string CriticalClass = "critical";
     private const string TransactionalClass = "transactional";
@@ -47,7 +53,9 @@ internal static class OutboxBands
 
     internal static OutboxBand Classify(string destination, string priorityClass)
     {
-        if (string.Equals(destination, AuthDestination, StringComparison.Ordinal))
+        if (string.Equals(destination, AuthDestination, StringComparison.Ordinal)
+            || destination.StartsWith(DispatchDestinationPrefix, StringComparison.Ordinal)
+            && destination.EndsWith(AuthDestinationSuffix, StringComparison.Ordinal))
         {
             return OutboxBand.Auth;
         }
