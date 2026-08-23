@@ -1,14 +1,19 @@
 using System.Diagnostics;
 using System.Text.Json;
+using FluentValidation;
+using FluentValidation.Results;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Events;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Idempotency;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Templates;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
@@ -16,57 +21,95 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Mutations;
 
 internal static partial class RequestNotification
 {
-    private const string ReasonClassNotAllowed = "class-not-allowed-for-principal";
-    private const string ReasonRecipientRateLimited = "recipient-rate-limited";
     private const string OutboxMessageType = "notification.accepted";
     private const string AuthenticationPurpose = "authentication";
     private const string AuthenticationDestination = "core-auth";
 
+    /// <summary>
+    /// One registration that already answers this idempotency key, together
+    /// with the hash of the request being resolved against it.
+    /// </summary>
+    private sealed record ReplayCandidate(
+        string IdempotencyKey,
+        string PayloadHash,
+        Guid NotificationId,
+        string StoredPayloadHash);
+
+    /// <summary>
+    /// The ingestion use case, neutral to the transport that carried the
+    /// request. It receives an authorization question already answered and the
+    /// origin of the request, and it answers with data: every rejection is a
+    /// legitimate outcome, never an exception, so a synchronous caller maps it
+    /// to a problem response and an asynchronous one maps it to a dead-letter
+    /// record without either of them re-implementing a single rule.
+    /// </summary>
     internal sealed class Handler(
+        IValidator<Command> validator,
         PublishedTemplateGate templateGate,
-        IngestionRateLimiter rateLimiter,
-        IdempotencyFastPath idempotencyFastPath,
+        IngressControls controls,
         VariablesProtector variablesProtector,
-        IngestionWriter writer,
+        IIngestionSink sink,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
         public async Task<Result<Outcome>> HandleAsync(
             Command command,
             string producer,
-            IReadOnlySet<string> producerRoles,
+            ProducerAuthorization authorization,
+            IngestionOrigin origin,
             string idempotencyKey,
             CancellationToken cancellationToken)
         {
-            var canonicalClass = command.Class;
-            if (!producerRoles.Contains(NotificationClasses.RequiredRole(canonicalClass)))
+            // Shape first, always: an unreadable request is answered for what
+            // it is, even when the producer would also fail authorization.
+            ValidationResult validation = await validator.ValidateAsync(command, cancellationToken);
+            if (!validation.IsValid)
             {
-                await writer.AppendStandaloneAuditAsync(
-                    RejectionEntry(command, producer, idempotencyKey, ReasonClassNotAllowed),
-                    cancellationToken);
-                logger.IngressRejected(command.Application, command.TemplateKey, canonicalClass, ReasonClassNotAllowed);
-                return Result.Success<Outcome>(new Outcome.ClassNotAllowed(canonicalClass));
+                await RejectAsync(
+                    command, producer, origin, idempotencyKey,
+                    NotificationRejectionReasons.PayloadInvalid, cancellationToken);
+                return Result.Success<Outcome>(
+                    new Outcome.PayloadInvalid(validation.ToDictionary().AsReadOnly()));
+            }
+
+            var canonicalClass = command.Class;
+            if (authorization is ProducerAuthorization.Denied denial)
+            {
+                await RejectAsync(
+                    command, producer, origin, idempotencyKey, denial.Reason, cancellationToken);
+                return Result.Success<Outcome>(new Outcome.ProducerNotAuthorized(denial.Reason));
             }
 
             var payloadHash = ComputePayloadHash(command);
 
             RememberedAcceptance? remembered =
-                await idempotencyFastPath.FindAsync(command.Application, idempotencyKey, cancellationToken);
+                await controls.FindRememberedAsync(command.Application, idempotencyKey, cancellationToken);
             if (remembered is { } acceptance)
             {
                 return await ResolveReplayAsync(
-                    command, producer, payloadHash,
-                    acceptance.NotificationId, acceptance.PayloadHash, cancellationToken);
+                    command,
+                    producer,
+                    origin,
+                    new ReplayCandidate(
+                        idempotencyKey, payloadHash, acceptance.NotificationId, acceptance.PayloadHash),
+                    cancellationToken);
             }
 
-            RateLimitDecision rateDecision = await rateLimiter.EvaluateAsync(
-                producer, command.Application, command.RecipientId, canonicalClass, cancellationToken);
+            RateLimitDecision rateDecision = await controls.EvaluateRateLimitAsync(
+                new RateLimitSubject(producer, command.Application, command.RecipientId, canonicalClass),
+                enforcePrincipalLimit: origin.Source == IngestionSource.Rest,
+                cancellationToken);
             if (!rateDecision.Allowed)
             {
+                // The principal dimension never records a trail: under the
+                // pressure it exists to absorb, one audit row and one event per
+                // refused request is the storm the control was meant to stop.
                 if (rateDecision.Dimension == RateLimitedDimension.Recipient)
                 {
-                    await writer.AppendStandaloneAuditAsync(
-                        RecipientRateLimitedEntry(command, producer, idempotencyKey),
+                    await sink.RecordTrailAsync(
+                        RecipientRateLimitedEntry(command, producer, origin, idempotencyKey),
+                        RejectionEvent(
+                            command, idempotencyKey, NotificationRejectionReasons.RecipientRateLimited),
                         cancellationToken);
                 }
 
@@ -77,15 +120,14 @@ internal static partial class RequestNotification
 
             TemplateGateOutcome gate = await templateGate.EvaluateAsync(
                 command.Application, command.TemplateKey, canonicalClass,
-                NormalizedVariables(command), cancellationToken);
+                NormalizedVariables(command),
+                allowSensitiveVariables: origin.Source == IngestionSource.Rest,
+                cancellationToken);
             if (gate is TemplateGateOutcome.Rejected rejection)
             {
-                await writer.AppendStandaloneAuditAsync(
-                    RejectionEntry(command, producer, idempotencyKey, rejection.Reason),
-                    cancellationToken);
-                logger.IngressRejected(command.Application, command.TemplateKey, canonicalClass, rejection.Reason);
-                return Result.Success<Outcome>(
-                    new Outcome.TemplateRejected(rejection.Reason, rejection.Detail, rejection.Checks));
+                await RejectAsync(
+                    command, producer, origin, idempotencyKey, rejection.Reason, cancellationToken);
+                return Result.Success<Outcome>(TemplateRejectionOutcome(rejection));
             }
 
             PublishedTemplate template = ((TemplateGateOutcome.Approved)gate).Template;
@@ -112,20 +154,24 @@ internal static partial class RequestNotification
             var registration = IdempotencyRegistration.Register(
                 command.Application, idempotencyKey, payloadHash, notification.Id, acceptedAt);
 
-            PersistOutcome persisted = await writer.PersistAcceptedAsync(
+            PersistOutcome persisted = await sink.PersistAcceptedAsync(
                 notification,
                 registration,
                 BuildOutboxMessage(notification, template, acceptedAt),
-                AcceptedEntry(notification, producer, template.Version),
+                AcceptedEntry(notification, producer, origin, template.Version),
                 cancellationToken);
             if (persisted is PersistOutcome.ExistingRegistration existing)
             {
                 return await ResolveReplayAsync(
-                    command, producer, payloadHash,
-                    existing.NotificationId, existing.PayloadHash, cancellationToken);
+                    command,
+                    producer,
+                    origin,
+                    new ReplayCandidate(
+                        idempotencyKey, payloadHash, existing.NotificationId, existing.PayloadHash),
+                    cancellationToken);
             }
 
-            await idempotencyFastPath.RememberAsync(
+            await controls.RememberAsync(
                 command.Application,
                 idempotencyKey,
                 new RememberedAcceptance(notification.Id, payloadHash),
@@ -136,33 +182,86 @@ internal static partial class RequestNotification
         }
 
         /// <summary>
+        /// The outcome a catalog rejection maps to. The bus restriction is its
+        /// own outcome because its dead-letter record must name the declared
+        /// variables and must never carry their values.
+        /// </summary>
+        private static Outcome TemplateRejectionOutcome(TemplateGateOutcome.Rejected rejection)
+            => rejection.Reason == TemplateGateReasons.SensitiveVariablesOnBus
+                ? new Outcome.SensitiveVariablesOnBus(rejection.SensitiveVariables ?? [])
+                : new Outcome.TemplateRejected(rejection.Reason, rejection.Detail, rejection.Checks);
+
+        /// <summary>Records the trail of one rejection: the audit event and the outgoing rejection event.</summary>
+        private async Task RejectAsync(
+            Command command,
+            string producer,
+            IngestionOrigin origin,
+            string idempotencyKey,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            await sink.RecordTrailAsync(
+                RejectionEntry(command, producer, origin, idempotencyKey, reason),
+                RejectionEvent(command, idempotencyKey, reason),
+                cancellationToken);
+            logger.IngressRejected(command.Application, command.TemplateKey, command.Class, reason);
+        }
+
+        /// <summary>
         /// Answers a replay from the authoritative registration: same payload
         /// hash replays the original id, a different one is a conflict.
         /// </summary>
         private async Task<Result<Outcome>> ResolveReplayAsync(
             Command command,
             string producer,
-            string payloadHash,
-            Guid existingNotificationId,
-            string existingPayloadHash,
+            IngestionOrigin origin,
+            ReplayCandidate candidate,
             CancellationToken cancellationToken)
         {
-            if (!string.Equals(existingPayloadHash, payloadHash, StringComparison.Ordinal))
+            if (!string.Equals(candidate.StoredPayloadHash, candidate.PayloadHash, StringComparison.Ordinal))
             {
+                await RejectAsync(
+                    command, producer, origin, candidate.IdempotencyKey,
+                    NotificationRejectionReasons.IdempotencyKeyConflict, cancellationToken);
                 logger.IdempotencyConflictDetected(command.Application, command.TemplateKey);
                 return Result.Success<Outcome>(new Outcome.IdempotencyConflict());
             }
 
-            await writer.AppendStandaloneAuditAsync(
-                DuplicateEntry(command, producer, existingNotificationId),
+            // A replay is not a result: it repeats an answer the producer
+            // already received, so the trail records it and the bus stays quiet.
+            await sink.RecordTrailAsync(
+                DuplicateEntry(command, producer, origin, candidate.NotificationId),
+                integrationEvent: null,
                 cancellationToken);
-            logger.NotificationReplayed(existingNotificationId, command.Application, command.TemplateKey);
-            return Result.Success<Outcome>(new Outcome.Replayed(existingNotificationId));
+            logger.NotificationReplayed(candidate.NotificationId, command.Application, command.TemplateKey);
+            return Result.Success<Outcome>(new Outcome.Replayed(candidate.NotificationId));
         }
+
+        /// <summary>
+        /// The outgoing rejection event, or null when the request carries no
+        /// subject to key it by. A malformed payload without a recipient has
+        /// nothing the bus contract can address; its diagnosis travels on the
+        /// dead-letter record instead.
+        /// </summary>
+        private OutboxAppend? RejectionEvent(Command command, string? idempotencyKey, string reason)
+            => string.IsNullOrWhiteSpace(command.RecipientId)
+                ? null
+                : NotificationEvents.Rejected(new NotificationRejected
+                {
+                    RecipientId = command.RecipientId,
+                    Class = command.Class,
+                    TemplateKey = command.TemplateKey,
+                    Reason = reason,
+                    IdempotencyKey = idempotencyKey,
+                    CorrelationId = command.CorrelationId,
+                    OccurredAt = timeProvider.GetUtcNow(),
+                    Traceparent = Activity.Current?.Id,
+                });
 
         private AuditEntry RejectionEntry(
             Command command,
             string producer,
+            IngestionOrigin origin,
             string idempotencyKey,
             string reason) => new()
         {
@@ -174,7 +273,8 @@ internal static partial class RequestNotification
             EntityId = $"{command.Application}:{idempotencyKey}",
             DetailsJson = JsonSerializer.Serialize(new
             {
-                source = IngestionAuditVocabulary.SourceRest,
+                source = IngestionAuditVocabulary.SourceOf(origin.Source),
+                origin = origin.Coordinates(),
                 reason,
                 @class = command.Class,
                 templateKey = command.TemplateKey,
@@ -185,6 +285,7 @@ internal static partial class RequestNotification
         private AuditEntry RecipientRateLimitedEntry(
             Command command,
             string producer,
+            IngestionOrigin origin,
             string idempotencyKey) => new()
         {
             ActorType = IngestionAuditVocabulary.ActorTypeProducer,
@@ -195,8 +296,9 @@ internal static partial class RequestNotification
             EntityId = $"{command.Application}:{idempotencyKey}",
             DetailsJson = JsonSerializer.Serialize(new
             {
-                source = IngestionAuditVocabulary.SourceRest,
-                reason = ReasonRecipientRateLimited,
+                source = IngestionAuditVocabulary.SourceOf(origin.Source),
+                origin = origin.Coordinates(),
+                reason = NotificationRejectionReasons.RecipientRateLimited,
                 @class = command.Class,
                 templateKey = command.TemplateKey,
                 recipientId = command.RecipientId,
@@ -207,6 +309,7 @@ internal static partial class RequestNotification
         private AuditEntry DuplicateEntry(
             Command command,
             string producer,
+            IngestionOrigin origin,
             Guid existingNotificationId) => new()
         {
             ActorType = IngestionAuditVocabulary.ActorTypeProducer,
@@ -217,7 +320,8 @@ internal static partial class RequestNotification
             EntityId = existingNotificationId.ToString(),
             DetailsJson = JsonSerializer.Serialize(new
             {
-                source = IngestionAuditVocabulary.SourceRest,
+                source = IngestionAuditVocabulary.SourceOf(origin.Source),
+                origin = origin.Coordinates(),
                 @class = command.Class,
                 templateKey = command.TemplateKey,
             }),
@@ -227,6 +331,7 @@ internal static partial class RequestNotification
         private AuditEntry AcceptedEntry(
             Notification notification,
             string producer,
+            IngestionOrigin origin,
             int templateVersion) => new()
         {
             ActorType = IngestionAuditVocabulary.ActorTypeProducer,
@@ -237,7 +342,8 @@ internal static partial class RequestNotification
             EntityId = notification.Id.ToString(),
             DetailsJson = JsonSerializer.Serialize(new
             {
-                source = IngestionAuditVocabulary.SourceRest,
+                source = IngestionAuditVocabulary.SourceOf(origin.Source),
+                origin = origin.Coordinates(),
                 @class = notification.Class,
                 templateKey = notification.TemplateKey,
                 templateVersion,

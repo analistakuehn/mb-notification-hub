@@ -35,4 +35,12 @@ public sealed class OutboxRelayOptions
     /// appends bound array items to a non-empty property default.
     /// </summary>
     public string[] Bands { get; init; } = [];
+
+    /// <summary>
+    /// Transport lanes this instance drains; empty means all of them. An
+    /// instance dedicated to the internal queues configures <c>["sqs"]</c>.
+    /// Empty is the default for the same binding reason as
+    /// <see cref="Bands"/>.
+    /// </summary>
+    public string[] Transports { get; init; } = [];
 }

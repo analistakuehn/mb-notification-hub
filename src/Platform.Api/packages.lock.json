@@ -38,6 +38,15 @@
           "AWSSDK.Core": "[4.0.102, 5.0.0)"
         }
       },
+      "Confluent.Kafka": {
+        "type": "Direct",
+        "requested": "[2.6.1, )",
+        "resolved": "2.6.1",
+        "contentHash": "DCap4xzbUzItoFVBCmBbng6q4XbaxfqLgR/b56b67L9S0iUTIwrSAvk3MPegyQNn56+1C/m3ytwy1YU+nAuqDA==",
+        "dependencies": {
+          "librdkafka.redist": "2.6.1"
+        }
+      },
       "FluentValidation": {
         "type": "Direct",
         "requested": "[11.10.0, )",
@@ -166,6 +175,11 @@
         "type": "Transitive",
         "resolved": "2.14.1",
         "contentHash": "lQKvtaTDOXnoVJ20ibTuSIOf2i0uO0MPbDhd1jm238I+U/2ZnRENj0cktKZhtchBMtCUSRQ5v4xBCUbKNmyVMw=="
+      },
+      "librdkafka.redist": {
+        "type": "Transitive",
+        "resolved": "2.6.1",
+        "contentHash": "RcpH/eqmfp08RmfeQdHeJEz0OaAcYWJo8EqQiU4ohDrBygIXbWhCTksUFkhYGqap/5Ycm+HC9RVSlwetFo9SlA=="
       },
       "Microsoft.Bcl.Cryptography": {
         "type": "Transitive",

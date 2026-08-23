@@ -14,6 +14,7 @@ public sealed class OutboxMessage
     private OutboxMessage()
     {
         Destination = null!;
+        Transport = null!;
         EventType = null!;
         MessageKey = null!;
         HeadersJson = null!;
@@ -25,6 +26,13 @@ public sealed class OutboxMessage
 
     /// <summary>Logical destination the relay publishes to (queue or topic name).</summary>
     public string Destination { get; }
+
+    /// <summary>
+    /// Transport of the destination, from <see cref="OutboxTransports"/>. The
+    /// relay claims one transport lane at a time, so an unavailable bus never
+    /// blocks the queue rows of the same priority band.
+    /// </summary>
+    public string Transport { get; }
 
     /// <summary>Type of the enveloped message, mirrored from the envelope for relay filtering.</summary>
     public string EventType { get; }

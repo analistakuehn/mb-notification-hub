@@ -1,15 +1,21 @@
 using System.Text.Json;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Templates;
 
-/// <summary>Stable rejection reasons the gate reports; each one is also the problem type of the 422.</summary>
+/// <summary>
+/// Stable rejection reasons the gate reports, aliased from the canonical
+/// catalog: each one is also the problem type of the 422 on the REST path and
+/// the <c>reason</c> of the rejection event on the bus path.
+/// </summary>
 internal static class TemplateGateReasons
 {
-    internal const string NotFound = "template-not-found";
-    internal const string ClassMismatch = "template-class-mismatch";
-    internal const string VariablesInvalid = "template-variables-invalid";
+    internal const string NotFound = NotificationRejectionReasons.TemplateNotFound;
+    internal const string ClassMismatch = NotificationRejectionReasons.TemplateClassMismatch;
+    internal const string VariablesInvalid = NotificationRejectionReasons.TemplateVariablesInvalid;
+    internal const string SensitiveVariablesOnBus = NotificationRejectionReasons.SensitiveVariablesOnBus;
 }
 
 /// <summary>Outcome of gating one ingestion request against the published catalog.</summary>
@@ -24,13 +30,16 @@ internal abstract record TemplateGateOutcome
 
     /// <summary>
     /// The request must be rejected; <see cref="Reason"/> is the stable
-    /// rejection type and <see cref="Checks"/> carries the failed variable
-    /// checks when the reason is the variables report.
+    /// rejection type, <see cref="Checks"/> carries the failed variable
+    /// checks when the reason is the variables report, and
+    /// <see cref="SensitiveVariables"/> carries the declared sensitive
+    /// variable names when the reason is the bus restriction.
     /// </summary>
     internal sealed record Rejected(
         string Reason,
         string Detail,
-        IReadOnlyList<VariablesValidationCheck>? Checks = null) : TemplateGateOutcome;
+        IReadOnlyList<VariablesValidationCheck>? Checks = null,
+        IReadOnlyList<string>? SensitiveVariables = null) : TemplateGateOutcome;
 }
 
 /// <summary>
@@ -45,11 +54,22 @@ internal sealed class PublishedTemplateGate(
     IPublishedCatalog catalog,
     IPublishedVariablesValidator variablesValidator)
 {
+    /// <remarks>
+    /// <c>allowSensitiveVariables</c> says whether the caller's transport may
+    /// carry a template that declares sensitive variables. The check depends
+    /// only on the declaration, never
+    /// on the payload: a rule that had to look at the values would be
+    /// undecidable for the producer and would force the gate to inspect
+    /// exactly the data it exists to protect. It runs before the schema
+    /// validation for the same reason, since the validation reports checks
+    /// over that payload.
+    /// </remarks>
     public async Task<TemplateGateOutcome> EvaluateAsync(
         string application,
         string templateKey,
         string canonicalClass,
         JsonElement? variables,
+        bool allowSensitiveVariables,
         CancellationToken cancellationToken)
     {
         Result<PublishedTemplateLookup> lookup =
@@ -74,6 +94,15 @@ internal sealed class PublishedTemplateGate(
             return new TemplateGateOutcome.Rejected(
                 TemplateGateReasons.ClassMismatch,
                 $"O template '{templateKey}' pertence à classe '{template.Class}', não à classe pedida '{canonicalClass}'.");
+        }
+
+        if (!allowSensitiveVariables && template.SensitiveVariables.Count > 0)
+        {
+            return new TemplateGateOutcome.Rejected(
+                TemplateGateReasons.SensitiveVariablesOnBus,
+                $"O template '{templateKey}' declara variáveis sensíveis e só aceita solicitação por REST.",
+                Checks: null,
+                SensitiveVariables: template.SensitiveVariables);
         }
 
         Result<VariablesValidationReport> report =

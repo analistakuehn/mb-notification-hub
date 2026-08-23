@@ -71,9 +71,17 @@ namespace NotificationHub.Api.Infrastructure.Messaging.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("sent_at");
 
+                    b.Property<string>("Transport")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("sqs")
+                        .HasColumnName("transport");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("PriorityClass", "CreatedAt")
+                    b.HasIndex("Transport", "PriorityClass", "CreatedAt")
                         .HasDatabaseName("ix_outbox_pending")
                         .HasFilter("sent_at IS NULL");
 

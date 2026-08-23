@@ -6,6 +6,8 @@ namespace NotificationHub.Api.Infrastructure.Messaging.Relay;
 /// <summary>Pending aggregate of one destination as read from the outbox.</summary>
 internal sealed class PendingDestinationRow
 {
+    public string Transport { get; set; } = string.Empty;
+
     public string Destination { get; set; } = string.Empty;
 
     public long PendingCount { get; set; }
@@ -14,9 +16,11 @@ internal sealed class PendingDestinationRow
 }
 
 /// <summary>
-/// Degrades the worker when a destination has no queue, and always exposes the
-/// pending backlog per destination (count and oldest age) as health data, so
-/// operators see how far behind each destination is while the rows wait.
+/// Degrades the worker when a destination has no queue or topic, and always
+/// exposes the pending backlog per transport and destination (count and oldest
+/// age) as health data. The transport dimension is what makes a lane this
+/// instance does not drain visible instead of silent: rows addressed to a bus
+/// that is not composed here accumulate under their own transport key.
 /// </summary>
 internal sealed class OutboxRelayHealthCheck(
     PlatformMessagingDbContext db,
@@ -32,12 +36,13 @@ internal sealed class OutboxRelayHealthCheck(
             List<PendingDestinationRow> pending = await db.Database
                 .SqlQuery<PendingDestinationRow>(
                     $"""
-                     SELECT destination AS "Destination",
+                     SELECT transport AS "Transport",
+                            destination AS "Destination",
                             count(*) AS "PendingCount",
                             min(created_at) AS "OldestCreatedAt"
                      FROM platform.outbox
                      WHERE sent_at IS NULL
-                     GROUP BY destination
+                     GROUP BY transport, destination
                      """)
                 .ToListAsync(cancellationToken);
 
@@ -45,16 +50,16 @@ internal sealed class OutboxRelayHealthCheck(
             var data = new Dictionary<string, object>(StringComparer.Ordinal);
             foreach (PendingDestinationRow row in pending)
             {
-                data[$"pending-count:{row.Destination}"] = row.PendingCount;
-                data[$"pending-oldest-age-seconds:{row.Destination}"] =
+                data[$"pending-count:{row.Transport}:{row.Destination}"] = row.PendingCount;
+                data[$"pending-oldest-age-seconds:{row.Transport}:{row.Destination}"] =
                     Math.Max(0, (now - row.OldestCreatedAt).TotalSeconds);
             }
 
             var missing = healthState.MissingQueues.Keys.Order(StringComparer.Ordinal).ToArray();
             return missing.Length > 0
                 ? HealthCheckResult.Degraded(
-                    $"Filas inexistentes para os destinos: {string.Join(", ", missing)}. "
-                    + "As mensagens permanecem pendentes; o relay nunca cria filas.",
+                    $"Destinos sem fila ou tópico: {string.Join(", ", missing)}. "
+                    + "As mensagens permanecem pendentes; o relay nunca cria fila nem tópico.",
                     data: data)
                 : HealthCheckResult.Healthy("Relay do outbox operante.", data);
         }

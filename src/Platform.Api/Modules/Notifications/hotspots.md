@@ -103,6 +103,100 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
 - **Review condition**: the phase-2 provider-feedback path must re-report
   dead tokens seen by webhooks, closing the window a lost report leaves.
 
+## The disabled-producer reason is declared and unreachable in this phase
+
+- **Assumption accepted**: `producer-disabled` is a member of the canonical
+  rejection catalog that no code path can produce, because
+  `producer_registry` has no enabled column.
+- **Evidence**: the accepted decision rejects the column outright, since a
+  switched-off row would be a slow lever pretending to be an emergency stop;
+  cutting a producer off is the kill switch plus the broker ACL, and neither
+  exists in this phase either.
+- **Owner**: Notifications module maintainers with Arquitetura.
+- **Status**: accepted, declared on purpose so the published vocabulary does
+  not shift later.
+- **Review condition**: the slice that implements the kill switch decides
+  whether it produces this reason or keeps refusing at the broker.
+
+## The bus ingress commits its deduplication mark outside the effect transaction
+
+- **Assumption accepted**: the accepted path commits the effect (notification,
+  idempotency registration, outbox message, audit entry) in one transaction and
+  the offset deduplication mark in a short transaction right after it, with the
+  offset committed only after both. Every other consumer keeps the mark inside
+  the transaction of its effect.
+- **Evidence**: the bus request carries `idempotencyKey`, so the unique
+  constraint `(application, idempotency_key)` is the guard, and it is the
+  stronger one: it also catches a producer resend that mints a new envelope id,
+  which no offset mark ever sees. Forcing the mark inside would require a
+  `SAVEPOINT` around the unique-violation resolution of `IngestionWriter`,
+  complicating the hot path to reinforce the weaker guard. A crash between the
+  two commits redelivers, and the redelivery resolves as a replay with the same
+  notification id and no new effect.
+- **Owner**: Notifications module maintainers with Arquitetura.
+- **Status**: accepted, ratified, and bounded to this consumer.
+- **Review condition**: any future consumer that wants this shape must show the
+  unique business-key constraint that justifies it. Without one, the mark goes
+  back inside the transaction of the effect, which is why `PipelineCommitWriter`
+  and `AttemptDispatchWriter` keep it there.
+
+## Authorization by application is asymmetric between the two transports
+
+- **Assumption accepted**: the producer registry authorizes the triple
+  principal, application and class, while the Entra app roles authorize only
+  the class, so a REST producer authorized for a class may declare any
+  `application` in the body.
+- **Evidence**: `NotificationClasses.RequiredRole` maps class to role and
+  nothing binds a principal to an application on the REST path; the bus path
+  reads `producer_registry`. The gap belongs to the REST ingestion and this
+  slice only made it visible by contrast.
+- **Owner**: Arquitetura with Segurança.
+- **Status**: accepted for this phase, recorded as a phase pendency.
+- **Review condition**: the onboarding of the second REST producer decides the
+  binding form (app role per application, a dedicated claim, or the same
+  registry).
+
+## A rejection at ingestion emits an event without a notification identifier
+
+- **Assumption accepted**: the `rejected` event of the ingestion carries no
+  `notificationId`, because no notification row exists when the ingestion
+  refuses; the correlation the producer holds is the idempotency key.
+- **Evidence**: `RequestNotification.Handler` builds the event before any
+  persistence, and the outgoing contract now documents the field as optional.
+- **Owner**: Notifications module maintainers.
+- **Status**: accepted, reflected in the design contract.
+- **Review condition**: a consumer that needs a durable identifier at refusal
+  time forces the ingestion to mint one before deciding, which would change
+  the transactional shape of the refusal.
+
+## A malformed request without a recipient emits no bus event
+
+- **Assumption accepted**: when the shape validation refuses a request whose
+  `recipientId` is empty, the trail records the refusal but no event is
+  published, because the outgoing contract keys every event by subject and has
+  no subject to use.
+- **Evidence**: `RequestNotification.Handler.RejectionEvent` returns null for a
+  blank recipient; the dead-letter record carries the diagnosis on the bus path.
+- **Owner**: Notifications module maintainers with Arquitetura.
+- **Status**: accepted, narrow by construction: every other refusal does emit.
+- **Review condition**: a producer that relies on the event stream alone for
+  diagnosis needs either a synthetic subject or a separate diagnostics channel.
+
+## An idempotency conflict now records an ingress trail
+
+- **Assumption accepted**: the same key with a different payload writes
+  `notification.rejected_at_ingress` with reason `idempotency-key-conflict` and
+  publishes the rejection event, on both transports. The committed behavior
+  answered 409 and recorded nothing.
+- **Evidence**: the reason entered the canonical catalog because the bus path
+  must dead-letter with it, and a refusal the producer must diagnose without a
+  trail is exactly what the catalog exists to prevent. The published REST
+  contract is unchanged: same status, same problem type, same body.
+- **Owner**: Notifications module maintainers.
+- **Status**: accepted.
+- **Review condition**: a measured volume of conflicts that makes the trail
+  noisy turns this into a sampled or aggregated record.
+
 ## Deferred observability is a structured log, not a metric
 
 - **Assumption accepted**: a deferral logs a structured warning with the

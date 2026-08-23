@@ -37,6 +37,7 @@
 
   <ItemGroup Label="Araia Messaging">
       <PackageReference Include="AWSSDK.SQS" />
+      <PackageReference Include="Confluent.Kafka" />
     </ItemGroup>
 
   <ItemGroup Label="Araia Long-Term Evidence">

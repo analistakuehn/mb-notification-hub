@@ -142,8 +142,10 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     }
 
     /// <summary>The core role composed exactly as the worker host would compose it.</summary>
-    public ServiceProvider BuildCoreWorkerProvider(IDictionary<string, string?>? overrides = null)
-        => BuildProvider(CoreWorkerRole.ConfigureServices, overrides);
+    public ServiceProvider BuildCoreWorkerProvider(
+        IDictionary<string, string?>? overrides = null,
+        Action<IServiceCollection>? replaceServices = null)
+        => BuildProvider(CoreWorkerRole.ConfigureServices, overrides, replaceServices: replaceServices);
 
     /// <summary>The contact-consent role composed exactly as the worker host would compose it.</summary>
     public ServiceProvider BuildContactConsentWorkerProvider(IDictionary<string, string?>? overrides = null)
@@ -152,8 +154,9 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     /// <summary>The dispatcher role composed exactly as the worker host would compose it.</summary>
     public ServiceProvider BuildDispatcherWorkerProvider(
         IDictionary<string, string?>? overrides = null,
-        ILoggerProvider? loggerProvider = null)
-        => BuildProvider(DispatcherWorkerRole.ConfigureServices, overrides, loggerProvider);
+        ILoggerProvider? loggerProvider = null,
+        Action<IServiceCollection>? replaceServices = null)
+        => BuildProvider(DispatcherWorkerRole.ConfigureServices, overrides, loggerProvider, replaceServices);
 
     /// <summary>A relay composition against the containers, mirroring the relay fixture.</summary>
     public ServiceProvider BuildRelayProvider(IDictionary<string, string?>? overrides = null)
@@ -295,7 +298,8 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     private ServiceProvider BuildProvider(
         Action<IServiceCollection, IConfiguration> configure,
         IDictionary<string, string?>? overrides,
-        ILoggerProvider? loggerProvider = null)
+        ILoggerProvider? loggerProvider = null,
+        Action<IServiceCollection>? replaceServices = null)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(WorkerSettings(overrides))
@@ -309,6 +313,7 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
             }
         });
         configure(services, configuration);
+        replaceServices?.Invoke(services);
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
 

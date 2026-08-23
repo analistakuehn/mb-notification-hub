@@ -58,6 +58,11 @@
         "resolved": "1.21.0",
         "contentHash": "dv5+81Q1TBQvVMSOOOmRcjJmvWcX3BZPZsIq31+RLc5cNft0IHAyNlkdb7ZarOWG913PyBoFDsDXoCIlKmLclg=="
       },
+      "librdkafka.redist": {
+        "type": "Transitive",
+        "resolved": "2.6.1",
+        "contentHash": "RcpH/eqmfp08RmfeQdHeJEz0OaAcYWJo8EqQiU4ohDrBygIXbWhCTksUFkhYGqap/5Ycm+HC9RVSlwetFo9SlA=="
+      },
       "Microsoft.Bcl.Cryptography": {
         "type": "Transitive",
         "resolved": "10.0.2",
@@ -573,6 +578,7 @@
           "AWSSDK.S3": "[4.0.102.3, )",
           "AWSSDK.SQS": "[4.0.100.10, )",
           "Asp.Versioning.Http": "[10.0.0, )",
+          "Confluent.Kafka": "[2.6.1, )",
           "FluentValidation": "[11.10.0, )",
           "FluentValidation.DependencyInjectionExtensions": "[11.10.0, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.10, )",
@@ -621,6 +627,15 @@
         "contentHash": "u2IjUITEZgsz2zoBL4MSgsy3TrUuvmLxiQOp0uBzqYckyMcth8XB7Td4lFVY8Be8rwygsl671Jta1GyRLE098w==",
         "dependencies": {
           "AWSSDK.Core": "[4.0.102, 5.0.0)"
+        }
+      },
+      "Confluent.Kafka": {
+        "type": "CentralTransitive",
+        "requested": "[2.6.1, )",
+        "resolved": "2.6.1",
+        "contentHash": "DCap4xzbUzItoFVBCmBbng6q4XbaxfqLgR/b56b67L9S0iUTIwrSAvk3MPegyQNn56+1C/m3ytwy1YU+nAuqDA==",
+        "dependencies": {
+          "librdkafka.redist": "2.6.1"
         }
       },
       "FluentValidation": {

@@ -3,11 +3,12 @@
 ## Boundary
 
 - Keep one bounded context in this module: the notification lifecycle, from
-  ingestion to dispatch. This unit ships the REST ingestion, the Core
-  pipeline that consumes the `core-*` queues, and the dispatch slice: the
-  `dispatch-*` consumers, the attempt state machine from `queued` on, the
-  push fan-out and the fallback handler. The query API arrives in a later
-  slice.
+  ingestion to dispatch. This unit ships the REST ingestion, the bus ingress
+  that consumes `notifications.requested.v1`, the Core pipeline that consumes
+  the `core-*` queues, the dispatch slice (the `dispatch-*` consumers, the
+  attempt state machine from `queued` on, the push fan-out and the fallback
+  handler), and the outgoing result events on `notifications.events.v1`. The
+  query API arrives in a later slice.
 - Keep invariants in the entities and pure functions under
   `src/Platform.Api/Modules/Notifications/Domain/`.
 - Keep use-case orchestration in the slices under
@@ -36,13 +37,16 @@
 | `src/Platform.Api/Modules/Notifications/Features/` | vertical slices for this context: the Core pipeline under `Features/Pipeline/`, the dispatch consumer under `Features/Dispatching/`, the fallback handler under `Features/Fallback/` |
 | `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistence (schema `notifications`), Redis controls, template gate, privacy, partition manager, purge job, pipeline commit writer, attempt dispatch writer, poison sinks |
 | `src/Platform.Api/Modules/Notifications/NotificationsModule.cs` | service registration and endpoint mapping for this context |
+| `src/Platform.Api/Modules/Notifications/Integration/V1/` | published contract of this context: the canonical rejection-reason catalog |
 | `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs` | composition of the `core` worker role, discovered by the worker host |
 | `src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs` | composition of the `dispatcher` worker role, discovered by the worker host |
+| `src/Platform.Api/Modules/Notifications/KafkaIngressWorkerRole.cs` | composition of the `kafka-ingress` worker role, discovered by the worker host |
 
 Owned state: `notification`, `notification_attempt` and `policy_evaluation`
-(monthly partitioned parents), `idempotency_key`. The platform `outbox` and
-`processed_messages` belong to the messaging infrastructure; this module only
-writes through their contracts, on its own transaction.
+(monthly partitioned parents), `idempotency_key`, `producer_registry`. The
+platform `outbox` and `processed_messages` belong to the messaging
+infrastructure; this module only writes through their contracts, on its own
+transaction.
 
 ## Transactional invariant of the ingestion
 
@@ -53,6 +57,88 @@ message, and the `audit_event` appended through `IAuditTrail` with the raw
 transaction ends, so the commit follows it immediately
 (`Infrastructure/Persistence/IngestionWriter.cs`). A rejection or duplicate
 has no business effect and records its trail in its own short transaction.
+
+## One ingestion use case, two transports
+
+- `Features/Mutations/RequestNotification/` is neutral to the transport. It
+  receives an authorization question already answered, the origin of the
+  request, and the idempotency key; it answers with data. Every rejection is a
+  legitimate outcome, so the route maps it to an RFC 9457 problem and the bus
+  ingress maps it to a dead-letter record without either re-implementing a
+  rule. The shape validation runs inside the use case, first, so an unreadable
+  request is answered for what it is even when the producer would also fail
+  authorization; the route keeps its validation filter as the fast path that
+  preserves the published 400.
+- Authorization is resolved per transport before the use case runs:
+  `RestProducerAuthorizer` over the Entra app roles (reason
+  `class-not-allowed-for-principal`) and `KafkaProducerAuthorizer` over
+  `producer_registry` (reason `producer-not-authorized`).
+- The trail of an outcome without a business effect is written through
+  `IIngestionSink`. The synchronous posture commits it immediately; the bus
+  posture holds it until the dead-letter record exists, then commits it with
+  the deduplication mark.
+
+## Producer registry
+
+- `producer_registry(principal, application, class, updated_at)` grants one bus
+  principal one class of one application. No enabled column, on purpose: a
+  switched-off row would be a slow lever pretending to be an emergency stop,
+  and cutting a producer off is the kill switch plus the broker ACL.
+- The canonical form is declarative data of the infrastructure repository,
+  materialized by a deploy job; the hub only reads, through a snapshot with a
+  sixty-second window that keeps serving the previous snapshot when a refresh
+  fails. There is no configuration seed: a second source of authorization
+  outside the auditable trail is how a grant nobody reviewed reaches production.
+- An empty registry closes the consumer gate: the `kafka-ingress` role does not
+  subscribe and reports unhealthy. An empty table is indistinguishable from a
+  materialization that never ran, and with a day of topic retention an
+  out-of-order deploy would send a day of legitimate traffic to the dead-letter
+  topic while every probe reported success.
+
+## Bus ingress
+
+- `Features/Ingress/` consumes `notifications.requested.v1` under the consumer
+  group `notification-hub-ingress`, one record at a time, offsets committed per
+  poll batch, at-least-once resolved by `platform.processed_messages` keyed
+  `{topic}:{partition}:{offset}`.
+- Order of the checks, which is contract: envelope and size, shape validation,
+  kill switch (declaratory in this phase), producer registry, idempotency,
+  recipient budget, published catalog, sensitive-variable restriction,
+  variables schema, persistence. The registry runs before the catalog so a
+  refusal never leaks which templates exist; the sensitive-variable
+  restriction runs before the schema validation because the validation reports
+  findings over exactly the payload that must not be inspected; idempotency
+  runs before the budget so a legitimate replay never spends it.
+- A permanent error records the dead-letter record first, then commits the
+  trail and the deduplication mark, then the offset. A mark written first would
+  make the replay of a crash skip a record nobody ever recorded.
+- The sensitive-variable restriction depends only on the template declaring
+  sensitive variables, never on the payload carrying them. For that reason
+  alone the dead-letter body replaces `data.variables` with the declared names
+  and a header announces the redaction: the entry topic keeps records for a day
+  and the dead-letter topic for two weeks, so copying the body verbatim would
+  make the control copy the secret to a topic that holds it fourteen times
+  longer. Every other permanent reason keeps the original body.
+
+## Outgoing result events
+
+- `Infrastructure/Events/NotificationEvents.cs` builds the CloudEvents rows of
+  `notifications.events.v1`: `rejected` at ingestion and in the pipeline,
+  `failed` on an exhausted plan and on expiry, `delivered` on push acceptance.
+  Acceptance announces nothing (the producer already holds its 202) and a
+  rejection by the principal budget announces nothing either, because one event
+  per refused request is the storm the control exists to stop.
+- Every event is written through the outbox inside the transaction of the
+  effect it reports, and **before** the `IAuditTrail` append, because the
+  append holds the partition chain lock until the transaction ends and anything
+  queued after it widens the window concurrent ingestion waits on. This holds
+  in `IngestionWriter`, `PipelineCommitWriter` and `AttemptDispatchWriter`.
+- The band of an outgoing event is the class of its notification, never `auth`:
+  the `auth` band protects the delivery latency of an authentication code, and
+  a result event is not a delivery.
+- The reason of a rejection is always a member of
+  `Integration/V1/NotificationRejectionReasons`; the reason of a failure is the
+  delivery error vocabulary, which is a pending decision.
 
 ## Idempotency contract
 

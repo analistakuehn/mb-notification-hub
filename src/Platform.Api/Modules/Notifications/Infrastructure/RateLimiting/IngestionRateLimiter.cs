@@ -46,11 +46,22 @@ internal sealed class IngestionRateLimiter(
     /// evaluated first; the recipient windows are cumulative and the retry
     /// hint is the longest deadline among the exhausted ones.
     /// </summary>
+    /// <remarks>
+    /// <c>enforcePrincipalLimit</c> decides whether an exhausted principal
+    /// window rejects. The bus path counts and
+    /// observes it without rejecting: there is no synchronous caller to answer
+    /// 429 to, the broker ACL and the kill switch are the real stop, and
+    /// rejecting here would only move a flood into the dead-letter topic. The
+    /// per-recipient budget is enforced on both paths, and both share it: the
+    /// key carries no transport dimension, so a producer cannot double a
+    /// recipient's budget by switching transport.
+    /// </remarks>
     public async Task<RateLimitDecision> EvaluateAsync(
         string principal,
         string application,
         string recipientId,
         string canonicalClass,
+        bool enforcePrincipalLimit,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -65,7 +76,12 @@ internal sealed class IngestionRateLimiter(
                     principalWindow.WindowSeconds);
                 if (count > principalWindow.PermitLimit)
                 {
-                    return new RateLimitDecision(RateLimitedDimension.Principal, retryAfter);
+                    if (enforcePrincipalLimit)
+                    {
+                        return new RateLimitDecision(RateLimitedDimension.Principal, retryAfter);
+                    }
+
+                    logger.PrincipalLimitObserved(principal, canonicalClass, count, principalWindow.PermitLimit);
                 }
             }
 

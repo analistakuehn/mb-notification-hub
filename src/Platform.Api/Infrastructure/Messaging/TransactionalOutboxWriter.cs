@@ -12,9 +12,10 @@ internal sealed class TransactionalOutboxWriter(TimeProvider timeProvider) : IOu
 {
     private const string InsertSql = """
         INSERT INTO platform.outbox
-            (id, destination, event_type, message_key, headers, payload, priority_class, created_at, sent_at)
+            (id, destination, transport, event_type, message_key, headers, payload,
+             priority_class, created_at, sent_at)
         VALUES
-            (@id, @destination, @eventType, @messageKey, CAST(@headers AS jsonb),
+            (@id, @destination, @transport, @eventType, @messageKey, CAST(@headers AS jsonb),
              CAST(@payload AS jsonb), @priorityClass, @createdAt, NULL)
         """;
 
@@ -27,6 +28,14 @@ internal sealed class TransactionalOutboxWriter(TimeProvider timeProvider) : IOu
         ArgumentNullException.ThrowIfNull(message);
         ArgumentException.ThrowIfNullOrWhiteSpace(message.Destination);
         ArgumentException.ThrowIfNullOrWhiteSpace(message.EventType);
+        if (!OutboxTransports.IsKnown(message.Transport))
+        {
+            throw new ArgumentException(
+                $"Transporte desconhecido '{message.Transport}'; use "
+                + $"'{OutboxTransports.Sqs}' ou '{OutboxTransports.Kafka}'.",
+                nameof(message));
+        }
+
         ArgumentException.ThrowIfNullOrWhiteSpace(message.MessageKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(message.HeadersJson);
         ArgumentException.ThrowIfNullOrWhiteSpace(message.PayloadJson);
@@ -42,6 +51,7 @@ internal sealed class TransactionalOutboxWriter(TimeProvider timeProvider) : IOu
         command.CommandText = InsertSql;
         AddParameter(command, "id", id);
         AddParameter(command, "destination", message.Destination);
+        AddParameter(command, "transport", message.Transport);
         AddParameter(command, "eventType", message.EventType);
         AddParameter(command, "messageKey", message.MessageKey);
         AddParameter(command, "headers", message.HeadersJson);

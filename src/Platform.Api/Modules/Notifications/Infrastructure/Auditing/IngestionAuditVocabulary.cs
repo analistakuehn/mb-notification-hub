@@ -1,3 +1,5 @@
+using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 
 /// <summary>
@@ -16,6 +18,18 @@ internal static class IngestionAuditVocabulary
     internal const string NotificationDuplicate = "notification.duplicate";
     internal const string NotificationRejectedAtIngress = "notification.rejected_at_ingress";
 
-    /// <summary>Ingestion source recorded on every acceptance.</summary>
+    /// <summary>Ingestion source of a synchronous producer call.</summary>
     internal const string SourceRest = "rest";
+
+    /// <summary>Ingestion source of a producer event on the corporate bus.</summary>
+    internal const string SourceKafka = "kafka";
+
+    /// <summary>The recorded source of one ingestion origin.</summary>
+    internal static string SourceOf(RequestNotification.IngestionSource source) => source switch
+    {
+        RequestNotification.IngestionSource.Rest => SourceRest,
+        RequestNotification.IngestionSource.Kafka => SourceKafka,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(source), source, "Origem de ingestão desconhecida."),
+    };
 }

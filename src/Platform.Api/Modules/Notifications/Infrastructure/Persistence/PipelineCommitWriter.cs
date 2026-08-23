@@ -7,6 +7,8 @@ using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Events;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 
@@ -60,6 +62,15 @@ internal sealed class PipelineCommitWriter(
                 transaction.GetDbTransaction(),
                 BuildDispatchMessage(context, attempt, now),
                 cancellationToken);
+        }
+
+        // Before the audit append on purpose: the append takes the partition
+        // chain lock and holds it until the transaction ends, so every write
+        // queued after it stretches the window concurrent ingestion waits on.
+        if (BuildIntegrationEvent(context, kind, now) is { } integrationEvent)
+        {
+            await outboxWriter.AppendAsync(
+                transaction.GetDbTransaction(), integrationEvent, cancellationToken);
         }
 
         await auditTrail.AppendAsync(
@@ -162,6 +173,49 @@ internal sealed class PipelineCommitWriter(
             attempt.Id,
             now,
             Activity.Current?.Id);
+    }
+
+    /// <summary>
+    /// The outgoing integration event of this outcome, or null when the
+    /// outcome has none. A dispatched notification announces nothing on the
+    /// bus (the producer already holds its acceptance) and a deferral is not a
+    /// result yet; a rejection and an expiration are both terminal answers the
+    /// producer is owed.
+    /// </summary>
+    private static OutboxAppend? BuildIntegrationEvent(
+        NotificationContext context,
+        PipelineResultKind kind,
+        DateTimeOffset now)
+    {
+        Notification notification = context.Notification;
+        return kind switch
+        {
+            PipelineResultKind.Rejected => NotificationEvents.Rejected(new NotificationRejected
+            {
+                RecipientId = notification.RecipientId,
+                Class = notification.Class,
+                TemplateKey = notification.TemplateKey,
+                Reason = context.LastReason
+                    ?? throw new InvalidOperationException(
+                        "Uma rejeição do pipeline requer o motivo canônico do estágio."),
+                NotificationId = notification.Id,
+                IdempotencyKey = notification.IdempotencyKey,
+                CorrelationId = notification.CorrelationId,
+                OccurredAt = now,
+                Traceparent = Activity.Current?.Id,
+            }),
+            PipelineResultKind.Expired => NotificationEvents.Failed(new NotificationFailed
+            {
+                RecipientId = notification.RecipientId,
+                Class = notification.Class,
+                NotificationId = notification.Id,
+                Reason = NotificationRejectionReasons.Expired,
+                CorrelationId = notification.CorrelationId,
+                OccurredAt = now,
+                Traceparent = Activity.Current?.Id,
+            }),
+            _ => null,
+        };
     }
 
     private static AuditEntry BuildAuditEntry(

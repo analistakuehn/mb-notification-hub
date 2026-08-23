@@ -20,7 +20,7 @@ arch-tests: netarchtest
 http-mocking: mvc-testing
 transports: [minimal-api]
 persistence: [ef]
-messaging: [sqs]
+messaging: [sqs, kafka]
 messaging-consumer-pattern: none
 cache: [redis]
 object-storage: [s3]

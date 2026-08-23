@@ -29,6 +29,8 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.Redis" />
     <PackageReference Include="Testcontainers.LocalStack" />
+    <PackageReference Include="Testcontainers.Kafka" />
+    <PackageReference Include="Confluent.Kafka" />
   </ItemGroup>
 
 </Project>

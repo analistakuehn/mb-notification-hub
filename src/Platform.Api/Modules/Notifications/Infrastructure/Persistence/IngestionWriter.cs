@@ -86,14 +86,31 @@ internal sealed class IngestionWriter(
                 cancellationToken);
 
     /// <summary>
-    /// Records one ingress audit event in its own short transaction: used for
+    /// Records one ingress audit event in its own short transaction, together
+    /// with the outgoing integration event when the outcome has one: used for
     /// rejections and duplicates, which have no business effect to share a
     /// transaction with but still must leave a trail.
     /// </summary>
-    public async Task AppendStandaloneAuditAsync(AuditEntry auditEntry, CancellationToken cancellationToken)
+    /// <remarks>
+    /// The outbox append runs before the audit append on purpose. The audit
+    /// append takes the partition chain lock and holds it until the
+    /// transaction ends, so anything queued after it extends the window every
+    /// concurrent ingestion waits on. Order here is a latency decision, not a
+    /// style choice.
+    /// </remarks>
+    public async Task AppendStandaloneAuditAsync(
+        AuditEntry auditEntry,
+        OutboxAppend? integrationEvent,
+        CancellationToken cancellationToken)
     {
         await using IDbContextTransaction transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
+        if (integrationEvent is not null)
+        {
+            await outboxWriter.AppendAsync(
+                transaction.GetDbTransaction(), integrationEvent, cancellationToken);
+        }
+
         await auditTrail.AppendAsync(transaction.GetDbTransaction(), auditEntry, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }

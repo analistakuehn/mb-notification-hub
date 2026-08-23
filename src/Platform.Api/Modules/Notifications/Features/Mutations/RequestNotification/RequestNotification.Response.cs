@@ -27,9 +27,6 @@ internal static partial class RequestNotification
         /// <summary>Same idempotency key, different payload; answer 409.</summary>
         internal sealed record IdempotencyConflict : Outcome;
 
-        /// <summary>The producer token carries no role covering the requested class; answer 403.</summary>
-        internal sealed record ClassNotAllowed(string CanonicalClass) : Outcome;
-
         /// <summary>The published catalog rejected the request; answer 422 with the stable reason.</summary>
         internal sealed record TemplateRejected(
             string Reason,
@@ -38,5 +35,28 @@ internal static partial class RequestNotification
 
         /// <summary>A rate limit rejected the request; answer 429 with the retry hint.</summary>
         internal sealed record RateLimited(int RetryAfterSeconds) : Outcome;
+
+        /// <summary>
+        /// The request failed the shape validation. Unreachable over REST,
+        /// where the endpoint filter answers the published 400 first; the bus
+        /// path needs it as data, because a malformed event has no caller to
+        /// answer and must reach the dead-letter topic with its field errors.
+        /// </summary>
+        internal sealed record PayloadInvalid(IReadOnlyDictionary<string, string[]> Errors) : Outcome;
+
+        /// <summary>
+        /// The producer may not request this class for this application;
+        /// <see cref="Reason"/> is the canonical reason of the transport that
+        /// answered the authorization question.
+        /// </summary>
+        internal sealed record ProducerNotAuthorized(string Reason) : Outcome;
+
+        /// <summary>
+        /// The template declares sensitive variables and the request arrived
+        /// over the shared bus. The names are carried so the dead-letter
+        /// record can say which variables the template declares without ever
+        /// carrying a value.
+        /// </summary>
+        internal sealed record SensitiveVariablesOnBus(IReadOnlyList<string> VariableNames) : Outcome;
     }
 }

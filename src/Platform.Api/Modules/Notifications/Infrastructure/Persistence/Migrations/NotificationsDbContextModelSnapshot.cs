@@ -292,6 +292,32 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
 
                     b.ToTable("policy_evaluation", "notifications");
                 });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Domain.ProducerRegistration", b =>
+                {
+                    b.Property<string>("Principal")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("principal");
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("application");
+
+                    b.Property<string>("Class")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("class");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Principal", "Application", "Class");
+
+                    b.ToTable("producer_registry", "notifications");
+                });
 #pragma warning restore 612, 618
         }
     }

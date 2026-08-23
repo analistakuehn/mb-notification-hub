@@ -21,6 +21,9 @@ public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbConte
 
     public DbSet<IdempotencyRegistration> IdempotencyRegistrations => Set<IdempotencyRegistration>();
 
+    /// <summary>Read-only at runtime: a deploy job materializes the grants from the infrastructure repository.</summary>
+    public DbSet<ProducerRegistration> ProducerRegistrations => Set<ProducerRegistration>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("notifications");

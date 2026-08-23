@@ -1,6 +1,7 @@
 using Amazon.SQS.Model;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.IntegrationTests.TemplateManagement;
 
@@ -43,7 +44,9 @@ public sealed class OutboxRelayMissingQueueTests(OutboxRelayFixture fixture)
             ListQueuesResponse queues = await fixture.Sqs.ListQueuesAsync(new ListQueuesRequest());
             (queues.QueueUrls ?? []).ShouldAllBe(url => !url.Contains(MissingDestination, StringComparison.Ordinal));
 
-            // Health degrades and exposes the pending backlog per destination.
+            // Health degrades and exposes the pending backlog per transport
+            // and destination: the transport dimension is what makes a lane
+            // this instance does not drain visible instead of silent.
             HealthReport report = await provider
                 .GetRequiredService<HealthCheckService>()
                 .CheckHealthAsync();
@@ -51,8 +54,9 @@ public sealed class OutboxRelayMissingQueueTests(OutboxRelayFixture fixture)
             entry.Status.ShouldBe(HealthStatus.Degraded);
             entry.Description.ShouldNotBeNull();
             entry.Description.ShouldContain(MissingDestination);
-            entry.Data.Keys.ShouldContain($"pending-count:{MissingDestination}");
-            entry.Data.Keys.ShouldContain($"pending-oldest-age-seconds:{MissingDestination}");
+            entry.Data.Keys.ShouldContain($"pending-count:{OutboxTransports.Sqs}:{MissingDestination}");
+            entry.Data.Keys.ShouldContain(
+                $"pending-oldest-age-seconds:{OutboxTransports.Sqs}:{MissingDestination}");
         }
         finally
         {

@@ -8,7 +8,8 @@ namespace NotificationHub.Api.Infrastructure.Messaging.Relay;
 /// Claims pending outbox rows with parameterized SQL over the messaging
 /// context's connection. The band CASE mirrors the classification in
 /// <see cref="OutboxBands.Classify"/>: the auth destination lands in the auth
-/// band whatever its stored priority class; change both together.
+/// band whatever its stored priority class; change both together. The stored
+/// transport is a filter, never an inference from the destination name.
 /// </summary>
 internal sealed class PostgresOutboxPendingStore(PlatformMessagingDbContext db) : IOutboxPendingStore
 {
@@ -16,6 +17,7 @@ internal sealed class PostgresOutboxPendingStore(PlatformMessagingDbContext db) 
         SELECT id, destination, event_type, message_key, headers::text, payload::text, created_at
         FROM platform.outbox
         WHERE sent_at IS NULL
+          AND transport = @transport
           AND CASE
                 WHEN destination = 'core-auth'
                   OR (destination LIKE 'dispatch-%' AND destination LIKE '%-auth') THEN 0
@@ -30,6 +32,7 @@ internal sealed class PostgresOutboxPendingStore(PlatformMessagingDbContext db) 
 
     public async Task<IOutboxClaim> ClaimAsync(
         OutboxBand band,
+        string transport,
         int batchSize,
         CancellationToken cancellationToken)
     {
@@ -43,6 +46,7 @@ internal sealed class PostgresOutboxPendingStore(PlatformMessagingDbContext db) 
                 command.Transaction = transaction.GetDbTransaction();
                 command.CommandText = ClaimSql;
                 AddParameter(command, "band", (int)band);
+                AddParameter(command, "transport", transport);
                 AddParameter(command, "batchSize", batchSize);
                 await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
                 while (await reader.ReadAsync(cancellationToken))

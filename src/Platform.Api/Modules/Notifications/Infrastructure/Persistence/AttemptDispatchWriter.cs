@@ -8,6 +8,7 @@ using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Events;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 
@@ -228,6 +229,24 @@ internal sealed class AttemptDispatchWriter(
         {
             notification.MarkDelivered();
             await db.SaveChangesAsync(cancellationToken);
+
+            // Before the audit append on purpose: the append takes the
+            // partition chain lock and holds it until the transaction ends, so
+            // every write queued after it stretches the window concurrent
+            // ingestion waits on.
+            await outboxWriter.AppendAsync(
+                transaction.GetDbTransaction(),
+                NotificationEvents.Delivered(new NotificationDelivered
+                {
+                    RecipientId = notification.RecipientId,
+                    Class = notification.Class,
+                    NotificationId = notification.Id,
+                    Channel = attempt.Channel,
+                    DeliveredAt = now,
+                    CorrelationId = notification.CorrelationId,
+                    Traceparent = Activity.Current?.Id,
+                }),
+                cancellationToken);
             await auditTrail.AppendAsync(
                 transaction.GetDbTransaction(),
                 BuildAuditEntry(
@@ -408,6 +427,24 @@ internal sealed class AttemptDispatchWriter(
 
         notification.MarkFailedAfterDispatch();
         await db.SaveChangesAsync(cancellationToken);
+
+        // Before the audit append on purpose: the append takes the partition
+        // chain lock and holds it until the transaction ends, so every write
+        // queued after it stretches the window concurrent ingestion waits on.
+        await outboxWriter.AppendAsync(
+            transaction.GetDbTransaction(),
+            NotificationEvents.Failed(new NotificationFailed
+            {
+                RecipientId = notification.RecipientId,
+                Class = notification.Class,
+                NotificationId = notification.Id,
+                Reason = reason,
+                LastChannel = attempt.Channel,
+                CorrelationId = notification.CorrelationId,
+                OccurredAt = now,
+                Traceparent = Activity.Current?.Id,
+            }),
+            cancellationToken);
         await auditTrail.AppendAsync(
             transaction.GetDbTransaction(),
             BuildAuditEntry(

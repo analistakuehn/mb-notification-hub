@@ -2,11 +2,35 @@ using System.Data.Common;
 
 namespace NotificationHub.Api.Infrastructure.Messaging;
 
+/// <summary>
+/// Transports the relay can publish a stored row to. The value is written by
+/// the producer and read by the relay claim, so routing never depends on
+/// parsing or guessing the destination name: a queue and a topic may share any
+/// naming convention without the relay ever picking the wrong client.
+/// </summary>
+public static class OutboxTransports
+{
+    /// <summary>Internal work queues of the hub; the default of every producer.</summary>
+    public const string Sqs = "sqs";
+
+    /// <summary>Corporate bus topics.</summary>
+    public const string Kafka = "kafka";
+
+    public static bool IsKnown(string? value) => value is Sqs or Kafka;
+}
+
 /// <summary>Everything the caller supplies to append one outbox message.</summary>
 public sealed record OutboxAppend
 {
     /// <summary>Logical destination the relay publishes to.</summary>
     public required string Destination { get; init; }
+
+    /// <summary>
+    /// Transport the relay publishes this row through. Not required on purpose:
+    /// every producer written before the bus existed keeps compiling and keeps
+    /// meaning the internal queues.
+    /// </summary>
+    public string Transport { get; init; } = OutboxTransports.Sqs;
 
     /// <summary>Type of the enveloped message.</summary>
     public required string EventType { get; init; }

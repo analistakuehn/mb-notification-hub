@@ -34,9 +34,15 @@ internal interface IOutboxClaim : IAsyncDisposable
 /// <summary>
 /// Read side of the relay over the platform outbox. Claims run with
 /// <c>FOR UPDATE SKIP LOCKED</c>, so concurrent relay instances drain the
-/// same table without coordination and without double-claiming a row.
+/// same table without coordination and without double-claiming a row. A claim
+/// selects one transport lane of one band, so an unreachable transport leaves
+/// the other lanes of the same band draining.
 /// </summary>
 internal interface IOutboxPendingStore
 {
-    Task<IOutboxClaim> ClaimAsync(OutboxBand band, int batchSize, CancellationToken cancellationToken);
+    Task<IOutboxClaim> ClaimAsync(
+        OutboxBand band,
+        string transport,
+        int batchSize,
+        CancellationToken cancellationToken);
 }

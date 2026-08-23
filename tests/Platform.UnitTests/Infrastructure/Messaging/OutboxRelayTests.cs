@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 
 namespace NotificationHub.UnitTests.Infrastructure.Messaging;
@@ -115,13 +116,73 @@ public sealed class OutboxRelayTests
         publisher.Batches.Count.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task An_unavailable_bus_lane_does_not_hold_back_the_queue_lane_of_the_same_band()
+    {
+        var store = new FakePendingStore();
+        // The bus row is the oldest of the band on purpose: draining the band
+        // as one unit would stop at it and leave both queue rows pending.
+        PendingOutboxMessage busEvent = Message("notifications.events.v1", MinutesAgo(30));
+        PendingOutboxMessage firstQueued = Message("core-critical", MinutesAgo(20));
+        PendingOutboxMessage secondQueued = Message("core-critical", MinutesAgo(10));
+        store.Add("critical", OutboxTransports.Kafka, busEvent);
+        store.Add("critical", OutboxTransports.Sqs, firstQueued);
+        store.Add("critical", OutboxTransports.Sqs, secondQueued);
+        var queues = new RecordingPublisher();
+        var bus = new RecordingPublisher { Accepts = _ => false };
+        OutboxRelay relay = Relay(
+            store, new LaneRegistry(queues, bus), new OutboxRelayOptions { Bands = ["critical"] });
+
+        OutboxRelayPassResult result = await relay.RunPassAsync(CancellationToken.None);
+
+        result.Published.ShouldBe(2);
+        result.Failed.ShouldBe(1);
+        store.IsSent(firstQueued.Id).ShouldBeTrue();
+        store.IsSent(secondQueued.Id).ShouldBeTrue();
+        store.IsSent(busEvent.Id).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_transport_restricted_instance_leaves_the_other_lane_pending()
+    {
+        var store = new FakePendingStore();
+        PendingOutboxMessage queued = Message("core-critical", MinutesAgo(2));
+        PendingOutboxMessage busEvent = Message("notifications.events.v1", MinutesAgo(1));
+        store.Add("critical", OutboxTransports.Sqs, queued);
+        store.Add("critical", OutboxTransports.Kafka, busEvent);
+        var queues = new RecordingPublisher();
+        var bus = new RecordingPublisher();
+        OutboxRelay relay = Relay(
+            store,
+            new LaneRegistry(queues, bus),
+            new OutboxRelayOptions { Transports = [OutboxTransports.Sqs] });
+
+        OutboxRelayPassResult result = await relay.RunPassAsync(CancellationToken.None);
+
+        result.Published.ShouldBe(1);
+        bus.PublishedIds.ShouldBeEmpty();
+        store.IsSent(queued.Id).ShouldBeTrue();
+        store.IsSent(busEvent.Id).ShouldBeFalse();
+    }
+
     private static OutboxRelay Relay(
         FakePendingStore store,
         RecordingPublisher publisher,
         OutboxRelayOptions? options = null)
         => new(
             store,
-            publisher,
+            new SingleLaneRegistry(publisher),
+            Options.Create(options ?? new OutboxRelayOptions()),
+            TimeProvider.System,
+            NullLogger<OutboxRelay>.Instance);
+
+    private static OutboxRelay Relay(
+        FakePendingStore store,
+        IOutboxPublisherRegistry publishers,
+        OutboxRelayOptions? options = null)
+        => new(
+            store,
+            publishers,
             Options.Create(options ?? new OutboxRelayOptions()),
             TimeProvider.System,
             NullLogger<OutboxRelay>.Instance);
@@ -139,9 +200,11 @@ public sealed class OutboxRelayTests
     private static DateTimeOffset MinutesAgo(int minutes)
         => DateTimeOffset.UtcNow.AddMinutes(-minutes);
 
-    private sealed class FakeRow(string priorityClass, PendingOutboxMessage message)
+    private sealed class FakeRow(string priorityClass, string transport, PendingOutboxMessage message)
     {
         public string PriorityClass { get; } = priorityClass;
+
+        public string Transport { get; } = transport;
 
         public PendingOutboxMessage Message { get; } = message;
 
@@ -157,15 +220,23 @@ public sealed class OutboxRelayTests
         public int ClaimCount { get; private set; }
 
         public void Add(string priorityClass, PendingOutboxMessage message)
-            => _rows.Add(new FakeRow(priorityClass, message));
+            => _rows.Add(new FakeRow(priorityClass, OutboxTransports.Sqs, message));
+
+        public void Add(string priorityClass, string transport, PendingOutboxMessage message)
+            => _rows.Add(new FakeRow(priorityClass, transport, message));
 
         public bool IsSent(Guid id) => _rows.Single(row => row.Message.Id == id).SentAt is not null;
 
-        public Task<IOutboxClaim> ClaimAsync(OutboxBand band, int batchSize, CancellationToken cancellationToken)
+        public Task<IOutboxClaim> ClaimAsync(
+            OutboxBand band,
+            string transport,
+            int batchSize,
+            CancellationToken cancellationToken)
         {
             ClaimCount++;
             List<FakeRow> claimed = [.. _rows
                 .Where(row => row.SentAt is null
+                    && row.Transport == transport
                     && OutboxBands.Classify(row.Message.Destination, row.PriorityClass) == band)
                 .OrderBy(row => row.Message.CreatedAt)
                 .Take(batchSize)];
@@ -229,5 +300,22 @@ public sealed class OutboxRelayTests
 
             return Task.FromResult(new OutboxPublishOutcome { AcceptedIds = accepted, Failures = failures });
         }
+    }
+
+    /// <summary>A registry with only the internal-queue lane composed.</summary>
+    private sealed class SingleLaneRegistry(IOutboxPublisher publisher) : IOutboxPublisherRegistry
+    {
+        public IReadOnlyList<string> Transports { get; } = [OutboxTransports.Sqs];
+
+        public IOutboxPublisher Resolve(string transport) => publisher;
+    }
+
+    /// <summary>A registry with one publisher per transport lane.</summary>
+    private sealed class LaneRegistry(IOutboxPublisher queues, IOutboxPublisher bus) : IOutboxPublisherRegistry
+    {
+        public IReadOnlyList<string> Transports { get; } = [OutboxTransports.Sqs, OutboxTransports.Kafka];
+
+        public IOutboxPublisher Resolve(string transport)
+            => transport == OutboxTransports.Kafka ? bus : queues;
     }
 }

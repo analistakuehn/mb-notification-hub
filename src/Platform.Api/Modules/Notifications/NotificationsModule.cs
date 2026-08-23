@@ -45,9 +45,14 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         services.AddScoped<IdempotencyPurge>();
         services.AddHostedService<IdempotencyPurgeService>();
 
+        services.AddSingleton<IngressControls>();
+
         services.AddScoped<PublishedTemplateGate>();
         services.AddScoped<VariablesProtector>();
         services.AddScoped<IngestionWriter>();
+        // The synchronous posture: a rejection trail commits as soon as the
+        // outcome is known, because the caller is about to receive the answer.
+        services.AddScoped<IIngestionSink, CommittedIngestionSink>();
         services.AddScoped<RequestNotification.Handler>();
         services.TryAddScoped<IValidator<RequestNotification.Command>, RequestNotification.Validator>();
     }

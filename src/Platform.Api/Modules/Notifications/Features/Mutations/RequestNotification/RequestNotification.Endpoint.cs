@@ -43,7 +43,12 @@ internal static partial class RequestNotification
             .ToHashSet(StringComparer.Ordinal);
 
         Result<Outcome> result = await handler.HandleAsync(
-            command, producer, producerRoles, idempotencyKey, cancellationToken);
+            command,
+            producer,
+            RestProducerAuthorizer.Authorize(producerRoles, command.Class),
+            IngestionOrigin.Rest,
+            idempotencyKey,
+            cancellationToken);
         if (result.IsFailure)
         {
             return Results.Problem(statusCode: StatusCodes.Status500InternalServerError);
@@ -55,10 +60,14 @@ internal static partial class RequestNotification
             Outcome.Replayed replayed => Results.Ok(new Response(
                 NotificationId.Format(replayed.NotificationId), NotificationStatuses.Accepted)),
             Outcome.IdempotencyConflict => IngestionProblems.IdempotencyConflict(),
-            Outcome.ClassNotAllowed notAllowed => IngestionProblems.ClassNotAllowed(notAllowed.CanonicalClass),
+            Outcome.ProducerNotAuthorized => IngestionProblems.ClassNotAllowed(command.Class),
             Outcome.TemplateRejected rejected => IngestionProblems.TemplateRejection(
                 rejected.Reason, rejected.Detail, rejected.Checks),
             Outcome.RateLimited limited => IngestionProblems.RateLimited(limited.RetryAfterSeconds),
+            // Unreachable over this route: the validation filter answers the
+            // published 400 before the use case runs. Mapped to the same shape
+            // so a filter that ever stops running changes no contract.
+            Outcome.PayloadInvalid invalid => Results.ValidationProblem(invalid.Errors),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError),
         };
     }

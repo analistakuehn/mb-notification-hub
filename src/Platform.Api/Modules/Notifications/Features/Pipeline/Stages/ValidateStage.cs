@@ -35,6 +35,10 @@ internal sealed class ValidateStage(
             context.Notification.TemplateKey,
             context.Notification.Class,
             variables,
+            // The bus restriction is an ingress rule: whatever reaches the
+            // pipeline was already accepted through a transport allowed to
+            // carry it, and re-applying the rule here would reject stored work.
+            allowSensitiveVariables: true,
             cancellationToken);
         if (gate is TemplateGateOutcome.Rejected rejection)
         {
