@@ -7,7 +7,13 @@
   and who looked at it afterwards.
 - This module owns the `audit_event` and `approval` tables, the hash-chain
   integrity columns, the monthly partitioning of `audit_event`, the partition
-  manager job, and the partition-coverage health check.
+  manager job, and the partition-coverage health check. The generic
+  provisioning mechanics (window planning, idempotent partition creation, the
+  coverage check implementation) live in
+  `src/Platform.Api/Infrastructure/Partitioning/`; this module registers its
+  schema and tables on that infrastructure and keeps the partition-closing
+  steps (write revoke, WORM retention) as trail semantics that never leave
+  the module.
 - Do not read or write another context's data store, infrastructure types, or
   mutable domain types. Subject identities arrive already composed in the
   producing context's naming; this module never models foreign aggregates.

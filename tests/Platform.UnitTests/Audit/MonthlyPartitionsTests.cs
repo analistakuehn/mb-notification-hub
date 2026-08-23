@@ -1,4 +1,4 @@
-using NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
+using NotificationHub.Api.Infrastructure.Partitioning;
 
 namespace NotificationHub.UnitTests.Audit;
 

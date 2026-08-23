@@ -1,4 +1,4 @@
-namespace NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
+namespace NotificationHub.Api.Infrastructure.Partitioning;
 
 /// <summary>
 /// One month-long partition window. Boundaries are calendar days at midnight
@@ -20,8 +20,9 @@ internal static class MonthlyPartitions
     /// <summary>
     /// Plans the windows from the reference month through <paramref name="monthsAhead"/>
     /// months after it, inclusive. Partition names follow
-    /// <c>{table}_{year}_{month:00}</c>, the same shape the conversion
-    /// migration uses, so both sides always agree on the object names.
+    /// <c>{table}_{year}_{month:00}</c>, the same shape the owning module's
+    /// conversion migration uses, so both sides always agree on the object
+    /// names.
     /// </summary>
     internal static IReadOnlyList<MonthlyPartitionWindow> Plan(
         string table,

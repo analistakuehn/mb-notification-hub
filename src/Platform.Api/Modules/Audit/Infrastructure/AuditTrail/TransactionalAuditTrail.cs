@@ -1,7 +1,7 @@
 using System.Data;
 using System.Data.Common;
+using NotificationHub.Api.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Audit.Domain;
-using NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;

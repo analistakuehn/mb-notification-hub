@@ -1,3 +1,7 @@
+using Microsoft.Extensions.Options;
+using NotificationHub.Api.Infrastructure.Partitioning;
+using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
+
 namespace NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
 
 public static class PartitionManagerSetup
@@ -23,7 +27,13 @@ public static class PartitionManagerSetup
         services.AddScoped<PartitionMaintenance>();
         services.AddHostedService<PartitionManagerService>();
         services.AddHealthChecks()
-            .AddCheck<AuditPartitionCoverageHealthCheck>("audit-partitions");
+            .AddMonthlyPartitionCoverageCheck<AuditDbContext>(
+                name: "audit-partitions",
+                schema: "audit",
+                table: "audit_event",
+                minimumFutureDays: serviceProvider => serviceProvider
+                    .GetRequiredService<IOptions<PartitionManagerOptions>>()
+                    .Value.FutureWindowMinimumDays);
         return services;
     }
 }

@@ -1,5 +1,5 @@
 using System.ComponentModel.DataAnnotations;
-using System.Text.RegularExpressions;
+using NotificationHub.Api.Infrastructure.Partitioning;
 
 namespace NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
 
@@ -9,7 +9,7 @@ namespace NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
 /// partitioned tables. The revoke and retention steps ship disabled: they
 /// depend on database roles and on the WORM bucket delivered by a later phase.
 /// </summary>
-public sealed partial class PartitionManagerOptions
+public sealed class PartitionManagerOptions
 {
     public const string SectionName = "Modules:Audit:PartitionManager";
 
@@ -52,12 +52,10 @@ public sealed partial class PartitionManagerOptions
     public bool EnableRetentionCycle { get; init; }
 
     /// <summary>
-    /// A table name this job accepts: an unquoted lowercase PostgreSQL
-    /// identifier. Anything else is rejected before reaching the DDL.
+    /// A table name this job accepts: the platform's safe-identifier rule for
+    /// unquoted lowercase PostgreSQL identifiers. Anything else is rejected
+    /// before reaching the DDL.
     /// </summary>
     public static bool IsSafeTableName(string? value)
-        => value is not null && SafeTableName().IsMatch(value);
-
-    [GeneratedRegex("^[a-z][a-z0-9_]{0,47}$")]
-    private static partial Regex SafeTableName();
+        => PartitionIdentifiers.IsSafeIdentifier(value);
 }
