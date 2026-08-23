@@ -34,7 +34,7 @@ public sealed class KafkaIngressAcceptanceTests(KafkaIngressFixture fixture)
             KafkaIngressApi.ProducerHeaders(Producer));
 
         await using ServiceProvider provider = fixture.BuildIngressProvider();
-        Notification notification = await RunUntilAcceptedAsync(provider, application, idempotencyKey);
+        Notification notification = await RunUntilSettledAsync(provider, application, idempotencyKey, position);
 
         // The same four writes the synchronous route commits: the notification
         // row, its idempotency registration, the outbox message to the core
@@ -72,12 +72,15 @@ public sealed class KafkaIngressAcceptanceTests(KafkaIngressFixture fixture)
         audit.RootElement.GetProperty("idempotencyKey").GetString().ShouldBe(idempotencyKey);
 
         // At-least-once rests on the marks, and the offset advanced past the
-        // record the consumer settled.
-        var marked = await fixture.QueryPlatformDbAsync(db => db.ProcessedMessages
+        // record the consumer settled. The wait above only knows the record was
+        // marked; the consumer name is what says which role owns the mark.
+        var markedBy = await fixture.QueryPlatformDbAsync(db => db.ProcessedMessages
             .AsNoTracking()
-            .AnyAsync(mark => mark.MessageId == $"{position.Topic}:{position.Partition.Value}:{position.Offset.Value}"
-                && mark.Consumer == "kafka-ingress"));
-        marked.ShouldBeTrue();
+            .Where(mark => mark.MessageId
+                == $"{position.Topic}:{position.Partition.Value}:{position.Offset.Value}")
+            .Select(mark => mark.Consumer)
+            .SingleAsync());
+        markedBy.ShouldBe("kafka-ingress");
 
         var committed = fixture.CommittedOffset(position.Topic, position.Partition.Value);
         committed.ShouldNotBeNull();
@@ -85,15 +88,22 @@ public sealed class KafkaIngressAcceptanceTests(KafkaIngressFixture fixture)
     }
 
     /// <summary>
-    /// Starts the hosted consumer of the role, waits for the acceptance the
-    /// event must produce, and stops it. Hosting the real service is the point:
+    /// Starts the hosted consumer of the role, waits until the record is fully
+    /// settled, and stops it. Hosting the real service is the point:
     /// subscription, gate, per-record settling and offset commit are what this
     /// criterion is about.
+    ///
+    /// Settled means the effect and its deduplication mark, not the effect
+    /// alone. This consumer commits the mark in a short transaction right after
+    /// the effect, on purpose, so stopping the host the instant the
+    /// notification row appears would cancel the settlement halfway and read a
+    /// state no deployment ever leaves behind.
     /// </summary>
-    private async Task<Notification> RunUntilAcceptedAsync(
+    private async Task<Notification> RunUntilSettledAsync(
         ServiceProvider provider,
         string application,
-        string idempotencyKey)
+        string idempotencyKey,
+        TopicPartitionOffset position)
     {
         IHostedService[] hosted = [.. provider.GetServices<IHostedService>()];
         using var stopping = new CancellationTokenSource(Budget);
@@ -104,6 +114,7 @@ public sealed class KafkaIngressAcceptanceTests(KafkaIngressFixture fixture)
 
         try
         {
+            var dedupeId = $"{position.Topic}:{position.Partition.Value}:{position.Offset.Value}";
             DateTimeOffset deadline = DateTimeOffset.UtcNow + Budget;
             while (DateTimeOffset.UtcNow < deadline)
             {
@@ -111,16 +122,20 @@ public sealed class KafkaIngressAcceptanceTests(KafkaIngressFixture fixture)
                     .AsNoTracking()
                     .SingleOrDefaultAsync(notification => notification.Application == application
                         && notification.IdempotencyKey == idempotencyKey));
-                if (candidate is not null)
+                var settled = candidate is not null
+                    && await fixture.QueryPlatformDbAsync(db => db.ProcessedMessages
+                        .AsNoTracking()
+                        .AnyAsync(mark => mark.MessageId == dedupeId));
+                if (settled)
                 {
-                    return candidate;
+                    return candidate!;
                 }
 
                 await Task.Delay(TimeSpan.FromMilliseconds(500));
             }
 
             throw new TimeoutException(
-                "O ingress não aceitou o evento dentro do orçamento do teste.");
+                "O ingress não liquidou o evento dentro do orçamento do teste.");
         }
         finally
         {

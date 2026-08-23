@@ -49,17 +49,12 @@ internal sealed class IngressDeadLetterWriter(
     private const string DataProperty = "data";
     private const string VariablesProperty = "variables";
 
-    internal const string ReasonHeader = "reason";
-    internal const string SourceTopicHeader = "sourceTopic";
-    internal const string SourcePartitionHeader = "sourcePartition";
-    internal const string SourceOffsetHeader = "sourceOffset";
+    // Only the headers of this contract live here; the transport headers every
+    // dead-letter record carries belong to the platform.
     internal const string ProducerHeader = "producer";
     internal const string ApplicationHeader = "application";
     internal const string ClassHeader = "class";
     internal const string IdempotencyKeyHeader = "idempotencyKey";
-    internal const string OccurredAtHeader = "occurredAt";
-    internal const string TraceparentHeader = "traceparent";
-    internal const string RedactedHeader = "redacted";
 
     public async Task ProduceAsync(
         KafkaMessageContext context,
@@ -72,12 +67,14 @@ internal sealed class IngressDeadLetterWriter(
         var redacted = diagnosis.RedactedVariableNames is not null;
         var headers = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            [ReasonHeader] = diagnosis.Reason,
-            [SourceTopicHeader] = context.Topic,
-            [SourcePartitionHeader] = context.Partition.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            [SourceOffsetHeader] = context.Offset.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            [OccurredAtHeader] = timeProvider.GetUtcNow().ToString("O"),
-            [RedactedHeader] = redacted ? "true" : "false",
+            [DeadLetterHeaders.Reason] = diagnosis.Reason,
+            [DeadLetterHeaders.SourceTopic] = context.Topic,
+            [DeadLetterHeaders.SourcePartition] =
+                context.Partition.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            [DeadLetterHeaders.SourceOffset] =
+                context.Offset.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            [DeadLetterHeaders.OccurredAt] = timeProvider.GetUtcNow().ToString("O"),
+            [DeadLetterHeaders.Redacted] = redacted ? "true" : "false",
         };
         AddWhenPresent(headers, ProducerHeader, diagnosis.Producer);
         AddWhenPresent(headers, ApplicationHeader, diagnosis.Application);
@@ -85,9 +82,11 @@ internal sealed class IngressDeadLetterWriter(
         AddWhenPresent(headers, IdempotencyKeyHeader, diagnosis.IdempotencyKey);
         AddWhenPresent(
             headers,
-            TraceparentHeader,
+            DeadLetterHeaders.Traceparent,
             context.Event?.Traceparent
-                ?? (context.Headers.TryGetValue(TraceparentHeader, out var traceparent) ? traceparent : null));
+                ?? (context.Headers.TryGetValue(DeadLetterHeaders.Traceparent, out var traceparent)
+                    ? traceparent
+                    : null));
 
         await producer.ProduceAsync(
             new DeadLetterRecord

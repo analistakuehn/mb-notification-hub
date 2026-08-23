@@ -47,6 +47,12 @@ internal sealed class DeviceTokenInvalidation(
         }
 
         var alreadyInvalidated = !device.IsActive;
+
+        // The provider feedback arrives as a call from the dispatch side, not
+        // as a record: nothing here is deduplicated by mark, and the repeated
+        // report is already idempotent by state.
+        var writeContext = new ContactWriteContext(
+            ActorIdProviderFeedback, ContactConsentAuditVocabulary.ActorTypeSystem, Provenance: null);
         AuditEntry auditEntry = new()
         {
             ActorType = ContactConsentAuditVocabulary.ActorTypeSystem,
@@ -69,13 +75,14 @@ internal sealed class DeviceTokenInvalidation(
         {
             // Declarative no-op: the active token set did not change, so no
             // cache event; only the trail of the repeated report.
-            await writer.AppendStandaloneAuditAsync(auditEntry, cancellationToken);
+            await writer.AppendStandaloneAuditAsync(writeContext, auditEntry, cancellationToken);
             logger.DeviceInvalidationRepeated(recipientId, device.Id, reason);
             return Result.Success();
         }
 
         device.Invalidate(now);
         ContactWriteOutcome outcome = await writer.CommitAsync(
+            writeContext,
             [ContactConsentEvents.Build(ContactConsentEvents.ContactChanged, recipientId, null, now)],
             auditEntry,
             cancellationToken);

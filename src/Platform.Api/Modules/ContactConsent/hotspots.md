@@ -106,6 +106,43 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   be acted on, even under degradation, replaces the stale mark with a hard
   delete and removes the last-known fallback.
 
+## The bus ingestion deduplicates in a single layer
+
+- **Assumption accepted**: the `contacts-ingress` consumer guards redelivery
+  with the offset mark alone, committed inside the transaction of the effect.
+  There is no business-key layer behind it, unlike the notification ingestion,
+  whose `(application, idempotency_key)` constraint is the stronger guard.
+- **Evidence**: a declaration is desired state over an append-only ledger, and
+  the handlers already answer a repeated declaration with zero writes
+  (`ContactPointsUnchanged`, `ConsentsUnchanged`), so the declarative semantics
+  is the business idempotency. What the mark protects is the trail: the no-op
+  path calls `AppendStandaloneAuditAsync`, and without a mark a rebalance would
+  fill the hash-chained trail with entries of an event already settled
+  (`Infrastructure/Persistence/ContactConsentWriter.cs`).
+- **Owner**: ContactConsent module maintainers with Arquitetura.
+- **Status**: accepted.
+- **Review condition**: an event type on this topic that carries a business key
+  of its own may revisit the layering; without one, the mark stays inside the
+  transaction of the effect.
+
+## The dead-letter of the contact ingestion has no redrive
+
+- **Assumption accepted**: the body published on `contacts.events.dlt` is a
+  summary rebuilt from an allow-list, so the record is not a faithful copy and
+  no redrive can replay it.
+- **Evidence**: every record of the entry topic carries an e-mail address or a
+  phone number in the clear by construction, and the dead-letter topic retains
+  fourteen times longer; the keyed hash is deterministic, so publishing it
+  would hand out a stable correlatable pseudonym
+  (`Infrastructure/Consuming/ContactIngestionDeadLetterWriter.cs`). With
+  declarative semantics the repair is the emitting system publishing the
+  correct state again, idempotent by construction.
+- **Owner**: ContactConsent module maintainers with Segurança.
+- **Status**: accepted (recorded in the phase document).
+- **Review condition**: a diagnosis need that the summary cannot serve reopens
+  the choice, and any field added to the allow-list is a privacy decision, not
+  a formatting one.
+
 ## Write vocabulary lives module-locally
 
 - **Assumption accepted**: the `contact.points.declared`, `consents.declared`

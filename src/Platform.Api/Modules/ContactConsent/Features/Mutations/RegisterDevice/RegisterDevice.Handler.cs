@@ -29,10 +29,11 @@ internal static partial class RegisterDevice
         public async Task<Result<Outcome>> HandleAsync(
             string recipientId,
             Command command,
-            string actorId,
-            string actorType,
+            ContactWriteContext writeContext,
             CancellationToken cancellationToken)
         {
+            ArgumentNullException.ThrowIfNull(writeContext);
+
             DateTimeOffset now = timeProvider.GetUtcNow();
             RecipientProfile? profile = await db.RecipientProfiles
                 .FirstOrDefaultAsync(candidate => candidate.RecipientId == recipientId, cancellationToken);
@@ -63,8 +64,8 @@ internal static partial class RegisterDevice
                 : [];
             AuditEntry auditEntry = new()
             {
-                ActorType = actorType,
-                ActorId = actorId,
+                ActorType = writeContext.ActorType,
+                ActorId = writeContext.ActorId,
                 Application = null,
                 Action = ContactConsentAuditVocabulary.DeviceRegistered,
                 EntityType = ContactConsentAuditVocabulary.EntityTypeDeviceToken,
@@ -80,11 +81,22 @@ internal static partial class RegisterDevice
                 OccurredAt = now,
             };
 
-            ContactWriteOutcome persisted = await writer.CommitAsync(messages, auditEntry, cancellationToken);
+            ContactWriteOutcome persisted = await writer.CommitAsync(
+                writeContext, messages, auditEntry, cancellationToken);
             if (persisted is ContactWriteOutcome.ConcurrencyConflict)
             {
                 logger.DeviceWriteConflict(recipientId);
                 return Result.Success<Outcome>(new Outcome.ConcurrencyConflict());
+            }
+
+            if (persisted is ContactWriteOutcome.Duplicate)
+            {
+                // Device registration is a REST-only route: its write carries
+                // no record to deduplicate, so a duplicate here would mean the
+                // caller invented a provenance this use case cannot answer.
+                throw new InvalidOperationException(
+                    "O registro de dispositivo não carrega marca de deduplicação; "
+                    + "um desfecho duplicado é impossível nesse caminho.");
             }
 
             logger.DeviceRegistered(recipientId, device.Id, device.Platform, !isNew);

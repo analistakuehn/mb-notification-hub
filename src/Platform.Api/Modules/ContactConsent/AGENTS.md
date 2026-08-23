@@ -27,10 +27,11 @@
 |---|---|
 | `src/Platform.Api/Modules/ContactConsent/Domain/` | profile, contact point, consent and device entities; channel, source and platform vocabularies; value normalization |
 | `src/Platform.Api/Modules/ContactConsent/Features/` | vertical slices for this context |
-| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, the degradation-aware read fallback and the snapshot records other modules consume |
-| `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, snapshot cache, invalidation consumer, authorization, problems |
+| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, the degradation-aware read fallback, the snapshot records other modules consume, and the refusal vocabulary of the contact ingestion |
+| `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, snapshot cache, invalidation consumer, bus ingestion topology and dead-letter writer, authorization, problems |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentModule.cs` | service registration and endpoint mapping for this context |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentWorkerRole.cs` | composition of the `contact-consent` worker role, discovered by the worker host |
+| `src/Platform.Api/Modules/ContactConsent/ContactsIngressWorkerRole.cs` | composition of the `contacts-ingress` worker role, discovered by the worker host |
 
 Owned state: `recipient_profile`, `contact_point`, `consent` (append-only),
 `device_token`. None is partitioned. The platform `outbox` belongs to the
@@ -38,15 +39,30 @@ messaging infrastructure; this module only appends through the contract.
 
 ## Transactional invariant of every write
 
-A write commits its entity changes, its cache-invalidation outbox messages
-(`contact.changed` / `consent.changed`, destination `contacts-changed`,
-message key = recipient id, claim-check payload with recipient id and contact
-point id only) and its `audit_event` appended through `IAuditTrail` with the
-raw `DbTransaction`, in one database transaction or not at all
+A write commits its entity changes, its outbox messages and its `audit_event`
+appended through `IAuditTrail` with the raw `DbTransaction`, in one database
+transaction or not at all
 (`Infrastructure/Persistence/ContactConsentWriter.cs`). The audit append holds
 the partition chain lock until the transaction ends, so the commit follows it
 immediately. A declarative no-op has no business effect and records its trail
 in its own short transaction.
+
+Two kinds of outbox message ride that transaction. The cache invalidation
+(`contact.changed` / `consent.changed`, destination `contacts-changed`,
+message key = recipient id, claim-check payload with recipient id and contact
+point id only) never leaves the hub. The outgoing consent event
+(`araia.notification.consent_changed.v1`, destination
+`NotificationHub.Api.Infrastructure.Messaging.OutgoingEventBus.Topic`, subject
+= recipient id, body with recipient, channel, purpose, granted and source) is
+the integration contract with the domains. Both are appended before the audit
+call, because the append holds the chain lock until the transaction ends.
+
+Who writes, and which consumed record carried the write, travel in
+`ContactWriteContext`, an explicit parameter of every handler. A write with
+provenance stamps the deduplication mark of the record inside that same
+transaction: unlike the notification ingestion, a contact declaration carries
+no unique business key, so the mark is the only guard against a redelivery
+appending a second entry to the hash-chained trail.
 
 ## Contact values and PII
 
@@ -117,12 +133,40 @@ in its own short transaction.
   and its read are not part of `Integration/V1`. When the delivery-feedback
   phase introduces hard-bounce suppression, its read joins the contract as a
   new member or a `V2` surface; nothing here may fake it meanwhile.
-- **Kafka ingestion** (`contacts.events.v1`): a later slice adds the consumer
-  path; it must reuse the same handlers' reconciliation semantics, never a
-  parallel write path.
 - **Device token invalidation** by FCM feedback: delivered through
   `IDeviceTokenLifecycle`; webhooks of the delivery-feedback phase reuse the
   same contract, never a parallel write path.
+
+## Bus ingestion of declarations
+
+- The `contacts-ingress` worker role consumes `contacts.events.v1`, one record
+  at a time, and owns the transport only:
+  `araia.contact.contact_points_declared.v1` binds to the command of the
+  contact-points route and `araia.contact.consents_declared.v1` to the command
+  of the consents route, both through the same validator the route's filter
+  runs and the same handler it calls. `subject` and record key are the
+  recipient id. Device registration has no event: the token is registered by
+  the app, never declared by the registration system.
+- A role of its own, separate from `contact-consent`, which keeps consuming
+  the invalidation queue. The two scale on different signals, consumer lag
+  against queue depth, and the bus consumer registers a gate health check for
+  the whole process. It writes, so it composes no read surface.
+- Authorization is the broker ACL plus the accepted-source list of the role
+  (`Modules:ContactConsent:KafkaIngress:AcceptedSources`), validated at boot:
+  an empty list refuses the boot. The list is the actor vocabulary of this
+  transport, the counterpart of the token's `appid` on the REST side, and the
+  accepted source is what the trail and the consent ledger record as actor.
+- Outcomes settle as the transport can act on them: applied is processed, a
+  concurrency conflict holds the partition for a retry, and everything that
+  can never be applied goes to `contacts.events.dlt` with a reason from
+  `Integration/V1/ContactIngestionRejectionReasons.cs`.
+- The dead-letter body is **always** a summary rebuilt from an allow-list,
+  never the refused body: every record on this topic carries a contact value in
+  the clear by construction, and the dead-letter topic retains fourteen times
+  longer than the entry topic. The keyed hash never travels either, because it
+  is deterministic and would hand out a stable correlatable pseudonym. The
+  accepted consequence is that this topic pair has no redrive; the repair is
+  the emitting system publishing the correct state again.
 
 ## Audit vocabulary
 

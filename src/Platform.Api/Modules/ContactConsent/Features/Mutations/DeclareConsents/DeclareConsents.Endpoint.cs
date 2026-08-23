@@ -1,6 +1,7 @@
 using NotificationHub.Api.Infrastructure.EndpointFilters;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Http;
+using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.RateLimiting;
 using NotificationHub.SharedKernel;
 
@@ -35,8 +36,13 @@ internal static partial class DeclareConsents
             return ContactConsentProblems.WriterIdentityRequired();
         }
 
+        // No provenance on this transport: an HTTP request is not a record the
+        // consumer may see twice, so nothing here is deduplicated by mark.
         Result<Outcome> result = await handler.HandleAsync(
-            recipientId, command, actor.Value.ActorId, actor.Value.ActorType, cancellationToken);
+            recipientId,
+            command,
+            new ContactWriteContext(actor.Value.ActorId, actor.Value.ActorType, Provenance: null),
+            cancellationToken);
         if (result.IsFailure)
         {
             return Results.Problem(statusCode: StatusCodes.Status500InternalServerError);

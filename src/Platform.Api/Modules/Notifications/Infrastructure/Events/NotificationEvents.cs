@@ -85,11 +85,11 @@ internal sealed record NotificationDelivered
 /// </summary>
 internal static class NotificationEvents
 {
-    /// <summary>Outgoing topic of the corporate bus.</summary>
-    internal const string Topic = "notifications.events.v1";
+    /// <summary>Outgoing topic of the corporate bus, shared by every module that emits.</summary>
+    internal const string Topic = OutgoingEventBus.Topic;
 
     /// <summary>URN of this hub as the emitting system.</summary>
-    internal const string Source = "urn:araia:notification-hub";
+    internal const string Source = OutgoingEventBus.Source;
 
     internal const string RejectedType = "araia.notification.rejected.v1";
     internal const string DeliveredType = "araia.notification.delivered.v1";

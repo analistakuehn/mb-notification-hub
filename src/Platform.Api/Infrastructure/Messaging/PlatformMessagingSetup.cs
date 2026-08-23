@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 
 namespace NotificationHub.Api.Infrastructure.Messaging;
 
@@ -43,6 +44,13 @@ public static class PlatformMessagingSetup
 
         // Stateless by design: every append joins the caller's transaction.
         services.AddSingleton<IOutboxWriter, TransactionalOutboxWriter>();
+
+        // Mirror of the producer side on the consumer side: the deduplication
+        // mark joins the caller's transaction the same way the outbox append
+        // does, and writes to the same schema this composition migrates. Every
+        // consuming surface also registers it, idempotently, so each stays
+        // self-sufficient.
+        services.TryAddSingleton<IProcessedMessageStore, PostgresProcessedMessageStore>();
         return services;
     }
 }

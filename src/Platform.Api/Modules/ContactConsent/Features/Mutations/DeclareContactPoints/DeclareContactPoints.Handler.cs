@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
@@ -21,6 +22,10 @@ internal static partial class DeclareContactPoints
     /// because the consent ledger anchors on it. Profile preferences apply
     /// when present. All changes, the invalidation messages and the audit
     /// event commit in one transaction.
+    ///
+    /// The transport is not a parameter of the reconciliation: the REST route
+    /// and the bus ingress hand the same command to this handler and differ
+    /// only in the write context they build.
     /// </summary>
     internal sealed class Handler(
         ContactConsentDbContext db,
@@ -29,13 +34,24 @@ internal static partial class DeclareContactPoints
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
+        /// <summary>
+        /// Omitting nulls keeps the evidence of a write without provenance
+        /// exactly as it was before the bus path existed; every other field of
+        /// this document is always present.
+        /// </summary>
+        private static readonly JsonSerializerOptions DetailsOptions = new()
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        };
+
         public async Task<Result<Outcome>> HandleAsync(
             string recipientId,
             Command command,
-            string actorId,
-            string actorType,
+            ContactWriteContext writeContext,
             CancellationToken cancellationToken)
         {
+            ArgumentNullException.ThrowIfNull(writeContext);
+
             DateTimeOffset now = timeProvider.GetUtcNow();
             var declarations = command.ContactPoints
                 .Select(point =>
@@ -109,10 +125,16 @@ internal static partial class DeclareContactPoints
             }
 
             var summary = new DeclarationSummary(added, updated, removed, profileChanged, affectedPointIds);
-            AuditEntry auditEntry = BuildAuditEntry(recipientId, actorId, actorType, now, summary);
+            AuditEntry auditEntry = BuildAuditEntry(recipientId, writeContext, now, summary);
             if (affectedPointIds.Count == 0 && !profileChanged)
             {
-                await writer.AppendStandaloneAuditAsync(auditEntry, cancellationToken);
+                ContactWriteOutcome recorded = await writer.AppendStandaloneAuditAsync(
+                    writeContext, auditEntry, cancellationToken);
+                if (recorded is ContactWriteOutcome.Duplicate)
+                {
+                    return Result.Success<Outcome>(new Outcome.Duplicate());
+                }
+
                 logger.ContactPointsUnchanged(recipientId);
                 return Result.Success<Outcome>(new Outcome.Declared(BuildResponse(profile, storedPoints)));
             }
@@ -127,7 +149,13 @@ internal static partial class DeclareContactPoints
                     ContactConsentEvents.ContactChanged, recipientId, null, now));
             }
 
-            ContactWriteOutcome persisted = await writer.CommitAsync(messages, auditEntry, cancellationToken);
+            ContactWriteOutcome persisted = await writer.CommitAsync(
+                writeContext, messages, auditEntry, cancellationToken);
+            if (persisted is ContactWriteOutcome.Duplicate)
+            {
+                return Result.Success<Outcome>(new Outcome.Duplicate());
+            }
+
             if (persisted is ContactWriteOutcome.ConcurrencyConflict)
             {
                 logger.ContactWriteConflict(recipientId);
@@ -148,27 +176,40 @@ internal static partial class DeclareContactPoints
 
         private static AuditEntry BuildAuditEntry(
             string recipientId,
-            string actorId,
-            string actorType,
+            ContactWriteContext writeContext,
             DateTimeOffset occurredAt,
-            DeclarationSummary summary) => new()
+            DeclarationSummary summary)
         {
-            ActorType = actorType,
-            ActorId = actorId,
-            Application = null,
-            Action = ContactConsentAuditVocabulary.ContactPointsDeclared,
-            EntityType = ContactConsentAuditVocabulary.EntityTypeRecipient,
-            EntityId = recipientId,
-            DetailsJson = JsonSerializer.Serialize(new
+            // Present only for a write that arrived as a record: the
+            // coordinates let a disputed declaration be checked against what
+            // the broker still holds, and the event id correlates it with the
+            // producer's own log.
+            object? origin = writeContext.Provenance is { } provenance
+                ? new { record = provenance.RecordId, eventId = provenance.EventId }
+                : null;
+
+            return new AuditEntry
             {
-                added = summary.Added,
-                updated = summary.Updated,
-                removed = summary.Removed,
-                profileChanged = summary.ProfileChanged,
-                contactPointIds = summary.AffectedPointIds,
-            }),
-            OccurredAt = occurredAt,
-        };
+                ActorType = writeContext.ActorType,
+                ActorId = writeContext.ActorId,
+                Application = null,
+                Action = ContactConsentAuditVocabulary.ContactPointsDeclared,
+                EntityType = ContactConsentAuditVocabulary.EntityTypeRecipient,
+                EntityId = recipientId,
+                DetailsJson = JsonSerializer.Serialize(
+                    new
+                    {
+                        added = summary.Added,
+                        updated = summary.Updated,
+                        removed = summary.Removed,
+                        profileChanged = summary.ProfileChanged,
+                        contactPointIds = summary.AffectedPointIds,
+                        origin,
+                    },
+                    DetailsOptions),
+                OccurredAt = occurredAt,
+            };
+        }
 
         private static Response BuildResponse(RecipientProfile profile, IReadOnlyList<ContactPoint> points)
             => new(

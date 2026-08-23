@@ -27,5 +27,12 @@ internal static partial class DeclareContactPoints
 
         /// <summary>A concurrent declaration for the same recipient won the race; answer 409.</summary>
         internal sealed record ConcurrencyConflict : Outcome;
+
+        /// <summary>
+        /// The record that carried the declaration was already settled and
+        /// nothing was written again. Only a transport that deduplicates by
+        /// record reaches it; the REST route has no record and never does.
+        /// </summary>
+        internal sealed record Duplicate : Outcome;
     }
 }

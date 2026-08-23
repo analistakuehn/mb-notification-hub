@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
@@ -20,6 +21,12 @@ internal static partial class DeclareConsents
     /// terms version and instant. Nothing is ever updated or deleted. The
     /// first declaration of a pair always records, even a revocation, so an
     /// imported opt-out leaves an explicit ledger baseline.
+    ///
+    /// Every record actually appended is announced twice in the transaction
+    /// that appends it: once to the internal invalidation queue, so the hub's
+    /// own caches stop serving a stance that changed, and once to the outgoing
+    /// topic of the corporate bus, so the domains learn it. A declaration that
+    /// changed nothing announces nothing.
     /// </summary>
     internal sealed class Handler(
         ContactConsentDbContext db,
@@ -27,13 +34,24 @@ internal static partial class DeclareConsents
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
+        /// <summary>
+        /// Omitting nulls keeps the evidence of a write without provenance
+        /// exactly as it was before the bus path existed; every other field of
+        /// this document is always present.
+        /// </summary>
+        private static readonly JsonSerializerOptions DetailsOptions = new()
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        };
+
         public async Task<Result<Outcome>> HandleAsync(
             string recipientId,
             Command command,
-            string actorId,
-            string actorType,
+            ContactWriteContext writeContext,
             CancellationToken cancellationToken)
         {
+            ArgumentNullException.ThrowIfNull(writeContext);
+
             var profileExists = await db.RecipientProfiles
                 .AsNoTracking()
                 .AnyAsync(profile => profile.RecipientId == recipientId, cancellationToken);
@@ -87,7 +105,7 @@ internal static partial class DeclareConsents
                     declaration.Purpose,
                     declaration.Granted,
                     declaration.Source,
-                    actorId,
+                    writeContext.ActorId,
                     declaration.TermsVersion,
                     now);
                 db.Consents.Add(consent);
@@ -95,19 +113,40 @@ internal static partial class DeclareConsents
                 inForce[(declaration.Purpose, declaration.Channel)] = consent;
                 messages.Add(ContactConsentEvents.Build(
                     ContactConsentEvents.ConsentChanged, recipientId, anchor.Id, now));
+                messages.Add(ContactConsentEvents.BuildConsentChanged(new ConsentChangedFact
+                {
+                    RecipientId = recipientId,
+                    Channel = declaration.Channel,
+                    Purpose = declaration.Purpose,
+                    Granted = declaration.Granted,
+                    Source = declaration.Source,
+                    OccurredAt = now,
+                }));
             }
 
             AuditEntry auditEntry = BuildAuditEntry(
-                recipientId, actorId, actorType, now, command.Consents.Count, recorded);
+                recipientId, writeContext, now, command.Consents.Count, recorded);
             if (recorded.Count == 0)
             {
-                await writer.AppendStandaloneAuditAsync(auditEntry, cancellationToken);
+                ContactWriteOutcome noOp = await writer.AppendStandaloneAuditAsync(
+                    writeContext, auditEntry, cancellationToken);
+                if (noOp is ContactWriteOutcome.Duplicate)
+                {
+                    return Result.Success<Outcome>(new Outcome.Duplicate());
+                }
+
                 logger.ConsentsUnchanged(recipientId);
                 return Result.Success<Outcome>(
                     new Outcome.Declared(BuildResponse(recipientId, inForce, channelByPointId)));
             }
 
-            ContactWriteOutcome persisted = await writer.CommitAsync(messages, auditEntry, cancellationToken);
+            ContactWriteOutcome persisted = await writer.CommitAsync(
+                writeContext, messages, auditEntry, cancellationToken);
+            if (persisted is ContactWriteOutcome.Duplicate)
+            {
+                return Result.Success<Outcome>(new Outcome.Duplicate());
+            }
+
             if (persisted is ContactWriteOutcome.ConcurrencyConflict)
             {
                 logger.ConsentWriteConflict(recipientId);
@@ -121,34 +160,47 @@ internal static partial class DeclareConsents
 
         private static AuditEntry BuildAuditEntry(
             string recipientId,
-            string actorId,
-            string actorType,
+            ContactWriteContext writeContext,
             DateTimeOffset occurredAt,
             int declaredCount,
-            List<Consent> recorded) => new()
+            List<Consent> recorded)
         {
-            ActorType = actorType,
-            ActorId = actorId,
-            Application = null,
-            Action = ContactConsentAuditVocabulary.ConsentsDeclared,
-            EntityType = ContactConsentAuditVocabulary.EntityTypeRecipient,
-            EntityId = recipientId,
-            DetailsJson = JsonSerializer.Serialize(new
+            // Present only for a write that arrived as a record: the
+            // coordinates let a disputed declaration be checked against what
+            // the broker still holds, and the event id correlates it with the
+            // producer's own log.
+            object? origin = writeContext.Provenance is { } provenance
+                ? new { record = provenance.RecordId, eventId = provenance.EventId }
+                : null;
+
+            return new AuditEntry
             {
-                declared = declaredCount,
-                changed = recorded.Count,
-                records = recorded.Select(consent => new
-                {
-                    consentId = consent.Id,
-                    contactPointId = consent.ContactPointId,
-                    purpose = consent.Purpose,
-                    granted = consent.Granted,
-                    source = consent.Source,
-                    termsVersion = consent.TermsVersion,
-                }),
-            }),
-            OccurredAt = occurredAt,
-        };
+                ActorType = writeContext.ActorType,
+                ActorId = writeContext.ActorId,
+                Application = null,
+                Action = ContactConsentAuditVocabulary.ConsentsDeclared,
+                EntityType = ContactConsentAuditVocabulary.EntityTypeRecipient,
+                EntityId = recipientId,
+                DetailsJson = JsonSerializer.Serialize(
+                    new
+                    {
+                        declared = declaredCount,
+                        changed = recorded.Count,
+                        records = recorded.Select(consent => new
+                        {
+                            consentId = consent.Id,
+                            contactPointId = consent.ContactPointId,
+                            purpose = consent.Purpose,
+                            granted = consent.Granted,
+                            source = consent.Source,
+                            termsVersion = consent.TermsVersion,
+                        }),
+                        origin,
+                    },
+                    DetailsOptions),
+                OccurredAt = occurredAt,
+            };
+        }
 
         private static Response BuildResponse(
             string recipientId,

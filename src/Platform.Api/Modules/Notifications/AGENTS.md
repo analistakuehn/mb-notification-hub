@@ -123,7 +123,11 @@ has no business effect and records its trail in its own short transaction.
 ## Outgoing result events
 
 - `Infrastructure/Events/NotificationEvents.cs` builds the CloudEvents rows of
-  `notifications.events.v1`: `rejected` at ingestion and in the pipeline,
+  `notifications.events.v1`, reading the topic name and the hub source URN from
+  the platform messaging surface rather than declaring them here: the outgoing
+  bus is a transport contract, and ContactConsent publishes `consent_changed`
+  onto the same topic. The module owns the event types and payload shapes:
+  `rejected` at ingestion and in the pipeline,
   `failed` on an exhausted plan and on expiry, `delivered` on push acceptance.
   Acceptance announces nothing (the producer already holds its 202) and a
   rejection by the principal budget announces nothing either, because one event

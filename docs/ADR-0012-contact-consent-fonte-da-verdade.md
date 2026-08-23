@@ -50,6 +50,12 @@ Adotar a opção 1.
 - Kafka: tópico `contacts.events.v1` (CloudEvents, emissor: sistema de cadastro), no mesmo padrão at-least-once do ingress, com dedupe em `processed_messages` (ADR-0010).
 - Opt-in de WhatsApp: registrado como `CONSENT` com `channel=whatsapp` e campo `source` (app, atendimento, importação).
 
+**Errata da fase 1b (2026-08-23): o tópico alimenta contato e consentimento, não device token.** O emissor de `contacts.events.v1` é o sistema de cadastro, e o device token não nasce nele: nasce no aplicativo, no registro do dispositivo. É o mesmo fato que esta ADR usa como contra da opção 3 (réplica por CDC), e vale igual aqui. Na 1b o tópico alimenta `RECIPIENT_PROFILE`, `CONTACT_POINT` e `CONSENT`, com dois tipos de evento declarativos (`araia.contact.contact_points_declared.v1` e `araia.contact.consents_declared.v1`); o registro de device continua exclusivamente pelo `POST /v1/recipients/{id}/devices`. Um evento de registro de dispositivo nesse tópico é recusado como tipo não suportado.
+
+**Confirmação de negócio (2026-08-23): o cadastro é o dono único dos pontos de contato do destinatário.** Por isso a semântica de conjunto completo vale sem escopo por canal: o evento carrega todos os pontos de contato do destinatário e o hub marca como removido o que não veio, exatamente como o `PUT` correspondente.
+
+**Autorização da entrada.** ACL do broker mais lista de origens aceitas na configuração do papel, validada no boot. O `PRODUCER_REGISTRY` não serve: o grão dele é a tripla principal, `application` e classe, vocabulário de notificação que um evento de contato não tem. A origem aceita é o vocabulário de ator deste transporte, equivalente ao `appid` do token no caminho REST, e é o que a trilha e o ledger de consentimento registram como ator. Detalhes em §7.2 do design de sistema.
+
 **Invalidação de cache.** Os eventos `ContactChanged` e `ConsentChanged` são emitidos pelo próprio módulo via outbox e consumidos pelos caches locais dos workers.
 
 ### Consequências
