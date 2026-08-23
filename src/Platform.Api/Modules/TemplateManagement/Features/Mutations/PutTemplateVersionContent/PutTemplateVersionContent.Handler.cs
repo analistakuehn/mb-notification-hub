@@ -3,6 +3,7 @@ using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Http;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;

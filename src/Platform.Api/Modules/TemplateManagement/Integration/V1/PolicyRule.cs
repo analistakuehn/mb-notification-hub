@@ -1,4 +1,4 @@
-namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
+namespace NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 /// <summary>
 /// One rule of the Policy stage. This module owns the contract together with

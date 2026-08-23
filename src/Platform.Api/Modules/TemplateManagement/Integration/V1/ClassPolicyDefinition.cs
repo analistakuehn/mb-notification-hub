@@ -1,6 +1,7 @@
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.SharedKernel;
 
-namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
+namespace NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 /// <summary>
 /// One ordered step of the delivery plan: which channel to try and how long to

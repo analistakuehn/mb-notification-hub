@@ -1,4 +1,4 @@
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.UnitTests.TemplateManagement;
 

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence.Configurations;
 

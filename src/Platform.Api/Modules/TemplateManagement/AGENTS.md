@@ -14,7 +14,7 @@
 |---|---|
 | `src/Platform.Api/Modules/TemplateManagement/Domain/` | aggregates, value objects, domain policies, internal Domain Events |
 | `src/Platform.Api/Modules/TemplateManagement/Features/` | vertical slices for this context |
-| `src/Platform.Api/Modules/TemplateManagement/Integration/V1/` | versioned public Integration Event contracts |
+| `src/Platform.Api/Modules/TemplateManagement/Integration/V1/` | versioned public contracts consumed by other modules (Integration Events, class policy contract) |
 | `src/Platform.Api/Modules/TemplateManagement/Infrastructure/` | persistence, providers, broker, cache, outbox, inbox |
 | `src/Platform.Api/Modules/TemplateManagement/TemplateManagementModule.cs` | application service registration for this context; technology registration for this context; endpoint mapping for this context |
 
@@ -92,6 +92,16 @@
   contracts (`Allow | FilterChannels(set) | Defer(releaseAt) | Reject(reason)`,
   always with compact JSON evidence) together with the tolerant definition
   reader, but ships no rule implementation: rules execute outside this module.
+- The published policy contract lives under
+  `src/Platform.Api/Modules/TemplateManagement/Integration/V1/` (namespace
+  `NotificationHub.Api.Modules.TemplateManagement.Integration.V1`):
+  `IPolicyRule<TContext>`, `PolicyRuleResult`, `ClassPolicyDefinition`,
+  `DeliveryPlanStep`, `QuietHoursWindow`, and `Channel`. The bounded-context
+  architecture rule carves out cross-module dependencies exclusively on
+  `Modules.<other>.Integration.V1` namespaces; every other cross-module
+  dependency stays forbidden. Inside this module the contract may read the
+  Domain validation it fronts, and Domain types keep consuming the published
+  vocabulary (`Channel`).
 - The definition reader tolerates unknown fields on purpose: a field the
   version-1 vocabulary does not know belongs to a newer writer, never to an
   error. Delivery-plan steps are objects so an optional property extends them
