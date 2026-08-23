@@ -46,3 +46,16 @@ public sealed class RequiresDockerFactAttribute : FactAttribute
         }
     }
 }
+
+/// <summary>A theory that runs only when the Docker daemon responds.</summary>
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class RequiresDockerTheoryAttribute : TheoryAttribute
+{
+    public RequiresDockerTheoryAttribute()
+    {
+        if (!DockerEnvironment.IsAvailable)
+        {
+            Skip = DockerEnvironment.SkipReason;
+        }
+    }
+}

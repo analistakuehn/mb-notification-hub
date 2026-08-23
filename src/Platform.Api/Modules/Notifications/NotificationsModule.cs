@@ -2,12 +2,15 @@ using FluentValidation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
 using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+using NotificationHub.Api.Modules.Notifications.Features.Queries;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Idempotency;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Reads;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Redis;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Templates;
 
@@ -55,11 +58,26 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         services.AddScoped<IIngestionSink, CommittedIngestionSink>();
         services.AddScoped<RequestNotification.Handler>();
         services.TryAddScoped<IValidator<RequestNotification.Command>, RequestNotification.Validator>();
+
+        // Query surface: read-only context, target enrichment through the
+        // published contact contract, and the access log that records who read
+        // what without appending to the audit trail.
+        services.AddSingleton<NotificationQueryAccessLog>();
+        services.AddScoped<AttemptTargetDirectory>();
+        services.AddScoped<NotificationHistoryReader>();
+        services.AddScoped<GetNotification.Handler>();
+        services.AddScoped<ListRecipientNotifications.Handler>();
+        services.AddScoped<ListNotificationsByCorrelation.Handler>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)
     {
         RouteGroupBuilder notifications = app.MapGroup("/v1/notifications");
         RequestNotification.MapEndpoint(notifications);
+        GetNotification.MapEndpoint(notifications);
+        ListNotificationsByCorrelation.MapEndpoint(notifications);
+
+        RouteGroupBuilder recipients = app.MapGroup("/v1/recipients");
+        ListRecipientNotifications.MapEndpoint(recipients);
     }
 }

@@ -7,8 +7,10 @@
   that consumes `notifications.requested.v1`, the Core pipeline that consumes
   the `core-*` queues, the dispatch slice (the `dispatch-*` consumers, the
   attempt state machine from `queued` on, the push fan-out and the fallback
-  handler), and the outgoing result events on `notifications.events.v1`. The
-  query API arrives in a later slice.
+  handler), the outgoing result events on `notifications.events.v1`, and the
+  read-only query API behind `Notifications.Read`. The audit API
+  (`/v1/audit/*`) stays outside this unit: rendered content and full contact
+  leave through there, never through the query surface.
 - Keep invariants in the entities and pure functions under
   `src/Platform.Api/Modules/Notifications/Domain/`.
 - Keep use-case orchestration in the slices under
@@ -34,8 +36,8 @@
 | Path | Responsibility |
 |---|---|
 | `src/Platform.Api/Modules/Notifications/Domain/` | notification, attempt, policy evaluation and idempotency entities, class vocabulary, canonical JSON, variables masking, public id form |
-| `src/Platform.Api/Modules/Notifications/Features/` | vertical slices for this context: the Core pipeline under `Features/Pipeline/`, the dispatch consumer under `Features/Dispatching/`, the fallback handler under `Features/Fallback/` |
-| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistence (schema `notifications`), Redis controls, template gate, privacy, partition manager, purge job, pipeline commit writer, attempt dispatch writer, poison sinks |
+| `src/Platform.Api/Modules/Notifications/Features/` | vertical slices for this context: the Core pipeline under `Features/Pipeline/`, the dispatch consumer under `Features/Dispatching/`, the fallback handler under `Features/Fallback/`, the query slices under `Features/Queries/` |
+| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistence (schema `notifications`, write and read-only contexts), Redis controls, template gate, privacy, partition manager, purge job, pipeline commit writer, attempt dispatch writer, poison sinks, query transport helpers and the history reader |
 | `src/Platform.Api/Modules/Notifications/NotificationsModule.cs` | service registration and endpoint mapping for this context |
 | `src/Platform.Api/Modules/Notifications/Integration/V1/` | published contract of this context: the canonical rejection-reason catalog |
 | `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs` | composition of the `core` worker role, discovered by the worker host |
@@ -238,6 +240,50 @@ has no business effect and records its trail in its own short transaction.
   lifecycle contract after the verdict commits; the report is best effort
   and idempotent on the owning side.
 
+## Query surface
+
+- Three read routes under `Notifications.Read`: `GET /v1/notifications/{id}`,
+  `GET /v1/recipients/{recipientId}/notifications` and
+  `GET /v1/notifications?correlationId=`. The role gates the route; there is
+  no per-application scope in this phase, because nothing binds a reading
+  principal to an application. The containment is elsewhere and is contract:
+  exact identity only (no prefix, no wildcard, no listing without a subject,
+  no route that lists by `application` alone), a malformed id answering 400
+  and a well-formed unknown id answering 404 with a body that never echoes the
+  value, a rate-limit policy of its own (`notifications-query`, separate from
+  the producer-sized ingestion one), and a structured access log carrying
+  principal, route and subject.
+- **No `audit_event` per read.** Appending a trail row per query would
+  serialize every read against the ingestion on the chain's advisory lock, and
+  `audit.read` belongs to `/v1/audit/*`, which is where content and full
+  contact actually leave the hub.
+- Reads run on `NotificationsReadDbContext`: the same model over
+  `Modules:Notifications:Persistence:Ef:ReadConnectionString`, falling back to
+  the write connection when absent, no tracking, and every `SaveChanges`
+  entry point throwing. Migrations and the design-time factory never touch it.
+- Paging is keyset descending over `(created_at, id)` through a PostgreSQL
+  row-value comparison, with an opaque cursor (base64url of the instant in ISO
+  8601 UTC to the microsecond plus the public `ntf_` id). Four numbers are
+  contract, not configuration: page size 50 by default, 200 at most, a 90-day
+  default window and a 180-day ceiling. The effective window is echoed in the
+  response; a cursor whose position falls outside the window asked for is
+  refused as `invalid-cursor`.
+- Response shape, three rules. Members that always exist are always present,
+  empty arrays included. Members whose value is absent are omitted. Members
+  whose source does not exist in this phase are not declared at all, so
+  `deliveryEvents` and the read receipt are absent rather than empty.
+  `attempts[].deliveredAt` is never stamped in this phase and the omission
+  rule keeps it out.
+- **Never leaves through here**: rendered content in any form (only
+  `content_hash_full` and `content_hash_masked` travel) and
+  `variables_masked`, which is still business data and belongs to the audit
+  surface. The query projections select column by column so no later refactor
+  can reach either.
+- The attempt target is the masked contact point, masked by ContactConsent
+  through `IRecipientDirectory.MaskContactPointsAsync`, plus whether the point
+  is still active. A push attempt has no contact point: it exposes the
+  platform and the device registration id, never the token.
+
 ## Variables and PII
 
 - `variables_masked` (jsonb, mandatory) stores the canonical variables object
@@ -306,6 +352,11 @@ a pending cross-module decision.
   `template-not-found`, `template-class-mismatch`,
   `template-variables-invalid`, plus the catalog reasons
   `template-deprecated` and `template-disabled`.
+- The query surface has its own three stable codes
+  (`Infrastructure/Http/QueryProblems.cs`): `invalid-request`,
+  `invalid-cursor` and `notification-not-found`. The cursor gets a code of its
+  own because a client retrying blindly needs to know whether to drop the
+  parameter or the position.
 
 ## Security and tests
 

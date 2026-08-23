@@ -10,9 +10,26 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 /// composite; the idempotency table stays outside the partitioning exactly so
 /// its unique key can exist.
 /// </summary>
-public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbContext> options)
-    : DbContext(options)
+public class NotificationsDbContext : DbContext
 {
+    // Explicit constructors on purpose: the read-only derivation needs a
+    // second entry point, and a primary constructor forbids any sibling
+    // constructor that does not chain into it.
+    public NotificationsDbContext(DbContextOptions<NotificationsDbContext> options)
+        : base(options)
+    {
+    }
+
+    /// <summary>
+    /// Entry point of the read-only derivation, which carries its own options
+    /// (and therefore its own connection) over this same model. Kept protected
+    /// so nothing outside the module can widen the write surface.
+    /// </summary>
+    protected NotificationsDbContext(DbContextOptions options)
+        : base(options)
+    {
+    }
+
     public DbSet<Notification> Notifications => Set<Notification>();
 
     public DbSet<NotificationAttempt> NotificationAttempts => Set<NotificationAttempt>();

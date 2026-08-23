@@ -197,6 +197,77 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
 - **Review condition**: a measured volume of conflicts that makes the trail
   noisy turns this into a sampled or aggregated record.
 
+## The keyset cursor is duplicated instead of promoted
+
+- **Assumption accepted**: `Infrastructure/Http/NotificationQueryCursor.cs`
+  reimplements opaque cursor encoding rather than sharing the template
+  surface's `PageCursor`, and neither is promoted into the shared kernel.
+- **Evidence**: `PageCursor` is `internal` to TemplateManagement and encodes a
+  single string key, while this cursor encodes an instant plus an identity and
+  must round-trip a microsecond-precision timestamp exactly. Promoting either
+  would turn a detail of two routes into a platform contract, and the shared
+  kernel has an explicit size budget (`Shared_kernel_must_remain_small`).
+- **Owner**: Notifications module maintainers.
+- **Status**: accepted, deliberate duplication.
+- **Review condition**: a third module needing an opaque keyset cursor with
+  the same key shape reopens the promotion.
+
+## The push target reads the platform from the active snapshot
+
+- **Assumption accepted**: the query resolves the push platform through
+  `IRecipientDirectory.FindAsync`, whose snapshot only carries active device
+  registrations. A push attempt whose registration was later invalidated keeps
+  its `deviceTokenId`, reports `active = false`, and loses `platform`. Only
+  `platform` is lost: the target identity, the channel, the sequence, the
+  status and the error code survive whole, and the routing token never leaves
+  the directory in any form.
+- **Evidence**: `Infrastructure/Reads/AttemptTargetDirectory.cs`; the accepted
+  contract addition of this slice covers masked contact points, including
+  removed ones, and grants no equivalent read for device registrations. Adding
+  a second contract member was outside this unit's authority. The inactive flag
+  is inferred, not guessed: the identity came from this recipient's own push
+  fan-out, so an answered snapshot that omits it is conclusive, and the flag is
+  omitted entirely when the directory did not answer.
+- **Owner**: Notifications module maintainers with ContactConsent module
+  maintainers and Arquitetura.
+- **Status**: accepted and ratified, with the asymmetry recorded on purpose.
+- **Review condition**: the historical read of device registrations is decided
+  in the audit API slice, in the same Compliance round as the masked contact
+  point of a removed row. That slice already reads historical contact data
+  under the audit role and with an access trail, so the second widening costs
+  least there and is judged together with the first.
+
+## Policy evidence stays out of the query response
+
+- **Assumption accepted**: `policyEvaluations[]` carries rule, result, reason
+  and instant, and not the compact JSON evidence each rule records.
+- **Evidence**: the accepted response shape names the members the query owes
+  and does not include evidence; the evidence is the trail's payload and the
+  audit routes are where it belongs, behind the audit role and its own
+  `audit.read`. The evidence is also not PII-free, whatever an older comment on
+  `Domain/PolicyEvaluation.EvidenceJson` used to claim: the quiet-hours rule
+  records the recipient's timezone and local time. Adding a member later is a
+  compatible evolution; removing one is a break, so the narrow shape ships
+  first.
+- **Owner**: Notifications module maintainers with Arquitetura and Compliance.
+- **Status**: accepted and ratified for this slice.
+- **Review condition**: a support workflow that cannot answer "why this
+  channel" reopens this as **implementation, not design**, because the shape is
+  already decided: never the raw jsonb, always a per-rule allow-list
+  projection, on the same precedent as the contact dead-letter summary.
+  Candidate fields: `remaining`, `plan`, `withContent`, `reachable`, `selected`
+  (ChannelSelection); `purpose`, `granted`, `denied` (ConsentGate);
+  `windowSeconds`, `acquired`, `failOpen` (DedupeWindow); `window` and
+  `releaseAt` (QuietHours). Outside the projection by default: `timezone` and
+  `localTime`, which answer no triage question that `window` and `releaseAt` do
+  not already answer.
+- **Middle ground rejected, and why**: exposing only the catalog-derived fields
+  (`plan`, `withContent`, `selected`) while dropping the subject-derived ones
+  looks clean and is not. With `withContent` full and `selected` empty, the
+  personal fact leaks by elimination: the reader learns the customer was not
+  reachable without any field ever naming it. The allow-list is per rule and
+  judged as a whole, not split by provenance of each field.
+
 ## Deferred observability is a structured log, not a metric
 
 - **Assumption accepted**: a deferral logs a structured warning with the

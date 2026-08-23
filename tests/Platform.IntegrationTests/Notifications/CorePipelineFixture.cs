@@ -22,6 +22,7 @@ using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.IntegrationTests.TemplateManagement;
@@ -191,6 +192,18 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     public HttpClient CreateProducerClient(string subject, params string[] sendRoles)
         => CreateClientWithToken(subject, sendRoles);
 
+    /// <summary>Producer client for a host derived with <c>WithWebHostBuilder</c>.</summary>
+    public HttpClient CreateProducerClient(
+        WebApplicationFactory<Program> host,
+        string subject,
+        params string[] sendRoles)
+    {
+        HttpClient client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateToken(subject, sendRoles));
+        return client;
+    }
+
     public HttpClient CreateAuthorClient(string subject)
         => CreateClientWithToken(subject, ["Templates.Author"]);
 
@@ -199,6 +212,19 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
 
     public HttpClient CreateContactsClient(string subject)
         => CreateClientWithToken(subject, ["Contacts.Write"]);
+
+    /// <summary>Client authenticated as support or internal tooling: the read role, nothing else.</summary>
+    public HttpClient CreateReaderClient(string subject)
+        => CreateClientWithToken(subject, [NotificationsAuthorizationSetup.ReadRole]);
+
+    /// <summary>Reader client for a host derived with <c>WithWebHostBuilder</c>.</summary>
+    public HttpClient CreateReaderClient(WebApplicationFactory<Program> host, string subject)
+    {
+        HttpClient client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", CreateToken(subject, [NotificationsAuthorizationSetup.ReadRole]));
+        return client;
+    }
 
     public async Task<T> QueryNotificationsDbAsync<T>(Func<NotificationsDbContext, Task<T>> query)
     {

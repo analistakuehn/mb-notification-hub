@@ -92,6 +92,27 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   contracts either ratifies the overload or replaces it with an accepted
   alternative for expressing per-read degradation tolerance.
 
+## The masking read answers for a contact point already removed
+
+- **Assumption accepted**: `IRecipientDirectory.MaskContactPointsAsync` returns
+  the masked form of a contact point even after the declarative write stamped
+  it removed, flagging it inactive, while every other read of this contract
+  filters removed rows out.
+- **Evidence**: `Integration/V1/IRecipientDirectory.cs` and
+  `Infrastructure/Reads/RecipientDirectory.cs`; the consumer is a historical
+  read asking where a delivery attempt was aimed, and filtering the row out
+  would leave the answer blank exactly for the customers whose contact
+  changed, which is when support most needs it. Two alternatives were
+  rejected: a masked field on the resolution snapshot, which would decrypt
+  every contact point on the hot Resolve path, and a masked-contact column on
+  the attempt, which would put contact data inside another context's store.
+- **Owner**: ContactConsent module maintainers with Compliance.
+- **Status**: accepted for the phase, pending the Compliance confirmation
+  recorded as a phase pendency.
+- **Review condition**: a Compliance ruling that a removed contact must not be
+  shown at all reduces the answer to the identifier of the point, dropping the
+  masked value for inactive rows.
+
 ## Invalidation marks the cache entry stale instead of deleting it
 
 - **Assumption accepted**: the `contacts-changed` consumer rewrites the

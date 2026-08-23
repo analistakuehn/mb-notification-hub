@@ -119,6 +119,42 @@ internal sealed class RecipientDirectory(
         return Result.Success(value);
     }
 
+    public async Task<Result<IReadOnlyList<MaskedContactPoint>>> MaskContactPointsAsync(
+        string recipientId,
+        IReadOnlyCollection<Guid> contactPointIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientId);
+        ArgumentNullException.ThrowIfNull(contactPointIds);
+        if (contactPointIds.Count == 0)
+        {
+            return Result.Success<IReadOnlyList<MaskedContactPoint>>([]);
+        }
+
+        Guid[] wanted = [.. contactPointIds.Distinct()];
+
+        // Removed points are included on purpose: the caller asks where a
+        // message went, and the removal came after the send.
+        List<ContactPoint> points = await db.ContactPoints
+            .AsNoTracking()
+            .Where(point => point.RecipientId == recipientId && wanted.Contains(point.Id))
+            .OrderBy(point => point.Id)
+            .ToListAsync(cancellationToken);
+
+        var masked = new List<MaskedContactPoint>(points.Count);
+        foreach (ContactPoint point in points)
+        {
+            var value = await protector.RevealAsync(point.ValueEncrypted, cancellationToken);
+            masked.Add(new MaskedContactPoint(
+                point.Id,
+                point.Channel,
+                ContactValueMask.Apply(point.Channel, value),
+                point.IsActive));
+        }
+
+        return Result.Success<IReadOnlyList<MaskedContactPoint>>(masked);
+    }
+
     public async Task<Result<string>> RevealDeviceTokenAsync(
         string recipientId,
         Guid deviceTokenId,

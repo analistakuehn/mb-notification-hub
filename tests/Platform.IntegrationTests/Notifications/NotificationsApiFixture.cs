@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
@@ -75,6 +76,19 @@ public sealed class NotificationsApiFixture : WebApplicationFactory<Program>, IA
         HttpClient client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", CreateToken(subject, sendRoles));
+        return client;
+    }
+
+    /// <summary>Client authenticated as support or internal tooling: the read role, nothing else.</summary>
+    public HttpClient CreateReaderClient(string subject)
+        => CreateClientWithToken(subject, [NotificationsAuthorizationSetup.ReadRole]);
+
+    /// <summary>Reader client for a host derived with <c>WithWebHostBuilder</c>.</summary>
+    public HttpClient CreateReaderClient(WebApplicationFactory<Program> host, string subject)
+    {
+        HttpClient client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", CreateToken(subject, [NotificationsAuthorizationSetup.ReadRole]));
         return client;
     }
 

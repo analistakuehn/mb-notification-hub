@@ -67,4 +67,14 @@ internal sealed class CachedRecipientDirectory(
         Guid deviceTokenId,
         CancellationToken cancellationToken)
         => store.RevealDeviceTokenAsync(recipientId, deviceTokenId, cancellationToken);
+
+    /// <summary>
+    /// Never cached either: the cached snapshot only carries active points,
+    /// and this read must also answer for a point already removed.
+    /// </summary>
+    public Task<Result<IReadOnlyList<MaskedContactPoint>>> MaskContactPointsAsync(
+        string recipientId,
+        IReadOnlyCollection<Guid> contactPointIds,
+        CancellationToken cancellationToken)
+        => store.MaskContactPointsAsync(recipientId, contactPointIds, cancellationToken);
 }

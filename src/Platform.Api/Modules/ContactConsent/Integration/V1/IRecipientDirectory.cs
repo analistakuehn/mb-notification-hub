@@ -70,4 +70,24 @@ public interface IRecipientDirectory
         string recipientId,
         Guid deviceTokenId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Masks a set of contact points of one recipient in a single read. The
+    /// masking rule runs inside this module over the decrypted value, so the
+    /// plaintext never crosses the boundary and no caller can reimplement the
+    /// rule from a value it should not hold. The read is by set on purpose: a
+    /// consumer showing the targets of several delivery attempts asks once
+    /// instead of once per attempt.
+    /// </summary>
+    /// <remarks>
+    /// Deliberate opening: this read also answers for a contact point already
+    /// stamped removed, marking it inactive, because a historical consumer
+    /// asks where a message went, not where a message would go now. Unknown
+    /// ids and ids of another recipient are simply absent from the answer,
+    /// which keeps the read from confirming the existence of anything.
+    /// </remarks>
+    Task<Result<IReadOnlyList<MaskedContactPoint>>> MaskContactPointsAsync(
+        string recipientId,
+        IReadOnlyCollection<Guid> contactPointIds,
+        CancellationToken cancellationToken);
 }

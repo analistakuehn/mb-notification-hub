@@ -34,7 +34,18 @@ public sealed class PolicyEvaluation
     /// <summary>Stable reason on defer and reject; null on allow and filter.</summary>
     public string? Reason { get; private set; }
 
-    /// <summary>Compact JSON evidence of the rule decision. Never personal data.</summary>
+    /// <summary>
+    /// Compact JSON evidence of the rule decision, in each rule's own shape.
+    /// It carries no contact value, no device token and no rendered content,
+    /// and it does carry facts about the recipient: the quiet-hours rule
+    /// records the recipient's timezone and local time, which infer
+    /// approximate geography, and the channel rule records which channels were
+    /// reachable, which states whether the recipient has a usable contact.
+    /// Treat this column as personal data with a narrow shape, not as a
+    /// PII-free field: exposing it outside the audit surface is a privacy
+    /// decision, and any projection of it belongs to an explicit allow-list per
+    /// rule rather than to the raw document.
+    /// </summary>
     public string EvidenceJson { get; private set; }
 
     public DateTimeOffset EvaluatedAt { get; private set; }

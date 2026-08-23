@@ -27,7 +27,7 @@
 |---|---|
 | `src/Platform.Api/Modules/ContactConsent/Domain/` | profile, contact point, consent and device entities; channel, source and platform vocabularies; value normalization |
 | `src/Platform.Api/Modules/ContactConsent/Features/` | vertical slices for this context |
-| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, the degradation-aware read fallback, the snapshot records other modules consume, and the refusal vocabulary of the contact ingestion |
+| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, the degradation-aware read fallback, the snapshot records other modules consume, the masked contact-point record, and the refusal vocabulary of the contact ingestion |
 | `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, snapshot cache, invalidation consumer, bus ingestion topology and dead-letter writer, authorization, problems |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentModule.cs` | service registration and endpoint mapping for this context |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentWorkerRole.cs` | composition of the `contact-consent` worker role, discovered by the worker host |
@@ -74,6 +74,15 @@ appending a second entry to the hash-chained trail.
   `IRecipientDirectory.RevealContactValueAsync`, decrypted inside the module:
   every plaintext egress is an explicit call site. It never appears in
   responses, logs, audit details or outbox payloads.
+- A consumer that must **show** a contact instead of addressing it calls
+  `IRecipientDirectory.MaskContactPointsAsync`, which decrypts and masks
+  inside this module and hands out only the masked form, per channel, in one
+  read for a set of contact points. The rule lives in
+  `Infrastructure/Privacy/ContactValueMask.cs`: an e-mail keeps the first
+  character of the local part and the whole domain, a phone keeps the last
+  four characters and a leading country marker. The read deliberately answers
+  for a point already stamped removed, marking it inactive, because a
+  historical consumer asks where a message went, not where one would go now.
 - Values are normalized before hashing (trim; lowercase for e-mail), so the
   deterministic hash serves equality search and the uniqueness of
   `(recipient, channel, value_hash)`.

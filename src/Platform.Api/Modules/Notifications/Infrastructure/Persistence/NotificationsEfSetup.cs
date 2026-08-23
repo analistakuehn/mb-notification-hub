@@ -32,6 +32,26 @@ public static class NotificationsEfSetup
             }
         });
 
+        // The query surface resolves this one: same model, its own connection,
+        // no tracking and no write entry point. It is registered beside the
+        // write context so a host that composes persistence gets both.
+        services.AddDbContext<NotificationsReadDbContext>((serviceProvider, options) =>
+        {
+            NotificationsEfOptions efOptions =
+                serviceProvider.GetRequiredService<IOptions<NotificationsEfOptions>>().Value;
+            options.UseNpgsql(efOptions.EffectiveReadConnectionString);
+
+            if (efOptions.EnableSensitiveDataLogging)
+            {
+                options.EnableSensitiveDataLogging();
+            }
+
+            if (efOptions.EnableDetailedErrors)
+            {
+                options.EnableDetailedErrors();
+            }
+        });
+
         return services;
     }
 }

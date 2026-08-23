@@ -13,13 +13,28 @@ public static class NotificationsAuthorizationSetup
 {
     public const string SendPolicyName = "notifications-send";
 
+    /// <summary>
+    /// Named policy of the query surface. The role belongs to support and to
+    /// internal tooling, never to a producer: producing and reading are
+    /// different jobs, and the send roles carry no read grant.
+    /// </summary>
+    public const string ReadPolicyName = "notifications-read";
+
+    /// <summary>App role that grants the query surface.</summary>
+    public const string ReadRole = "Notifications.Read";
+
     public static IServiceCollection AddNotificationsAuthorization(this IServiceCollection services)
     {
         services.AddAuthorizationBuilder()
             .AddPolicy(SendPolicyName, policy => policy.RequireRole(
                 NotificationClasses.RequiredRole(NotificationClasses.Critical),
                 NotificationClasses.RequiredRole(NotificationClasses.Transactional),
-                NotificationClasses.RequiredRole(NotificationClasses.Operational)));
+                NotificationClasses.RequiredRole(NotificationClasses.Operational)))
+            // Route gate only: this phase has no per-application scope for the
+            // read, because nothing binds a reading principal to an
+            // application. The containment lives in the routes themselves,
+            // which only ever answer for an exact identity.
+            .AddPolicy(ReadPolicyName, policy => policy.RequireRole(ReadRole));
         return services;
     }
 }

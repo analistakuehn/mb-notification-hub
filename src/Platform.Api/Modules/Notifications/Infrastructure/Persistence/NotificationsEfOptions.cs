@@ -15,6 +15,18 @@ public sealed class NotificationsEfOptions
     [Required]
     public required string ConnectionString { get; init; }
 
+    /// <summary>
+    /// Optional connection of the query surface. Absent means the query reads
+    /// the same database as the write path, which is the correct default until
+    /// a physical read replica exists: the seam is here so pointing the query
+    /// at the replica later is configuration, not code.
+    /// </summary>
+    public string? ReadConnectionString { get; init; }
+
+    /// <summary>The connection the read-only context opens; the write connection when no replica is configured.</summary>
+    public string EffectiveReadConnectionString
+        => string.IsNullOrWhiteSpace(ReadConnectionString) ? ConnectionString : ReadConnectionString;
+
     public bool EnableSensitiveDataLogging { get; init; }
 
     public bool EnableDetailedErrors { get; init; }
