@@ -1,0 +1,335 @@
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
+using NotificationHub.SharedKernel;
+
+namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
+
+/// <summary>
+/// Renders the published version of a template for sibling modules with the
+/// sandboxed engine: locale fallback chain, URL variables enforced against the
+/// template allowlist, pinned layout wrapped around the body, and, on demand,
+/// the masked form rendered with every sensitive variable masked. Each form
+/// carries the canonical hash of exactly the fields it shipped.
+/// </summary>
+internal sealed class PublishedTemplateRenderer(
+    TemplateManagementDbContext dbContext,
+    ScribanTemplateEngine engine) : IPublishedTemplateRenderer
+{
+    public async Task<Result<PublishedTemplateRender>> RenderAsync(
+        PublishedRenderRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        Result<Channel> channel = Channel.Create(request.Channel);
+        if (channel.IsFailure)
+        {
+            return channel.AsFailure<Channel, PublishedTemplateRender>();
+        }
+
+        Result<Locale> locale = Locale.Create(request.Locale);
+        if (locale.IsFailure)
+        {
+            return locale.AsFailure<Locale, PublishedTemplateRender>();
+        }
+
+        Result<PublishedTemplateContext> context = await dbContext.FindPublishedTemplateAsync(
+            request.Application, request.TemplateKey, cancellationToken);
+        if (context.IsFailure)
+        {
+            return context.AsFailure<PublishedTemplateContext, PublishedTemplateRender>();
+        }
+
+        (Template template, TemplateVersion version) = context.Value!;
+        var channelContents = version.Contents
+            .Where(content => content.Channel == channel.Value)
+            .ToList();
+        if (channelContents.Count == 0)
+        {
+            return Result.NotFound<PublishedTemplateRender>(DomainError.Format(
+                ErrorCodes.TemplateContentNotFound,
+                $"The published version of template '{version.TemplateKey.Value}' has no content "
+                + $"for channel '{channel.Value!.Value}'."));
+        }
+
+        var availableLocales = channelContents.Select(content => content.Locale).ToList();
+        Locale? resolved = LocaleResolution.Resolve(locale.Value!, availableLocales, template.DefaultLocale);
+        if (resolved is null)
+        {
+            return Result.NotFound<PublishedTemplateRender>(DomainError.Format(
+                ErrorCodes.TemplateContentNotFound,
+                $"Locale '{locale.Value!.Value}' does not resolve for channel '{channel.Value!.Value}': "
+                + "no exact match, no base-language content and no default-locale content."));
+        }
+
+        Result urlGuard = EnforceUrlVariables(template, version, request.Variables);
+        if (urlGuard.IsFailure)
+        {
+            return urlGuard.AsFailure<PublishedTemplateRender>();
+        }
+
+        Result<LayoutWrapper?> wrapper = await ResolveLayoutWrapperAsync(
+            version, channel.Value!, resolved, cancellationToken);
+        if (wrapper.IsFailure)
+        {
+            return wrapper.AsFailure<LayoutWrapper?, PublishedTemplateRender>();
+        }
+
+        TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
+        Result<RenderedForm> full = await RenderFormAsync(
+            content, request.Variables, wrapper.Value, cancellationToken);
+        if (full.IsFailure)
+        {
+            return full.AsFailure<RenderedForm, PublishedTemplateRender>();
+        }
+
+        RenderedForm? masked = null;
+        if (request.IncludeMaskedForm)
+        {
+            Result<RenderedForm> maskedForm = await RenderMaskedFormAsync(
+                template, content, request.Variables, wrapper.Value, full.Value!, cancellationToken);
+            if (maskedForm.IsFailure)
+            {
+                return maskedForm.AsFailure<RenderedForm, PublishedTemplateRender>();
+            }
+
+            masked = maskedForm.Value;
+        }
+
+        return Result.Success(new PublishedTemplateRender
+        {
+            Channel = channel.Value!.Value,
+            RequestedLocale = locale.Value!.Value,
+            ResolvedLocale = resolved.Value,
+            Version = version.Version,
+            Full = full.Value!,
+            Masked = masked,
+        });
+    }
+
+    /// <summary>
+    /// The masked form repeats the render with the sensitive values masked, so
+    /// masking can never leak through a template transformation; a payload
+    /// with nothing to mask reuses the full form, hash included.
+    /// </summary>
+    private async Task<Result<RenderedForm>> RenderMaskedFormAsync(
+        Template template,
+        TemplateContent content,
+        JsonElement? variables,
+        LayoutWrapper? wrapper,
+        RenderedForm full,
+        CancellationToken cancellationToken)
+    {
+        if (!VariableMasking.RequiresMasking(variables, template.SensitiveVariables))
+        {
+            return Result.Success(full);
+        }
+
+        JsonElement? maskedVariables = VariableMasking.MaskSensitiveVariables(
+            variables, template.SensitiveVariables);
+        return await RenderFormAsync(content, maskedVariables, wrapper, cancellationToken);
+    }
+
+    private async Task<Result<RenderedForm>> RenderFormAsync(
+        TemplateContent content,
+        JsonElement? variables,
+        LayoutWrapper? wrapper,
+        CancellationToken cancellationToken)
+    {
+        Result<string?> subject = await RenderFieldAsync(
+            TemplateContentFields.Subject, content.Subject, variables, cancellationToken);
+        if (subject.IsFailure)
+        {
+            return subject.AsFailure<string?, RenderedForm>();
+        }
+
+        Result<string?> body = await RenderFieldAsync(
+            TemplateContentFields.Body, content.Body, variables, cancellationToken);
+        if (body.IsFailure)
+        {
+            return body.AsFailure<string?, RenderedForm>();
+        }
+
+        Result<string?> bodyText = await RenderFieldAsync(
+            TemplateContentFields.BodyText, content.BodyText, variables, cancellationToken);
+        if (bodyText.IsFailure)
+        {
+            return bodyText.AsFailure<string?, RenderedForm>();
+        }
+
+        // The subject never wraps: the layout only frames the body, and the
+        // text variant only when the layout ships a text wrapper of its own.
+        var wrappedBody = body.Value!;
+        var wrappedBodyText = bodyText.Value;
+        if (wrapper is not null)
+        {
+            Result<string> framed = await WrapInLayoutAsync(
+                TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
+            if (framed.IsFailure)
+            {
+                return framed.AsFailure<string, RenderedForm>();
+            }
+
+            wrappedBody = framed.Value!;
+            if (wrappedBodyText is not null && wrapper.BodyText is not null)
+            {
+                Result<string> framedText = await WrapInLayoutAsync(
+                    TemplateContentFields.BodyText, wrapper.BodyText, wrappedBodyText, cancellationToken);
+                if (framedText.IsFailure)
+                {
+                    return framedText.AsFailure<string, RenderedForm>();
+                }
+
+                wrappedBodyText = framedText.Value!;
+            }
+        }
+
+        return Result.Success(new RenderedForm(
+            subject.Value,
+            wrappedBody,
+            wrappedBodyText,
+            CanonicalHash.OfFields(subject.Value, wrappedBody, wrappedBodyText)));
+    }
+
+    /// <summary>
+    /// Resolves the layout content the pinned layout version provides for the
+    /// rendered channel and the locale the template resolution landed on,
+    /// following the layout's own fallback chain.
+    /// </summary>
+    private async Task<Result<LayoutWrapper?>> ResolveLayoutWrapperAsync(
+        TemplateVersion version,
+        Channel channel,
+        Locale resolved,
+        CancellationToken cancellationToken)
+    {
+        if (version.LayoutKey is not string layoutKey)
+        {
+            return Result.Success<LayoutWrapper?>(null);
+        }
+
+        var key = LayoutKey.Trusted(layoutKey);
+        var pinnedNumber = version.LayoutVersion!.Value;
+        LayoutVersion? pinned = await dbContext.LayoutVersions
+            .AsNoTracking()
+            .WhereLayoutKey(key)
+            .FirstOrDefaultAsync(candidate => candidate.Version == pinnedNumber, cancellationToken);
+        if (pinned is null)
+        {
+            return Result.NotFound<LayoutWrapper?>(DomainError.Format(
+                ErrorCodes.LayoutVersionNotFound,
+                $"The version pins layout '{layoutKey}' version {pinnedNumber}, which does not exist."));
+        }
+
+        Layout? layout = await dbContext.Layouts
+            .AsNoTracking()
+            .WhereKey(key)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var channelContents = pinned.Contents
+            .Where(candidate => candidate.Channel == channel)
+            .ToList();
+        var availableLocales = channelContents.Select(candidate => candidate.Locale).ToList();
+        Locale? layoutLocale = LocaleResolution.Resolve(resolved, availableLocales, layout?.DefaultLocale);
+        if (layoutLocale is null)
+        {
+            return Result.NotFound<LayoutWrapper?>(DomainError.Format(
+                ErrorCodes.LayoutContentNotFound,
+                $"Layout '{layoutKey}' version {pinnedNumber} has no content that resolves "
+                + $"for ({channel.Value}, {resolved.Value})."));
+        }
+
+        LayoutContent content = channelContents.First(candidate => candidate.Locale == layoutLocale);
+        return Result.Success<LayoutWrapper?>(new LayoutWrapper(content.Body, content.BodyText));
+    }
+
+    /// <summary>
+    /// Renders the layout wrapper with the already-rendered template field
+    /// exposed as the single <c>content</c> variable: the layout sees no
+    /// template variable and no template source, only the finished text.
+    /// </summary>
+    private async Task<Result<string>> WrapInLayoutAsync(
+        string field,
+        string layoutSource,
+        string renderedContent,
+        CancellationToken cancellationToken)
+    {
+        JsonElement globals = JsonSerializer.SerializeToElement(new Dictionary<string, string>
+        {
+            [LayoutValidation.ContentPlaceholderVariable] = renderedContent,
+        });
+        Result<string> wrapped = await engine.RenderAsync(layoutSource, globals, cancellationToken);
+        return wrapped.IsFailure
+            ? Result.ValidationError<string>(DomainError.Format(
+                ErrorCodes.TemplateRenderFailed,
+                $"Layout wrapper for field '{field}': {wrapped.Error}"))
+            : wrapped;
+    }
+
+    private async Task<Result<string?>> RenderFieldAsync(
+        string field,
+        string? source,
+        JsonElement? variables,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(source))
+        {
+            return Result.Success<string?>(null);
+        }
+
+        Result<string> rendered = await engine.RenderAsync(source, variables, cancellationToken);
+        return rendered.IsFailure
+            ? Result.ValidationError<string?>(DomainError.Format(
+                ErrorCodes.TemplateRenderFailed,
+                $"Field '{field}': {rendered.Error}"))
+            : Result.Success<string?>(rendered.Value);
+    }
+
+    private static Result EnforceUrlVariables(Template template, TemplateVersion version, JsonElement? variables)
+    {
+        if (!VariablesSchema.TryParse(version.VariablesSchemaJson, out IReadOnlyList<VariableDeclaration> declarations))
+        {
+            return new Result(false, ResultErrorKind.Validation, DomainError.Format(
+                ErrorCodes.TemplateRenderFailed,
+                "The variables schema is not readable; run the validation report."));
+        }
+
+        if (variables is not { ValueKind: JsonValueKind.Object } provided)
+        {
+            return Result.Success();
+        }
+
+        foreach (VariableDeclaration declaration in declarations.Where(declaration => declaration.IsUrl))
+        {
+            if (!provided.TryGetProperty(declaration.Name, out JsonElement value))
+            {
+                continue;
+            }
+
+            if (!IsAllowedUrl(template, value))
+            {
+                // The value never travels in the error: it may embed tokens
+                // or personal data in the query string.
+                return new Result(false, ResultErrorKind.Validation, DomainError.Format(
+                    ErrorCodes.UrlDomainNotAllowed,
+                    $"Variable '{declaration.Name}' must be an absolute http(s) URL "
+                    + "inside the template's allowed domains."));
+            }
+        }
+
+        return Result.Success();
+    }
+
+    private static bool IsAllowedUrl(Template template, JsonElement value)
+        => value.ValueKind == JsonValueKind.String
+            && Uri.TryCreate(value.GetString(), UriKind.Absolute, out Uri? url)
+            && (url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps)
+            && template.IsLinkDomainAllowed(url.Host);
+
+    /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
+    private sealed record LayoutWrapper(string Body, string? BodyText);
+}

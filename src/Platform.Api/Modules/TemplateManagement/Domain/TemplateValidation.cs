@@ -18,6 +18,8 @@ public static class ValidationCheckNames
     public const string VariablesSchema = "variables-schema";
     public const string VariablesDeclared = "variables-declared";
     public const string VariablesUsed = "variables-used";
+    public const string VariablesRequired = "variables-required";
+    public const string VariablesTypes = "variables-types";
     public const string UrlAllowlist = "url-allowlist";
     public const string SensitiveVariables = "sensitive-variables";
     public const string ChannelLimits = "channel-limits";

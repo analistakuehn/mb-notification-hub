@@ -3,12 +3,17 @@ using System.Text.Json;
 namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 
 /// <summary>One variable declared by the version's variables schema.</summary>
-public sealed record VariableDeclaration(string Name, bool Required, bool IsUrl);
+public sealed record VariableDeclaration(string Name, bool Required, bool IsUrl)
+{
+    /// <summary>Primitive JSON Schema type the declaration names, when it names one.</summary>
+    public string? Type { get; init; }
+}
 
 /// <summary>
 /// Reads the variable declarations out of the JSON Schema stored on a version:
-/// the property names, which of them the schema marks as required, and which
-/// carry a URL format and therefore fall under the link-domain allowlist.
+/// the property names, which of them the schema marks as required, which carry
+/// a URL format and therefore fall under the link-domain allowlist, and the
+/// primitive type each one declares.
 /// </summary>
 public static class VariablesSchema
 {
@@ -50,11 +55,22 @@ public static class VariablesSchema
             declarations.Add(new VariableDeclaration(
                 property.Name,
                 required.Contains(property.Name),
-                HasUrlFormat(property.Value)));
+                HasUrlFormat(property.Value))
+            {
+                Type = ReadType(property.Value),
+            });
         }
 
         return declarations;
     }
+
+    /// <summary>Single-type declarations only; a type union belongs to a newer vocabulary and is tolerated as untyped.</summary>
+    private static string? ReadType(JsonElement declaration)
+        => declaration.ValueKind == JsonValueKind.Object
+            && declaration.TryGetProperty("type", out JsonElement type)
+            && type.ValueKind == JsonValueKind.String
+            ? type.GetString()
+            : null;
 
     private static HashSet<string> ReadRequired(JsonElement root)
     {

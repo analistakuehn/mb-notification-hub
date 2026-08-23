@@ -5,15 +5,16 @@ namespace NotificationHub.UnitTests.TemplateManagement;
 public sealed class VariablesSchemaTests
 {
     [Fact]
-    public void Reads_names_required_flags_and_url_formats_from_the_schema()
+    public void Reads_names_required_flags_url_formats_and_types_from_the_schema()
     {
         const string schema = """
             {
               "type": "object",
               "properties": {
                 "code": { "type": "string" },
+                "minutes": { "type": "integer" },
                 "portalUrl": { "type": "string", "format": "url" },
-                "docLink": { "type": "string", "format": "uri" }
+                "docLink": { "format": "uri" }
               },
               "required": ["code"]
             }
@@ -23,8 +24,9 @@ public sealed class VariablesSchemaTests
 
         parsed.ShouldBeTrue();
         declarations.ShouldBe([
-            new VariableDeclaration("code", Required: true, IsUrl: false),
-            new VariableDeclaration("portalUrl", Required: false, IsUrl: true),
+            new VariableDeclaration("code", Required: true, IsUrl: false) { Type = "string" },
+            new VariableDeclaration("minutes", Required: false, IsUrl: false) { Type = "integer" },
+            new VariableDeclaration("portalUrl", Required: false, IsUrl: true) { Type = "string" },
             new VariableDeclaration("docLink", Required: false, IsUrl: true),
         ]);
     }

@@ -114,6 +114,27 @@
   without a data migration. A field new to the vocabulary is a new
   `schemaVersion`, never a silent edit of version 1.
 
+## Published read contracts
+
+- Sibling modules read this context exclusively through the in-process
+  contracts under `Integration/V1`, registered by `TemplateManagementModule`:
+  `IPublishedCatalog` (published template decision metadata by
+  `(application, templateKey)`, with `template-deprecated` and
+  `template-disabled` returned as catalog data for the consumer to reject, and
+  the published class policy by `(application, class)`),
+  `IPublishedVariablesValidator` (variables payload against the published
+  variables schema, in the shared checks vocabulary), and
+  `IPublishedTemplateRenderer` (published version by channel and locale with
+  the pinned layout applied).
+- The renderer produces the full form for dispatch and, on demand, the masked
+  form for the trail; each form carries the canonical hash of exactly the
+  fields it shipped. Masking replaces sensitive values with `***` before the
+  masked render, so the stored form proves that a value was sent, never which
+  one.
+- Contracts expose immutable DTOs and `Result`/`Result<T>` only; domain
+  entities never cross the boundary. Only published state is visible: drafts
+  and superseded versions stay internal.
+
 ## Error axis
 
 - This module has exactly one error axis: `Result`/`Result<T>` from the

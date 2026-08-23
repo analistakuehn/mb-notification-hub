@@ -5,9 +5,11 @@ using NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
 using NotificationHub.Api.Modules.TemplateManagement.Features.Queries;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Caching;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.RateLimiting;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.TemplateManagement;
 
@@ -57,6 +59,11 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<GetClassPolicy.Handler>();
         services.AddScoped<GetClassPolicyVersion.Handler>();
         services.AddScoped<DiffClassPolicyVersions.Handler>();
+
+        // Published read contracts consumed in-process by sibling modules.
+        services.AddScoped<IPublishedCatalog, PublishedCatalog>();
+        services.AddScoped<IPublishedVariablesValidator, PublishedVariablesValidator>();
+        services.AddScoped<IPublishedTemplateRenderer, PublishedTemplateRenderer>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)
