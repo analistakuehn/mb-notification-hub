@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # ADR-0001: Canal e provedor como plugin
 
 | | |
@@ -39,15 +43,20 @@ public interface IChannelProvider
 {
     Channel Channel { get; }
     string ProviderKey { get; }          // "sendgrid", "twilio-sms", "twilio-whatsapp", "fcm"
-    Task<ProviderResult> SendAsync(RenderedMessage msg, CancellationToken ct);
+    Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken ct);
 }
+
+public sealed record DispatchRequest(DeliveryTarget Target, RenderedMessage Message);
 
 public sealed record ProviderResult(
     ProviderOutcome Outcome,             // Accepted | Rejected | Throttled | TransientError
     string? ProviderMessageId,
     string? ErrorCode,
+    string? ErrorMessage,                // texto do provedor após sanitização, sem dados pessoais
     TimeSpan? RetryAfter);
 ```
+
+A fonte normativa do contrato é `Modules/Dispatch/Integration/V1`; os trechos aqui são ilustrativos. O destino viaja em `DeliveryTarget`, separado do conteúdo renderizado: o modelo de dados guarda contato e conteúdo em colunas distintas do attempt, e a fronteira de PII impede endereço ou token dentro do conteúdo auditado por hash.
 
 `RenderedMessage` é uma hierarquia discriminada por canal; cada adapter recebe o tipo do seu canal:
 
@@ -60,7 +69,7 @@ public sealed record PushMessage(string Title, string Body, IReadOnlyDictionary<
 public sealed record WhatsAppMessage(string ContentSid, IReadOnlyDictionary<string, string> ContentVariables) : RenderedMessage;
 ```
 
-- Cada provedor é um adapter fino que traduz `RenderedMessage` → chamada ao fornecedor → `ProviderResult` normalizado. O adapter não conhece política, fallback, retry nem auditoria.
+- Cada provedor é um adapter fino que traduz `DispatchRequest` → chamada ao fornecedor → `ProviderResult` normalizado. O adapter não conhece política, fallback, retry nem auditoria. Mapeamento canônico de limitação: 429 e códigos de quota viram `Throttled`, com `RetryAfter` propagado quando o provedor nomear a espera; rejeição permanente fica reservada a erros que invalidam a mensagem ou o destino.
 - A seleção do provedor por canal e `application` vem de `PROVIDER_CONFIG` (gerida por Terraform, auditada), com campo `priority` já previsto para failover futuro.
 - Circuit breaker, rate limit e concorrência são configurados **por `ProviderKey`**, fora do adapter.
 - O `ProviderKey` e o `ProviderMessageId` são gravados em `NOTIFICATION_ATTEMPT`; webhooks são correlacionados por eles.

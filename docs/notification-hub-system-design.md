@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # Notification Hub — Design de Sistema
 
 **Plataforma centralizada de notificações (E-mail, SMS, Push, WhatsApp) para fintech**
@@ -433,17 +437,20 @@ public interface IChannelProvider
 {
     Channel Channel { get; }
     string ProviderKey { get; }          // "sendgrid", "twilio-sms", "twilio-whatsapp", "fcm"
-    Task<ProviderResult> SendAsync(RenderedMessage msg, CancellationToken ct);
+    Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken ct);
 }
+
+public sealed record DispatchRequest(DeliveryTarget Target, RenderedMessage Message);
 
 public sealed record ProviderResult(
     ProviderOutcome Outcome,             // Accepted | Rejected | Throttled | TransientError
     string? ProviderMessageId,
     string? ErrorCode,
+    string? ErrorMessage,                // texto do provedor após sanitização, sem dados pessoais
     TimeSpan? RetryAfter);
 ```
 
-`RenderedMessage` é uma hierarquia discriminada por canal: `EmailMessage(subject, preheader, htmlBody, textBody)`, `SmsMessage(body)`, `PushMessage(title, body, dataPayload)`, `WhatsAppMessage(contentSid, contentVariables)`.
+`RenderedMessage` é uma hierarquia discriminada por canal: `EmailMessage(subject, preheader, htmlBody, textBody)`, `SmsMessage(body)`, `PushMessage(title, body, dataPayload)`, `WhatsAppMessage(contentSid, contentVariables)`. O destino viaja em `DeliveryTarget`, separado do conteúdo (fronteira de PII, §4.4); 429 e códigos de quota mapeiam para `Throttled` com `RetryAfter` propagado. A fonte normativa do contrato é `Modules/Dispatch/Integration/V1`.
 
 | Canal | Provedor | Detalhes do adapter |
 |---|---|---|
