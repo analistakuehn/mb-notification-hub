@@ -49,6 +49,19 @@
   the chain advisory lock, and that lock is held until the transaction ends,
   so anything placed between append and commit stretches the serialization
   window of the whole partition.
+- **The caller's transaction must be READ COMMITTED**, and the writer refuses
+  anything else: it checks the level the caller declared before it sends a
+  statement and the level the server reports for the running transaction. A
+  stronger level takes its snapshot on the first statement of the transaction,
+  before the lock is granted, so the append would read a chain tail older than
+  the commit of the appender it waited for and fork the chain. Nothing at the
+  call site announces that dependency, which is why it is enforced instead of
+  documented.
+- The window is three round trips: the lock together with the sequence value,
+  the previous hash on its own, and the insert. The previous hash never joins
+  the lock statement, for the same snapshot reason; the sequence value does,
+  because it reads no snapshot and is evaluated after the lock is granted,
+  which keeps sequence order equal to chain order.
 - Both DbContexts stay isolated: the producing module never maps the audit
   tables, and this module never reads a producer's model. Shared database
   deployment does not imply shared data ownership; the append shares only the
@@ -71,10 +84,15 @@
   stored `timestamptz` describe the same instant.
 - Concurrency: `prev_hash` is read after `pg_advisory_xact_lock` over the
   partition of the occurrence month (key: high 32 bits `0x41554449`, low 32
-  bits `year * 100 + month`), in the same transaction as the effect. Appends
-  to one partition serialize; the chain never forks. Sequence holes from
-  aborted transactions are legitimate and belong to the verification job's
-  tolerance, not to the writer.
+  bits `year * 100 + month`), in the same transaction as the effect, and in a
+  statement that begins after the lock statement returned. Appends to one
+  partition serialize; the chain never forks. Sequence holes from aborted
+  transactions are legitimate and belong to the verification job's tolerance,
+  not to the writer.
+- The tail read carries `hash IS NOT NULL` literally, and that predicate is
+  what makes the partial tail index match. Editing the statement to drop it
+  returns the same row and quietly costs the index, which turns the hold
+  window back into a scan of the whole month.
 - **Anchor rule**: the first chained event of a partition links to the
   deterministic anchor `SHA-256("notification-hub:audit-chain:{partition}:anchor")`,
   for example `notification-hub:audit-chain:audit_event_2026_08:anchor`. A
@@ -114,6 +132,19 @@
 - Both tables stay append-only by construction: row triggers reject `UPDATE`
   and `DELETE` (including on the chain columns). TRUNCATE and owner-issued DDL
   remain possible until the dedicated database roles arrive in a later phase.
+- Indexes of `audit_event` are declared on the partitioned parent, never on a
+  partition: PostgreSQL propagates a parent index to every partition, current
+  and future, which is what keeps the month the provisioner creates ahead of
+  time from being born without them. On a populated database, creating one is
+  a maintenance window, because a concurrent build exists neither for a
+  partitioned table nor inside a migration transaction.
+- Two partial indexes cover the sequence, and the split between them is the
+  chain boundary: `ix_audit_event_chain_tail`, `(seq DESC) WHERE hash IS NOT
+  NULL`, and `ix_audit_event_prechain_seq`, `(seq) WHERE hash IS NULL`. A
+  partial index only answers a statement that carries its predicate, so every
+  read that walks a partition by `seq` states which side of the chain boundary
+  it wants. The pre-chain index costs nothing to keep: those rows are a closed
+  set, so an inserted row never matches its predicate and never enters it.
 - The partition manager keeps monthly partitions provisioned ahead of time
   (`Modules:Audit:PartitionManager`); the `audit-partitions` health check
   degrades the host while there is still time to act. A missing month makes
@@ -137,6 +168,14 @@
   re-serialized: the hash covers those exact bytes. Pre-chain rows travel in
   a separate object, canonicalized at export time, with no hash fabricated
   for them.
+- The reader the export and the verification share fetches each side of the
+  chain boundary with its own statement and merges them by `seq`, walking by
+  key in blocks. Only the fetching is split: the rows, their order and their
+  bytes are what one statement returned before, and nothing about the objects,
+  the manifest or the tolerance for sequence holes depends on it. A block takes
+  its own snapshot, which is why the stabilization watermark of the
+  verification and the high-water mark of the export stay the bound on what a
+  pass may claim.
 - The authoritative claim of an export is its sequence range, not its
   calendar window. A daily slice carries the contiguous range that ends at
   the day's highest sequence, which keeps the segment replayable even when an

@@ -108,6 +108,7 @@ internal static class Program
         var arms = new List<ArmResult>();
         var verification = new List<VerificationCost>();
         var sustained = new List<SustainedRateResult>();
+        var readPaths = new List<ReadPathPlan>();
         TailIndexChoice? tailIndex = null;
         InterferenceResult? interference = null;
         IReadOnlyList<RelayPlan> relayPlans = [];
@@ -151,6 +152,21 @@ internal static class Program
                 Report($"Volume {volume:N0}: comparando as formas de índice da consulta de cauda.");
                 tailIndex = await TailQueryPlanScenario.RunAsync(database, current, volume, cancellationToken);
                 Report($"  forma escolhida: {tailIndex.Variant}");
+            }
+
+            if (settings.Mode is ProbeMode.Full)
+            {
+                // Read before any arm runs: an arm that has to create an index
+                // of its own would change the answer, and the question here is
+                // what the schema does on its own.
+                Report($"Volume {volume:N0}: planos dos caminhos que percorrem a partição por seq.");
+                readPaths.AddRange(
+                    await ChainReadPathsScenario.RunAsync(database, current, volume, cancellationToken));
+                foreach (ReadPathPlan path in readPaths.Where(entry => entry.Volume == volume))
+                {
+                    Report($"  {path.Path}: {path.ExecutionMs:0.000} ms, {path.Buffers:N0} buffers, "
+                        + $"{(path.ScansSequentially ? "varredura sequencial" : "atendido por índice")}");
+                }
             }
 
             IReadOnlyList<ContentionArm> definitions =
@@ -274,6 +290,7 @@ internal static class Program
             ProbeAnalysis.Sensitivity(arms),
             sustained,
             tailIndex,
+            readPaths,
             interference,
             relayPlans,
             verification,

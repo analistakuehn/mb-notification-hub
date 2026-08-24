@@ -21,6 +21,7 @@ internal static class ReportRenderer
         Sensitivity(text, outcome);
         Sustained(text, outcome);
         TailIndex(text, outcome);
+        ReadPaths(text, outcome);
         Interference(text, outcome);
         Relay(text, outcome);
         Verification(text, outcome);
@@ -199,6 +200,40 @@ internal static class ReportRenderer
         text.AppendLine();
     }
 
+    private static void ReadPaths(StringBuilder text, ProbeOutcome outcome)
+    {
+        if (outcome.ReadPaths.Count == 0)
+        {
+            return;
+        }
+
+        text.AppendLine("-- Caminhos que percorrem a partição por seq --------------------------");
+        text.AppendLine(" Os índices de cauda e de pré-cadeia são parciais, e um índice parcial só");
+        text.AppendLine(" atende statement que carrega o predicado dele. Por isso a leitura por");
+        text.AppendLine(" faixa foi separada nas duas metades, cada uma com o seu predicado. O");
+        text.AppendLine(" termo que precisa ter sumido é a ordenação: ela carregava o texto");
+        text.AppendLine(" canônico de cada linha da partição por uma intercalação em disco.");
+        text.AppendLine(" volume     execução (ms)   buffers      atendimento  ordenação  caminho");
+        foreach (ReadPathPlan path in outcome.ReadPaths)
+        {
+            text.AppendLine(Culture, $" {path.Volume,-9:N0}  {path.ExecutionMs,13:0.000}  {path.Buffers,10:N0}  "
+                + $"{(path.ScansSequentially ? "varredura" : "índice"),11}  "
+                + $"{(path.SortsOnDisk ? "em disco" : "nenhuma"),9}  {path.Path}");
+        }
+
+        text.AppendLine();
+        foreach (ReadPathPlan path in outcome.ReadPaths)
+        {
+            text.AppendLine(Culture, $" {path.Path} @ {path.Volume:N0}:");
+            foreach (var line in path.Plan)
+            {
+                text.AppendLine(Culture, $"   {line}");
+            }
+
+            text.AppendLine();
+        }
+    }
+
     private static void Interference(StringBuilder text, ProbeOutcome outcome)
     {
         if (outcome.Interference is not { } interference)
@@ -248,9 +283,12 @@ internal static class ReportRenderer
 
         text.AppendLine("-- Custo da verificação integral da partição corrente -----------------");
         text.AppendLine(" Sem meta fixada: a cadência depende de volume real de produção.");
-        text.AppendLine(" Curva medida ANTES do índice de cauda. O verificador varre por seq, então");
-        text.AppendLine(" parte desta curva é a mesma ordenação sem índice do caminho quente, e ela");
-        text.AppendLine(" precisa ser remedida depois que o índice existir.");
+        text.AppendLine(" Curva medida com o schema como as migrações o deixam, e este cenário lê");
+        text.AppendLine(" por faixa de seq como o verificador lê. Leia a direção da curva, nunca o");
+        text.AppendLine(" delta entre rodadas: é medição longa dominada por IO em host compartilhado,");
+        text.AppendLine(" e dezenas de segundos de diferença entre duas rodadas dizem respeito ao");
+        text.AppendLine(" host, não ao schema. Se a forma continuar superlinear, a seção de caminhos");
+        text.AppendLine(" por seq acima é que diz por quê.");
         text.AppendLine(" volume     linhas lidas  elos     segundos  s/100k linhas  íntegra  quebras  1ª quebra em seq");
         foreach (VerificationCost cost in outcome.Verification)
         {

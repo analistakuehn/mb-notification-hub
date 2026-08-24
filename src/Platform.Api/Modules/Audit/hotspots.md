@@ -19,19 +19,25 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   for the distinct ones. Waiting grows while holding stays flat, which is the
   signature of the lock rather than of a saturated database.
 - **Owner**: Audit module maintainers.
-- **Status**: accepted, gated, and measured. The fallback is not scheduled: the
-  measurement says the cheap corrections come first, because the hold window
-  itself is dominated by a read that no index answers (see the next entry).
+- **Status**: accepted, gated, and measured twice. The fallback is still not
+  scheduled. The cheap corrections came first and landed: with the tail index
+  in the schema and the window at three round trips, the median hold measured
+  2.43 ms, 2.06 ms and 2.84 ms at ten thousand, five hundred thousand and two
+  million rows, flat with the volume instead of growing with it. The round trip
+  removed does not show in the median of this bench, but it shows in the tail
+  under contention at two million rows: p99 window of 10.7 ms against 100.0 ms
+  for the four round trip shape, and 426 appends per second against 235.
 - **Read the table carefully at high volume**: above ten thousand rows the
-  control arm holds the lock *longer* than the treatment arm (675 ms against
+  control arm held the lock *longer* than the treatment arm (675 ms against
   318 ms at two million). That is not an anomaly. Without an index, four
-  appenders on four partitions run four concurrent scans, while four appenders
-  on one partition serialize and keep a single scan hot in cache: the
+  appenders on four partitions ran four concurrent scans, while four appenders
+  on one partition serialized and kept a single scan hot in cache: the
   serialization was protecting the database. The methodological consequence is
-  the boundary of the result. The contention delta is only clean where the scan
-  is cheap, which is the ten thousand row volume, and that is where it was
-  taken. Once the tail index lands, redoing the isolation at high volume is
-  cheap and confirms the signature without the noise of the scan.
+  the boundary of that result. The contention delta was only clean where the
+  scan is cheap, which is the ten thousand row volume, and that is where it was
+  taken. Now that the index is in the schema, redoing the isolation of control
+  against treatment at high volume is cheap and confirms the signature without
+  the noise of the scan; that pair has not been re-run yet.
 - **Review condition**: re-measure on representative infrastructure once the
   tail index is applied. The local bench cannot decide the absolute rule, since
   even the arm where the lock never disputes reaches only about 160 appends per
@@ -41,15 +47,15 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   open and is decided on representative infrastructure; the tail of this bench
   belongs to the host, so no percentile measured here approves it.
 
-## The chain tail read has no index, and the obvious composite does not help
+## The chain tail read is indexed, and only the tail read is
 
-- **Risk, measured**: every append reads the tail of its partition inside the
-  advisory lock, and no index answers that read. The table carries a primary key
-  on `(id, occurred_at)` and one secondary index on `(entity_type, entity_id)`;
-  nothing indexes `seq`. With partition pruning the plan is a parallel
-  sequential scan of the whole monthly partition plus a top-N sort, taken with
-  the lock already held, so the hold window grows with the partition and the
-  cost of a month is quadratic.
+- **Corrected, measured before and after**: every append reads the tail of its
+  partition inside the advisory lock, and until 2026-08-24 no index answered
+  that read. The table carried a primary key on `(id, occurred_at)` and one
+  secondary index on `(entity_type, entity_id)`; nothing indexed `seq`. With
+  partition pruning the plan was a parallel sequential scan of the whole
+  monthly partition plus a top-N sort, taken with the lock already held, so the
+  hold window grew with the partition and the cost of a month was quadratic.
 - **Evidence**: `Infrastructure/Persistence/Configurations/AuditEventConfiguration.cs`
   declares the only secondary index; `LastChainedHashSql` in
   `Infrastructure/AuditTrail/TransactionalAuditTrail.cs` orders by `seq DESC`.
@@ -64,10 +70,24 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   ordering by sequence inside it. The same missing index affects the hourly
   verification and the export by sequence range, which also walk the partition
   ordered by `seq`, so the gain is not confined to the hot path.
-- **Ratified shape**: `(seq DESC) WHERE hash IS NOT NULL`. The partial
-  predicate has to appear literally in the query for the planner to match the
-  index, and it does today: any edit that drops `hash IS NOT NULL` from the
-  appender's statement silently costs the index.
+- **Applied shape**: `ix_audit_event_chain_tail`, `(seq DESC) WHERE hash IS NOT
+  NULL`, declared on the partitioned parent so PostgreSQL propagates it to
+  every partition, current and future; the partition the provisioner creates
+  three months ahead carries it from birth, which is what an index created per
+  partition would not give. The partial predicate has to appear literally in
+  the query for the planner to match the index, and it does today: any edit
+  that drops `hash IS NOT NULL` from the appender's statement silently costs
+  the index. Measured with the schema the migrations leave, over the same three
+  volumes: the tail read is an `Index Scan` over the propagated index and costs
+  0.040 ms reading 3 buffers, 0.042 ms reading 4, and 0.046 ms reading 4, flat
+  with the size of the partition.
+- **Creating it is a maintenance window on a populated database**, and the same
+  holds for the pre-chain index that landed with it: the create takes a lock
+  over the parent and builds the index on every attached partition. **A
+  concurrent build does not exist for a partitioned table**, and does not exist
+  inside a migration transaction either, so nobody should promise one in
+  production; the path there is to build per partition outside the migration
+  and attach.
 - **Effect on the hold window**: without the index the median hold measured
   5 ms to 7 ms at ten thousand rows, 73 ms to 75 ms at five hundred thousand,
   and 232 ms to 375 ms at two million. With the index, and with the lock and
@@ -75,11 +95,53 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   2.45 ms, 2.52 ms, and 2.02 ms at the same three volumes: flat, because the
   read stopped depending on the size of the partition.
 - **Owner**: Audit module maintainers with Engineering.
-- **Status**: open. The probe measures the index in an arm of its own and never
-  applies it; creating it is a migration and belongs to its own change.
-- **Review condition**: apply the index before deciding anything about
-  sub-chains, then re-measure. Deciding on sub-chains against the current shape
-  would compare against a scan nobody intends to keep.
+- **Status**: applied and re-measured for the hot path. The probe now detects
+  the index by reading the plan and stops creating one of its own, so the gate
+  watches production's index. What the index does **not** serve is the next
+  entry.
+- **Review condition**: re-measure on representative infrastructure before
+  deciding anything about sub-chains. The local bench decides the shape of the
+  curve, never the absolute rule.
+
+## The verification and the export read each side of the chain boundary
+
+- **Risk, measured, then corrected**: the tail index is partial, and a partial
+  index only matches a statement that carries its predicate. The range read
+  that the periodic verification and the export share (`AuditTrailReader`) has
+  to return pre-chain rows as well, which carry no hash, so it could not carry
+  `hash IS NOT NULL` and was not served by anything. Same for the `MAX(seq)`
+  the export planner asks for.
+- **Evidence**: plans read over the current partition, batch of twenty
+  thousand rows: 24.835 ms and 2,601 buffers at ten thousand rows, 438.547 ms
+  and 170,438 buffers at five hundred thousand, 2,133.796 ms and 672,321
+  buffers at two million, the last one with a `Gather Merge` and an external
+  sort spilling to disk. The `MAX(seq)` costs 212.134 ms and 182,097 buffers at
+  two million. Because a full replay advances in batches, the cost of the month
+  was superlinear, and the full-replay curve did not improve when the tail
+  index landed. Read that as a direction and nothing more: a full replay is a
+  long IO-bound measurement on a shared host, so the difference in seconds
+  between two runs describes the day, not the schema.
+- **Owner**: Architecture with Audit module maintainers.
+- **Status**: decided and applied. The read is split at the chain boundary, one
+  statement per side, each carrying the predicate of the partial index that
+  answers it, merged by `seq` in the reader and walked by key in blocks. The
+  non-partial index that would have served every path from one structure was
+  refused on cost direction: it would charge maintenance on every insert of the
+  hottest table in the system, forever, to serve two background jobs that run
+  hourly and daily. The pre-chain index is free by construction, because those
+  rows are a closed set that never takes an insert, and it turns "this
+  partition holds no pre-chain rows" into one lookup instead of a scan to prove
+  an absence.
+- **What has to be true for that decision to hold**: the ordering must be gone
+  from the plan of the range read. It was the expensive half, because it
+  carried the canonical text of every row of the partition through an external
+  merge. If a future plan shows it back, the split failed and the recourse is a
+  single non-partial index with the partial one removed, never both, and that
+  needs ratification before it is applied.
+- **Review condition**: re-measure the full-replay curve with the same
+  instrument before the cadence of the periodic verification is fixed. The
+  cadence itself changed shape: it is blocks per execution now, not how often a
+  whole pass fits, which is what decouples it from the size of the partition.
 
 ## The lock statement cannot also read the tail
 
@@ -104,8 +166,20 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   check the isolation level and refuse anything that is not READ COMMITTED,
   with the reason in the XML doc.
 - **Owner**: Audit module maintainers.
-- **Status**: recorded before any collapse is attempted in production code. The
-  collapse and the isolation guard are one corrective change, not this one.
+- **Status**: applied in 2026-08-24. The window is three round trips, and the
+  writer refuses any transaction that is not READ COMMITTED, checking both the
+  level the caller declared, before it sends a statement, and the level the
+  server reports for the running transaction. The first check is what stops a
+  caller that chose a stronger level from even taking the lock; the second is
+  what catches a server, database or role default that no call site mentions.
+- **The refusal happens with the lock held, and that closes outside the code**:
+  the server-reported level rides in the statement that already takes the lock,
+  so a caller running under a level nobody declared is refused after the lock
+  was granted. The lock is transaction scoped and falls with the rollback, so
+  the danger is not the refusal, it is a transaction left open indefinitely,
+  which is a connection problem rather than a writer problem. The control is
+  `idle_in_transaction_session_timeout` set on the database or the role, not
+  more code in the probative path.
 - **Review condition**: any future change that reduces round trips inside the
   window, and any change of isolation level on a writer that appends. Lock plus
   `nextval` fold safely, because `nextval` reads no snapshot and sits in the

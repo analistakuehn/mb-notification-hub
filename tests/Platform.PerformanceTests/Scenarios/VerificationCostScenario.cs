@@ -30,12 +30,29 @@ internal sealed record VerificationCost(
 /// </summary>
 internal static class VerificationCostScenario
 {
-    private const int BatchSize = 20_000;
+    /// <summary>Block the reader walks with, mirrored from it.</summary>
+    private const int BatchSize = 5_000;
 
-    private const string SelectRowsSql = """
+    // Mirrors the reader after the split: each half carries the predicate of
+    // the partial index that answers it, and the walk advances by key over the
+    // sequence. A partition with no pre-chain rows still pays the second probe,
+    // exactly as production does, and that probe is what proves the absence in
+    // one lookup instead of a scan.
+    private const string ChainedRowsSql = """
         SELECT seq, canonical, prev_hash, hash
         FROM audit.audit_event
         WHERE occurred_at >= @fromInclusive AND occurred_at < @toExclusive
+          AND hash IS NOT NULL
+          AND seq > @afterSeq
+        ORDER BY seq
+        LIMIT @maxRows
+        """;
+
+    private const string PreChainRowsSql = """
+        SELECT seq, canonical, prev_hash, hash
+        FROM audit.audit_event
+        WHERE occurred_at >= @fromInclusive AND occurred_at < @toExclusive
+          AND hash IS NULL
           AND seq > @afterSeq
         ORDER BY seq
         LIMIT @maxRows
@@ -63,27 +80,25 @@ internal static class VerificationCostScenario
 
         await using NpgsqlConnection connection =
             await database.DataSource.OpenConnectionAsync(cancellationToken);
+        var preChainCursor = 0L;
+        var preChainDrained = false;
         while (true)
         {
             var batch = 0;
-            await using NpgsqlCommand command = connection.CreateCommand();
-            command.CommandTimeout = 0;
-            command.CommandText = SelectRowsSql;
-            command.Parameters.AddWithValue("fromInclusive", month.FromInclusive);
-            command.Parameters.AddWithValue("toExclusive", month.ToExclusive);
-            command.Parameters.AddWithValue("afterSeq", cursor);
-            command.Parameters.AddWithValue("maxRows", BatchSize);
-            await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken))
+            await using (NpgsqlCommand command = connection.CreateCommand())
             {
+                command.CommandTimeout = 0;
+                command.CommandText = ChainedRowsSql;
+                command.Parameters.AddWithValue("fromInclusive", month.FromInclusive);
+                command.Parameters.AddWithValue("toExclusive", month.ToExclusive);
+                command.Parameters.AddWithValue("afterSeq", cursor);
+                command.Parameters.AddWithValue("maxRows", BatchSize);
+                await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
                 while (await reader.ReadAsync(cancellationToken))
                 {
                     cursor = reader.GetInt64(0);
                     batch++;
                     rows++;
-                    if (reader.IsDBNull(1))
-                    {
-                        continue;
-                    }
 
                     var canonical = reader.GetString(1);
                     var prevHash = reader.GetFieldValue<byte[]>(2);
@@ -108,6 +123,27 @@ internal static class VerificationCostScenario
 
                     running = hash;
                 }
+            }
+
+            if (!preChainDrained)
+            {
+                var seen = 0;
+                await using NpgsqlCommand preChain = connection.CreateCommand();
+                preChain.CommandTimeout = 0;
+                preChain.CommandText = PreChainRowsSql;
+                preChain.Parameters.AddWithValue("fromInclusive", month.FromInclusive);
+                preChain.Parameters.AddWithValue("toExclusive", month.ToExclusive);
+                preChain.Parameters.AddWithValue("afterSeq", preChainCursor);
+                preChain.Parameters.AddWithValue("maxRows", BatchSize);
+                await using NpgsqlDataReader reader = await preChain.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    preChainCursor = reader.GetInt64(0);
+                    seen++;
+                    rows++;
+                }
+
+                preChainDrained = seen < BatchSize;
             }
 
             if (batch < BatchSize)

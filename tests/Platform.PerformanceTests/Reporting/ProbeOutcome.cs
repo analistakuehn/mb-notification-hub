@@ -93,6 +93,7 @@ internal sealed record ProbeOutcome(
     IReadOnlyList<SensitivityRow> Sensitivity,
     IReadOnlyList<SustainedRateResult> Sustained,
     TailIndexChoice? TailIndex,
+    IReadOnlyList<ReadPathPlan> ReadPaths,
     InterferenceResult? Interference,
     IReadOnlyList<RelayPlan> RelayPlans,
     IReadOnlyList<VerificationCost> Verification,

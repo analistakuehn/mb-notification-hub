@@ -73,5 +73,32 @@ internal sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEv
 
         builder.HasIndex(nameof(AuditEvent.EntityType), nameof(AuditEvent.EntityId))
             .HasDatabaseName("ix_audit_event_entity");
+
+        // The tail of the chain, read inside the advisory lock on every append.
+        // Descending on the sequence alone: partition pruning already satisfied
+        // the time predicate, so leading with the partition column would be a
+        // useless prefix, and the remaining predicate is a range rather than an
+        // equality, which gives a composite no ordering by sequence inside it.
+        // The filter has to appear literally in the reading statement for the
+        // planner to match a partial index, and it does; dropping it from that
+        // statement costs the index without any error.
+        //
+        // Declared on the partitioned parent so PostgreSQL propagates it to
+        // every partition, including the ones the provisioner creates months
+        // from now: a future partition without this index brings back a hold
+        // window that grows with the size of the month.
+        builder.HasIndex([nameof(AuditEvent.Seq)], "ChainTail")
+            .HasDatabaseName("ix_audit_event_chain_tail")
+            .IsDescending()
+            .HasFilter("hash IS NOT NULL");
+
+        // The other half of the same read, and it costs nothing to keep: rows
+        // written before the chain existed are a closed set, so an index over
+        // them never takes an insert. What it buys is a partition proving in
+        // one lookup that it holds no pre-chain rows, instead of scanning to
+        // prove an absence.
+        builder.HasIndex([nameof(AuditEvent.Seq)], "PreChain")
+            .HasDatabaseName("ix_audit_event_prechain_seq")
+            .HasFilter("hash IS NULL");
     }
 }

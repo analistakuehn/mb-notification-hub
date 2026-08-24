@@ -15,18 +15,59 @@ namespace NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 /// forks. Verification tolerance for aborted sequence values belongs to the
 /// periodic verifier, not to this writer.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The append holds the lock for three round trips: the lock and the sequence
+/// value together, the previous hash on its own, and the insert. The previous
+/// hash cannot join the first statement, and the reason is the isolation level
+/// rather than the planner. A statement takes its snapshot when it starts,
+/// which is before it blocks on the lock, so a statement that waits and then
+/// reads the trail reads a state older than the commit of the appender it
+/// waited for, links onto a stale predecessor and forks the chain. Only a
+/// statement that begins after the lock statement returned sees that
+/// predecessor. The lock and <c>nextval</c> do fold, because neither reads a
+/// snapshot of the table and the sequence value sits in the projection over the
+/// locked expression, which is evaluated after the lock is granted and
+/// therefore keeps sequence order equal to chain order.
+/// </para>
+/// <para>
+/// That shape is only correct while the caller runs in READ COMMITTED, where
+/// every statement takes a fresh snapshot with the lock already held. A caller
+/// in REPEATABLE READ or SERIALIZABLE takes its snapshot on the first statement
+/// of the transaction, before the lock, and the stale read comes back even with
+/// the statements separated. The writer therefore checks the level and refuses
+/// anything else, twice: the level the caller declared, before it touches the
+/// database, and the level the server reports for the running transaction,
+/// which is what a server or role default can change without any caller saying
+/// so.
+/// </para>
+/// </remarks>
 internal sealed class TransactionalAuditTrail : IAuditTrail
 {
     private const string Table = "audit_event";
 
-    private const string AcquireChainLockSql = "SELECT pg_advisory_xact_lock(@lockKey)";
+    private const string ReadCommitted = "read committed";
 
-    private const string NextSequenceValueSql =
-        "SELECT nextval(pg_get_serial_sequence('audit.audit_event', 'seq'))";
+    // Lock and sequence value in one round trip. The CTE is materialized on
+    // purpose: it pins the order the lock and the projection are evaluated in
+    // instead of leaving it to a planner decision about folding.
+    private const string LockAndNextSequenceSql = """
+        WITH chain_lock AS MATERIALIZED (
+            SELECT pg_advisory_xact_lock(@lockKey) AS taken
+        )
+        SELECT
+            current_setting('transaction_isolation'),
+            nextval(pg_get_serial_sequence('audit.audit_event', 'seq'))
+        FROM chain_lock
+        """;
 
     // The last chained event of the monthly partition. Appends serialize under
     // the advisory lock, so within a partition the sequence order of chained
     // rows is their chain order; pre-chain rows carry no hash and stay out.
+    //
+    // The hash predicate is also what makes the partial tail index match:
+    // dropping it from here would still return the right row and would silently
+    // go back to scanning the whole partition inside the lock.
     private const string LastChainedHashSql = """
         SELECT hash
         FROM audit.audit_event
@@ -56,10 +97,10 @@ internal sealed class TransactionalAuditTrail : IAuditTrail
         ArgumentNullException.ThrowIfNull(entry);
         AuditEvent auditEvent = AuditEvent.Record(entry);
         DbConnection connection = OpenConnectionOf(transaction);
+        RefuseStrongerDeclaredIsolation(transaction);
 
         MonthlyPartitionWindow window = MonthlyPartitions.Plan(Table, auditEvent.OccurredAt, 0)[0];
-        await AcquireChainLockAsync(connection, transaction, window, cancellationToken);
-        var seq = await NextSequenceValueAsync(connection, transaction, cancellationToken);
+        var seq = await AcquireChainLockAndNextSequenceAsync(connection, transaction, window, cancellationToken);
         var prevHash = await LastChainedHashAsync(connection, transaction, window, cancellationToken)
             ?? AuditChain.PartitionAnchor(window.PartitionName);
 
@@ -101,7 +142,41 @@ internal sealed class TransactionalAuditTrail : IAuditTrail
                 "The transaction has no open connection; the trail must join a live caller transaction.");
     }
 
-    private static async Task AcquireChainLockAsync(
+    /// <summary>
+    /// Refuses a transaction whose declared level gives it a snapshot older
+    /// than the chain lock. It runs before any statement, so the caller that
+    /// picked a stronger level on purpose fails without taking the lock.
+    /// </summary>
+    private static void RefuseStrongerDeclaredIsolation(DbTransaction transaction)
+    {
+        if (transaction.IsolationLevel is not (IsolationLevel.RepeatableRead
+            or IsolationLevel.Serializable
+            or IsolationLevel.Snapshot))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"The caller transaction is {transaction.IsolationLevel} and the trail requires READ COMMITTED: "
+            + "a stronger level takes its snapshot before the chain lock is granted, so the append would "
+            + "read a stale chain tail and fork the chain.");
+    }
+
+    /// <summary>
+    /// Takes the chain lock of the partition and reserves the sequence value in
+    /// one round trip, and brings back the isolation level the server reports
+    /// for the running transaction.
+    /// </summary>
+    /// <remarks>
+    /// The declared level is what the caller asked for; this one is what the
+    /// transaction actually runs under, which a server, database or role
+    /// default can set without any caller mentioning it. Reading it costs
+    /// nothing here because it rides in the projection of a statement the
+    /// append already pays for. Failing after the lock leaves it held until the
+    /// caller's transaction ends, which is correct: an append that throws must
+    /// abort the governed effect, and the trail contract never degrades.
+    /// </remarks>
+    private static async Task<long> AcquireChainLockAndNextSequenceAsync(
         DbConnection connection,
         DbTransaction transaction,
         MonthlyPartitionWindow window,
@@ -109,24 +184,24 @@ internal sealed class TransactionalAuditTrail : IAuditTrail
     {
         await using DbCommand command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = AcquireChainLockSql;
+        command.CommandText = LockAndNextSequenceSql;
         AddParameter(
             command,
             "lockKey",
             AuditChain.PartitionLockKey(window.FromInclusive.Year, window.FromInclusive.Month));
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
 
-    private static async Task<long> NextSequenceValueAsync(
-        DbConnection connection,
-        DbTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        await using DbCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = NextSequenceValueSql;
-        var value = await command.ExecuteScalarAsync(cancellationToken);
-        return (long)value!;
+        await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        var isolation = reader.GetString(0);
+        if (!string.Equals(isolation, ReadCommitted, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The server reports isolation level '{isolation}' for the caller transaction and the trail "
+                + "requires READ COMMITTED: any stronger level takes its snapshot before the chain lock is "
+                + "granted, so the append would read a stale chain tail and fork the chain.");
+        }
+
+        return reader.GetInt64(1);
     }
 
     private static async Task<byte[]?> LastChainedHashAsync(

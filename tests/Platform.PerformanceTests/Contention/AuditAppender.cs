@@ -9,16 +9,17 @@ namespace NotificationHub.PerformanceTests.Contention;
 internal enum AppendShape
 {
     /// <summary>
-    /// What the appender does today: four round trips inside the lock window
-    /// (lock, nextval, previous hash, insert) plus the commit.
+    /// The shape the appender had before the collapse: four round trips inside
+    /// the lock window (lock, nextval, previous hash, insert) plus the commit.
+    /// It stays in the design as the arm that shows what the correction bought.
     /// </summary>
     Current,
 
     /// <summary>
-    /// Lock and sequence value folded into one statement, so the window holds
-    /// three round trips plus the commit. The previous hash stays in a
-    /// statement of its own because it cannot be read in the statement that
-    /// waits for the lock.
+    /// What the appender does today: lock and sequence value folded into one
+    /// statement, so the window holds three round trips plus the commit. The
+    /// previous hash stays in a statement of its own because it cannot be read
+    /// in the statement that waits for the lock.
     /// </summary>
     Collapsed,
 }
@@ -98,17 +99,21 @@ internal sealed class AuditAppender(NpgsqlDataSource dataSource, AppendShape sha
     // What is left is honest: four round trips inside the window become three.
     // nextval sits in the projection over the locked CTE, which is evaluated
     // per output row and therefore only after the lock was granted, keeping
-    // sequence order equal to chain order. The granted instant comes back with
-    // it so the caller can split waiting from holding without paying another
-    // round trip for the clock.
+    // sequence order equal to chain order. The isolation level rides in the
+    // same projection, exactly as the appender reads it, because the fold is
+    // only correct under READ COMMITTED. The granted instant comes back with
+    // both so the caller can split waiting from holding without paying another
+    // round trip for the clock; that term is the probe's own and the appender
+    // has no use for it.
     private const string LockAndNextSequenceSql = """
-        WITH chain_lock AS (
+        WITH chain_lock AS MATERIALIZED (
             SELECT pg_advisory_xact_lock(@lockKey) AS taken
         ), granted AS (
             SELECT clock_timestamp() AS at FROM chain_lock
         )
         SELECT
             EXTRACT(EPOCH FROM (granted.at - statement_timestamp())) * 1000,
+            current_setting('transaction_isolation'),
             nextval(pg_get_serial_sequence('audit.audit_event', 'seq'))
         FROM granted
         """;
@@ -243,7 +248,18 @@ internal sealed class AuditAppender(NpgsqlDataSource dataSource, AppendShape sha
                 await using NpgsqlDataReader reader = await folded.ExecuteReaderAsync(cancellationToken);
                 await reader.ReadAsync(cancellationToken);
                 foldedWaitMs = reader.GetDouble(0);
-                foldedSeq = reader.GetInt64(1);
+
+                // The appender refuses anything but READ COMMITTED, and a probe
+                // measuring a database that runs under another level would be
+                // measuring a shape production never accepts.
+                var isolation = reader.GetString(1);
+                if (!string.Equals(isolation, "read committed", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"A transação está em '{isolation}' e a cadeia exige READ COMMITTED.");
+                }
+
+                foldedSeq = reader.GetInt64(2);
             }
 
             await using NpgsqlCommand foldedTail = connection.CreateCommand();

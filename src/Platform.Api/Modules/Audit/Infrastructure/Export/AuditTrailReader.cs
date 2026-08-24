@@ -103,22 +103,72 @@ internal sealed record AuditTrailRow(
 /// sequence order is commit order and a sequence range is a contiguous chain
 /// segment.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The rows come back through two statements instead of one, chained and
+/// pre-chain, merged here in sequence order. The split is what lets each side
+/// carry the predicate of the partial index that answers it, which removes the
+/// sort the single statement paid for: one query over a partition of millions
+/// of wide rows had to order them all, and the ordering carried the canonical
+/// text with it. The boundary is not new either, it is the one the export
+/// already writes to separate objects, so the reader now states in code the
+/// limit of what the chain covers.
+/// </para>
+/// <para>
+/// Each side advances by key over <c>seq</c> in blocks, so no statement ever
+/// materializes the whole partition. That makes a long pass interruptible and
+/// resumable rather than one transaction that holds a snapshot for minutes. The
+/// consequence to keep in mind: blocks take one snapshot each, so a row that
+/// commits between two blocks with a sequence value the reader already passed
+/// stays out of this pass. That exposure predates the blocks, since a single
+/// statement also reads one snapshot, and it is what the stabilization
+/// watermark of the verification and the high-water mark of the export exist to
+/// bound; a chain segment missing a link fails the replay loudly instead of
+/// being exported.
+/// </para>
+/// </remarks>
 internal sealed class AuditTrailReader(AuditDbContext db)
 {
-    private const string SelectRowsSql = """
+    /// <summary>Rows fetched per statement while walking a sequence range.</summary>
+    private const int BlockRows = 5_000;
+
+    private const string ChainedRowsSql = """
         SELECT id, seq, occurred_at, actor_type, actor_id, application, action,
                entity_type, entity_id, details::text, canonical, prev_hash, hash
         FROM audit.audit_event
         WHERE occurred_at >= @fromInclusive AND occurred_at < @toExclusive
+          AND hash IS NOT NULL
           AND seq > @afterSeq AND seq <= @throughSeq
         ORDER BY seq
         LIMIT @maxRows
         """;
 
-    private const string MaxSeqOfWindowSql = """
-        SELECT COALESCE(MAX(seq), 0)
+    private const string PreChainRowsSql = """
+        SELECT id, seq, occurred_at, actor_type, actor_id, application, action,
+               entity_type, entity_id, details::text, canonical, prev_hash, hash
         FROM audit.audit_event
         WHERE occurred_at >= @fromInclusive AND occurred_at < @toExclusive
+          AND hash IS NULL
+          AND seq > @afterSeq AND seq <= @throughSeq
+        ORDER BY seq
+        LIMIT @maxRows
+        """;
+
+    // Two predicate-carrying halves instead of one aggregate over the whole
+    // partition, so each half is answered by the partial index that covers it.
+    // Taking only the chained half would be wrong for a partition that holds
+    // nothing but pre-chain rows: its highest sequence is real and the export
+    // has to reach it.
+    private const string MaxSeqOfWindowSql = """
+        SELECT GREATEST(
+            COALESCE((
+                SELECT MAX(seq) FROM audit.audit_event
+                WHERE occurred_at >= @fromInclusive AND occurred_at < @toExclusive
+                  AND hash IS NOT NULL), 0),
+            COALESCE((
+                SELECT MAX(seq) FROM audit.audit_event
+                WHERE occurred_at >= @fromInclusive AND occurred_at < @toExclusive
+                  AND hash IS NULL), 0))
         """;
 
     /// <summary>Highest sequence of the partition; zero when the partition holds nothing.</summary>
@@ -144,9 +194,50 @@ internal sealed class AuditTrailReader(AuditDbContext db)
         int maxRows,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(window);
+        var rows = new List<AuditTrailRow>();
+        if (maxRows <= 0)
+        {
+            return rows;
+        }
+
         DbConnection connection = await OpenAsync(cancellationToken);
+        var block = Math.Min(BlockRows, maxRows);
+        var chained = new SequencePages(connection, ChainedRowsSql, window, afterSeq, throughSeq, block);
+        var preChain = new SequencePages(connection, PreChainRowsSql, window, afterSeq, throughSeq, block);
+
+        // Merged here rather than by the database: both halves arrive already
+        // ordered by sequence, and merging two ordered streams costs one
+        // comparison per row against the sort the split just removed.
+        while (rows.Count < maxRows)
+        {
+            AuditTrailRow? nextChained = await chained.PeekAsync(cancellationToken);
+            AuditTrailRow? nextPreChain = await preChain.PeekAsync(cancellationToken);
+            if (nextChained is null && nextPreChain is null)
+            {
+                break;
+            }
+
+            var takeChained = nextPreChain is null
+                || (nextChained is not null && nextChained.Seq <= nextPreChain.Seq);
+            rows.Add(takeChained ? chained.Take() : preChain.Take());
+        }
+
+        return rows;
+    }
+
+    /// <summary>One block of one half of the range, read by key over the sequence.</summary>
+    private static async Task<IReadOnlyList<AuditTrailRow>> PageAsync(
+        DbConnection connection,
+        string sql,
+        MonthlyPartitionWindow window,
+        long afterSeq,
+        long throughSeq,
+        int maxRows,
+        CancellationToken cancellationToken)
+    {
         await using DbCommand command = connection.CreateCommand();
-        command.CommandText = SelectRowsSql;
+        command.CommandText = sql;
         AddParameter(command, "fromInclusive", ToInstant(window.FromInclusive));
         AddParameter(command, "toExclusive", ToInstant(window.ToExclusive));
         AddParameter(command, "afterSeq", afterSeq);
@@ -205,4 +296,62 @@ internal sealed class AuditTrailReader(AuditDbContext db)
 
     private static DateTimeOffset ToInstant(DateOnly day)
         => new(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+
+    /// <summary>
+    /// One half of the range, walked by key: every block starts after the
+    /// highest sequence the previous block returned, so no statement depends on
+    /// an offset and none of them grows with the size of the partition.
+    /// </summary>
+    private sealed class SequencePages
+    {
+        private readonly DbConnection _connection;
+        private readonly string _sql;
+        private readonly MonthlyPartitionWindow _window;
+        private readonly long _throughSeq;
+        private readonly int _blockRows;
+        private readonly Queue<AuditTrailRow> _buffered = new();
+        private long _cursor;
+        private bool _drained;
+
+        internal SequencePages(
+            DbConnection connection,
+            string sql,
+            MonthlyPartitionWindow window,
+            long afterSeq,
+            long throughSeq,
+            int blockRows)
+        {
+            _connection = connection;
+            _sql = sql;
+            _window = window;
+            _cursor = afterSeq;
+            _throughSeq = throughSeq;
+            _blockRows = blockRows;
+        }
+
+        internal async Task<AuditTrailRow?> PeekAsync(CancellationToken cancellationToken)
+        {
+            if (_buffered.Count == 0 && !_drained)
+            {
+                IReadOnlyList<AuditTrailRow> page = await PageAsync(
+                    _connection, _sql, _window, _cursor, _throughSeq, _blockRows, cancellationToken);
+                foreach (AuditTrailRow row in page)
+                {
+                    _buffered.Enqueue(row);
+                }
+
+                // The cursor moves with what was fetched, not with what was
+                // consumed: a short block is the end of this half.
+                _drained = page.Count < _blockRows;
+                if (page.Count > 0)
+                {
+                    _cursor = page[^1].Seq;
+                }
+            }
+
+            return _buffered.Count > 0 ? _buffered.Peek() : null;
+        }
+
+        internal AuditTrailRow Take() => _buffered.Dequeue();
+    }
 }

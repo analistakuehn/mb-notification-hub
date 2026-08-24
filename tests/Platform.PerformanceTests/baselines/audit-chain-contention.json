@@ -1,14 +1,14 @@
 {
   "FormatVersion": 2,
-  "RecordedAtUtc": "2026-08-24T02:09:05.5664005+00:00",
-  "RecordedOn": "DESKTOP-PCIF06A / postgres:17-alpine em conteiner; mediana de 3 rodadas Release",
+  "RecordedAtUtc": "2026-08-24T04:19:37.1920123\u002B00:00",
+  "RecordedOn": "DESKTOP-PCIF06A / postgres:17-alpine em cont\u00EAiner",
   "Volumes": [
     10000,
-    200000
+    1000000
   ],
   "Appenders": 4,
-  "RoundTripP50Ms": 0.4855,
-  "MitigatedHoldP50Ms": 2.2785,
-  "NormalizedHold": 4.6366,
-  "VolumeDrift": 0.8714
+  "RoundTripP50Ms": 2.2363,
+  "MitigatedHoldP50Ms": 11.3049,
+  "NormalizedHold": 5.0553,
+  "VolumeDrift": 0.8404
 }

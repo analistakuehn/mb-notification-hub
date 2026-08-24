@@ -41,7 +41,7 @@ public sealed class AuditChainIntegrationTests(TemplateManagementApiFixture fixt
     public async Task Concurrent_appends_serialize_under_the_advisory_lock_without_forking_the_chain()
     {
         var marker = $"chain-conc-{Guid.CreateVersion7():N}";
-        await Task.WhenAll(Enumerable.Range(0, 8)
+        await Task.WhenAll(Enumerable.Range(0, 16)
             .Select(index => AppendAsync($"{marker}-{index}")));
 
         await fixture.ExecuteAuditDbAsync(async db =>
@@ -51,13 +51,18 @@ public sealed class AuditChainIntegrationTests(TemplateManagementApiFixture fixt
                 .OrderBy(auditEvent => auditEvent.Seq)
                 .ToListAsync();
             chained.Count(auditEvent => auditEvent.EntityId.StartsWith(marker, StringComparison.Ordinal))
-                .ShouldBe(8);
+                .ShouldBe(16);
 
             // The whole store must hold one linear chain per monthly
             // partition: the first chained event links to the partition
             // anchor, every later one to its predecessor's hash, and every
             // hash is recomputable from the stored bytes. A fork or a gap
             // anywhere breaks one of these links.
+            //
+            // Walking in sequence order is also what proves the sequence value
+            // is taken with the lock already held: a value reserved before the
+            // lock would order the rows differently from the way they chained,
+            // and the walk would land on the wrong predecessor.
             foreach (IGrouping<(int Year, int Month), AuditEvent> partition in chained.GroupBy(MonthOf))
             {
                 var expectedPrev = PartitionAnchor(partition.Key);
@@ -67,6 +72,15 @@ public sealed class AuditChainIntegrationTests(TemplateManagementApiFixture fixt
                     auditEvent.Hash.ShouldBe(RecomputeLink(auditEvent.PrevHash!, auditEvent.Canonical!));
                     expectedPrev = auditEvent.Hash!;
                 }
+
+                // Stated directly, because a fork is two rows claiming the same
+                // predecessor: a chain that branched and then rejoined would
+                // still fail the walk above, but this is the property the trail
+                // exists to guarantee and it deserves its own assertion.
+                partition.Select(auditEvent => Convert.ToHexString(auditEvent.PrevHash!))
+                    .Distinct(StringComparer.Ordinal)
+                    .Count()
+                    .ShouldBe(partition.Count());
             }
         });
     }

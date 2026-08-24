@@ -46,14 +46,32 @@ internal sealed record ProbeSettings
 
     internal int PurgeBacklog { get; private init; } = 1_000_000;
 
-    internal double Tolerance { get; private init; } = 0.30;
+    /// <summary>
+    /// Regression tolerated on the normalized hold, derived rather than picked:
+    /// twice the dispersion measured for a ratio on this bench, which was about
+    /// 27 %. The floor that keeps it useful is the distance to the known
+    /// failure: without the tail index the same metric moves by more than an
+    /// order of magnitude, so a limit at 1.55 of the reference still sits far
+    /// below anything a real regression produces.
+    /// </summary>
+    internal double Tolerance { get; private init; } = 0.55;
 
     /// <summary>
-    /// How much the hold window may grow between the two guard volumes. Small
-    /// on purpose: with the tail index the hold stops depending on the size of
-    /// the partition, so any real growth is the regression the gate exists for.
+    /// How much the hold window may grow between the two guard volumes; the
+    /// ceiling is one plus this value.
     /// </summary>
-    internal double VolumeDrift { get; private init; } = 0.25;
+    /// <remarks>
+    /// A threshold belongs in the empty region between the healthy distribution
+    /// and the failure distribution, never on the edge of the noise: the
+    /// previous ceiling of 1.25 sat inside the observed spread of healthy runs
+    /// (0.917 and 1.272 on the same code and schema), which is how a gate
+    /// fabricates a failure and gets itself silenced. Healthy reaches about
+    /// 1.33; the failure signature, with the tail index missing, is around
+    /// 55 times. The ceiling of 3.0 sits 2.4 times above the worst healthy run
+    /// observed and roughly 18 times below the known failure, and still catches
+    /// a partial regression.
+    /// </remarks>
+    internal double VolumeDrift { get; private init; } = 2.0;
 
     /// <summary>
     /// Which arm the guard reads. It is the mitigated shape by default;
@@ -167,19 +185,24 @@ internal sealed record ProbeSettings
 
         if (settings.Mode is ProbeMode.Smoke)
         {
-            // Two volumes and the mitigated arm only. The guard reads how many
-            // round trips the append holds the lock for, and whether that grows
-            // with the partition; both need the shape the project is heading
-            // for, and both are ratios taken inside one run.
+            // Two volumes and the production shape only. The guard reads how
+            // many round trips the append holds the lock for, and whether that
+            // grows with the partition; both are ratios taken inside one run.
+            //
+            // The two volumes sit two orders of magnitude apart on purpose.
+            // Widening the separation is worth more than moving a threshold:
+            // the healthy ratio stays around one whatever the separation, while
+            // a broken one grows with it, so the signal rises and the noise
+            // does not. Every cell is the median of three passes, because half
+            // a millisecond of host jitter over a two millisecond hold is noise
+            // that yields to sampling.
             settings = settings with
             {
-                Volumes = explicitVolumes ? settings.Volumes : [10_000, 200_000],
+                Volumes = explicitVolumes ? settings.Volumes : [10_000, 1_000_000],
                 Arms = explicitArms ? settings.Arms : ["A5"],
                 ArmDuration = explicitDuration ? settings.ArmDuration : TimeSpan.FromSeconds(5),
-                MaxAppendsPerArm = explicitAppends ? settings.MaxAppendsPerArm : 1_500,
-                GuardRepeats = explicitRepeats
-                    ? settings.GuardRepeats
-                    : settings.UpdateBaseline ? 3 : 1,
+                MaxAppendsPerArm = explicitAppends ? settings.MaxAppendsPerArm : 4_000,
+                GuardRepeats = explicitRepeats ? settings.GuardRepeats : 3,
             };
         }
 

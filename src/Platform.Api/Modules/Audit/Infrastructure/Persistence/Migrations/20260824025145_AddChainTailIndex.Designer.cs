@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NotificationHub.Api.Modules.Audit.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AuditDbContext))]
-    partial class AuditDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260824025145_AddChainTailIndex")]
+    partial class AddChainTailIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -146,17 +149,13 @@ namespace NotificationHub.Api.Modules.Audit.Infrastructure.Persistence.Migration
 
                     b.HasKey("Id", "OccurredAt");
 
-                    b.HasIndex("EntityType", "EntityId")
-                        .HasDatabaseName("ix_audit_event_entity");
-
-                    b.HasIndex(new[] { "Seq" }, "ChainTail")
+                    b.HasIndex("Seq")
                         .IsDescending()
                         .HasDatabaseName("ix_audit_event_chain_tail")
                         .HasFilter("hash IS NOT NULL");
 
-                    b.HasIndex(new[] { "Seq" }, "PreChain")
-                        .HasDatabaseName("ix_audit_event_prechain_seq")
-                        .HasFilter("hash IS NULL");
+                    b.HasIndex("EntityType", "EntityId")
+                        .HasDatabaseName("ix_audit_event_entity");
 
                     b.ToTable("audit_event", "audit", t =>
                         {
