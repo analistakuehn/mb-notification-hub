@@ -39,6 +39,12 @@ Planos completos das fases pendentes do roadmap (§15 do documento-mãe), com ev
 - [Fase 2: Resiliência e SMS](fases/fase-2-resiliencia-e-sms.md)
 - [Fase 3: WhatsApp](fases/fase-3-whatsapp.md)
 
+## Guias
+
+Documentos voltados a públicos externos ao time do hub, escritos a partir do comportamento implementado e não do desenho pretendido.
+
+- [Guia de integração do produtor](guia-integracao-produtor.md): para times que vão pedir notificações ao hub por REST ou pelo barramento.
+
 ## Próximas ADRs previstas
 
 - Cluster Kafka: MSK ou outro (provider Terraform, mecanismo de ACL/IAM, existência de Schema Registry).
