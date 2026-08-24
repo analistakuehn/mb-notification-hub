@@ -262,9 +262,27 @@ internal static class ReportRenderer
         }
 
         text.AppendLine("-- Plano de execução do relay sobre backlog sintético -----------------");
+        text.AppendLine(" O caminho de autenticação tem 300 ms de orçamento entre o outbox e a fila,");
+        text.AppendLine(" com o laço de 100 ms do relay por cima, então é o tempo por lote que se lê");
+        text.AppendLine(" contra orçamento; o plano diz por que ele é o que é.");
+        text.AppendLine();
+        text.AppendLine(" braço                          banda          descartadas  varre  ordena  lote p50   lote máx  lotes");
         foreach (RelayPlan plan in outcome.RelayPlans)
         {
-            text.AppendLine(Culture, $" banda {plan.Band} ({plan.BandName}), backlog pendente {plan.Backlog:N0}, execução {plan.ExecutionMs:0.000} ms");
+            text.AppendLine(Culture, $" {plan.Arm,-29}  {plan.Band} ({plan.BandName,-12})  {plan.RowsRemovedByFilter,11:N0}  "
+                + $"{(plan.ScansSequentially ? "sim" : "não"),5}  {(plan.SortsOnDisk ? "sim" : "não"),6}  "
+                + $"{plan.BatchP50Ms,8:0.000}  {plan.BatchMaxMs,8:0.000}  {plan.BatchesDrained,5}");
+        }
+
+        text.AppendLine();
+        text.AppendLine(" Descartadas = linhas que o filtro jogou fora para encher um lote.");
+        text.AppendLine(" Lote = reivindicar mais carimbar mais commit, como o relay faz, medido com");
+        text.AppendLine(" commit por lote e não com transação descartada, senão a segunda medição");
+        text.AppendLine(" leria a mesma cabeça do backlog inteira em cache.");
+        text.AppendLine();
+        foreach (RelayPlan plan in outcome.RelayPlans)
+        {
+            text.AppendLine(Culture, $" {plan.Arm}, banda {plan.Band} ({plan.BandName}), backlog pendente {plan.Backlog:N0}, execução {plan.ExecutionMs:0.000} ms");
             foreach (var line in plan.Plan)
             {
                 text.AppendLine(Culture, $"   {line}");
@@ -306,10 +324,15 @@ internal static class ReportRenderer
 
     private static void Verdict(StringBuilder text, ProbeOutcome outcome)
     {
+        if (outcome.Verdict is not { } verdict)
+        {
+            return;
+        }
+
         text.AppendLine("-- Escada de acionamento do plano B -----------------------------------");
         text.AppendLine(Culture, $" Regra de capacidade: teto (1/posse p50) precisa alcançar {Demand.RequiredCeiling:N0} appends/s.");
         text.AppendLine(" braço  volume     posse p50   teto (appends/s)  atende");
-        foreach (CapacityCheck check in outcome.Verdict.Capacity)
+        foreach (CapacityCheck check in verdict.Capacity)
         {
             text.AppendLine(Culture, $" {check.ArmId,-5}  {check.Volume,-9:N0}  {check.HoldP50Ms,9:0.000}  {check.Ceiling,16:N1}  {(check.Passes ? "sim" : "não")}");
         }
@@ -320,14 +343,14 @@ internal static class ReportRenderer
         text.AppendLine(" transferível, porque a cauda vem do host e não do append. O sub-orçamento");
         text.AppendLine(" permanece aberto e se decide em infraestrutura representativa.");
         text.AppendLine(" braço  volume     janela p99   n       direção");
-        foreach (BudgetCheck check in outcome.Verdict.Budget)
+        foreach (BudgetCheck check in verdict.Budget)
         {
             text.AppendLine(Culture, $" {check.ArmId,-5}  {check.Volume,-9:N0}  {check.WindowP99Ms,10:0.000}  {check.Samples,-6}  {(check.Passes ? "favorável" : "desfavorável")}");
         }
 
         text.AppendLine();
-        text.AppendLine(Culture, $" Veredito: {outcome.Verdict.Summary}");
-        text.AppendLine(Culture, $" Plano B (sub-cadeias dentro da partição) {(outcome.Verdict.Triggered ? "dispara" : "não dispara")} pela medição desta rodada.");
+        text.AppendLine(Culture, $" Veredito: {verdict.Summary}");
+        text.AppendLine(Culture, $" Plano B (sub-cadeias dentro da partição) {(verdict.Triggered ? "dispara" : "não dispara")} pela medição desta rodada.");
         text.AppendLine();
     }
 }

@@ -24,6 +24,12 @@ Rodada completa contra um contêiner descartável:
 dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode full
 ```
 
+Só a reivindicação do outbox, sem nada da trilha:
+
+```bash
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode relay
+```
+
 Rodada de guarda por pull request, comparada contra a linha de base versionada:
 
 ```bash
@@ -55,7 +61,7 @@ do que ela escrever poderá ser apagado depois.
 
 | Opção | Default | Efeito |
 |---|---|---|
-| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda |
+| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox |
 | `--connection-string` | contêiner | Aponta para um banco existente |
 | `--allow-trail-writes` | desligado | Autoriza escrita na trilha de um banco informado |
 | `--appenders` | 4 | Appenders concorrentes por braço |
@@ -192,6 +198,27 @@ do lock, a faixa que verificação e export compartilham e o maior `seq` da
 partição, e publica execução, buffers e se o plano varre a partição. Quem se
 beneficia do índice passa a ser leitura de plano por rodada, não afirmação
 herdada de documento.
+
+### Reivindicação do outbox por banda
+
+O modo `relay` semeia um backlog de linhas pendentes na mistura que os
+produtores escrevem, com a banda de autenticação rara de propósito, e mede cada
+banda em quatro braços: o índice como o schema o deixa, o mesmo índice
+derrubado, uma ordem de colunas alternativa e uma coluna comum escrita em vez
+da coluna gerada. Publica, por braço e por banda, o plano, quantas linhas o
+filtro descarta para encher um lote, se varre a tabela, se ordena em disco, e o
+tempo por lote de cem.
+
+Duas escolhas de método valem mais que os números. O tempo por lote é medido
+com reivindicação, carimbo e commit, como o relay faz, e não com transação
+descartada: uma medição que sempre relê a mesma cabeça do backlog em cache não
+diz nada sobre um relay que avança. E o braço que derruba o índice existe para
+que a leitura boa não seja afirmação sem contraprova; é a mesma razão pela qual
+o teste de plano da suíte de integração afirma os dois sentidos.
+
+O braço da coluna comum roda por último de propósito: preenchê-la reescreve
+toda a linha do backlog, e uma tabela carregando um milhão de tuplas mortas
+cobraria do braço seguinte o trabalho deste.
 
 ## Por que a sonda reimplementa a aritmética da cadeia
 

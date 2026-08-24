@@ -97,7 +97,7 @@ internal sealed record ProbeOutcome(
     InterferenceResult? Interference,
     IReadOnlyList<RelayPlan> RelayPlans,
     IReadOnlyList<VerificationCost> Verification,
-    PlanBVerdict Verdict);
+    PlanBVerdict? Verdict);
 
 /// <summary>Turns the raw arm results into the checks the slice has to answer.</summary>
 internal static class ProbeAnalysis

@@ -20,6 +20,20 @@ public sealed class OutboxBandsTests
         => OutboxBands.Classify("dispatch-push-auth", priorityClass).ShouldBe(OutboxBand.Auth);
 
     [Theory]
+    [InlineData("dispatch-email-auth")]
+    [InlineData("dispatch-sms-auth")]
+    [InlineData("dispatch-push-auth")]
+    [InlineData("dispatch-whatsapp-auth")]
+    public void Every_dispatch_channel_reaches_the_auth_band_through_the_suffix(string destination)
+        => OutboxBands.Classify(destination, "transactional").ShouldBe(OutboxBand.Auth);
+
+    [Theory]
+    [InlineData("contacts-auth")]
+    [InlineData("core-auth-events")]
+    public void The_auth_band_takes_both_halves_of_the_rule_and_not_either_one(string destination)
+        => OutboxBands.Classify(destination, "operational").ShouldBe(OutboxBand.Operational);
+
+    [Theory]
     [InlineData("core-critical", "critical", "critical")]
     [InlineData("core-transactional", "transactional", "transactional")]
     [InlineData("contacts-changed", "transactional", "transactional")]

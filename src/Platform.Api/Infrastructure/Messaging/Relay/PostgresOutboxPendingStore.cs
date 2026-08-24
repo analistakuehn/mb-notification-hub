@@ -6,25 +6,27 @@ namespace NotificationHub.Api.Infrastructure.Messaging.Relay;
 
 /// <summary>
 /// Claims pending outbox rows with parameterized SQL over the messaging
-/// context's connection. The band CASE mirrors the classification in
-/// <see cref="OutboxBands.Classify"/>: the auth destination lands in the auth
-/// band whatever its stored priority class; change both together. The stored
-/// transport is a filter, never an inference from the destination name.
+/// context's connection. The band is read from the stored column the database
+/// computes from the destination and the priority class, never spelled again
+/// here: an expression in this predicate is what no index could answer. The
+/// three columns of the predicate and the ordering column are the index the
+/// schema declares, and the unsent filter is written literally because a
+/// partial index only matches a statement that carries its predicate. The
+/// stored transport is a filter, never an inference from the destination name.
 /// </summary>
 internal sealed class PostgresOutboxPendingStore(PlatformMessagingDbContext db) : IOutboxPendingStore
 {
-    private const string ClaimSql = """
+    /// <summary>
+    /// The claim exactly as it reaches the database. It is visible to the test
+    /// assemblies so the plan assertion reads this statement instead of a copy
+    /// of it: a plan test over a transcribed statement grades the transcription.
+    /// </summary>
+    internal const string ClaimSql = """
         SELECT id, destination, event_type, message_key, headers::text, payload::text, created_at
         FROM platform.outbox
         WHERE sent_at IS NULL
           AND transport = @transport
-          AND CASE
-                WHEN destination = 'core-auth'
-                  OR (destination LIKE 'dispatch-%' AND destination LIKE '%-auth') THEN 0
-                WHEN priority_class = 'critical' THEN 1
-                WHEN priority_class = 'transactional' THEN 2
-                ELSE 3
-              END = @band
+          AND priority_band = @band
         ORDER BY created_at
         LIMIT @batchSize
         FOR UPDATE SKIP LOCKED

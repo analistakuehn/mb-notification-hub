@@ -1,3 +1,4 @@
+using Amazon.SQS.Model;
 using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.IntegrationTests.TemplateManagement;
@@ -52,5 +53,31 @@ public sealed class OutboxRelayPriorityTests(OutboxRelayFixture fixture)
             .ShouldHaveSingleItem();
         (await fixture.ReceiveAllAsync(OutboxRelayFixture.OperationalQueue, 1, ReceiveBudget))
             .ShouldHaveSingleItem();
+    }
+
+    [RequiresDockerFact]
+    public async Task A_row_written_without_a_band_still_drains_in_the_band_of_its_destination()
+    {
+        await using ServiceProvider authOnly = fixture.BuildRelayProvider(new Dictionary<string, string?>
+        {
+            ["Platform:Messaging:Relay:Bands:0"] = "auth",
+        });
+
+        // The row arrives the way every producer wrote before the band column
+        // existed, and with a stored class that is not the one the band would
+        // suggest. Nothing in C# classified it; if the database had not, the
+        // claim of the auth band would never see it and an authentication code
+        // would sit pending behind ordinary traffic.
+        Guid id = await fixture.AppendWithoutBandAsync(OutboxRelayFixture.AuthQueue, "transactional");
+
+        OutboxRelayPassResult result = await OutboxRelayFixture.RunRelayPassAsync(authOnly);
+
+        result.Published.ShouldBe(1);
+        result.Failed.ShouldBe(0);
+        (await OutboxRelayFixture.SentAtAsync(authOnly, id)).ShouldNotBeNull();
+        List<Message> received = await fixture.ReceiveAllAsync(
+            OutboxRelayFixture.AuthQueue, 1, ReceiveBudget);
+        received.ShouldHaveSingleItem();
+        received[0].Body.ShouldContain(id.ToString());
     }
 }

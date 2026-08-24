@@ -83,6 +83,11 @@ internal static class Program
         ProbeSettings settings,
         CancellationToken cancellationToken)
     {
+        if (settings.Mode is ProbeMode.Relay)
+        {
+            return await RunRelayAsync(database, settings, cancellationToken);
+        }
+
         PartitionMonth current = PartitionMonth.Of(DateTimeOffset.UtcNow);
         IReadOnlyList<PartitionMonth> distinct =
         [
@@ -295,6 +300,51 @@ internal static class Program
             relayPlans,
             verification,
             ProbeAnalysis.Verdict(arms));
+    }
+
+    /// <summary>
+    /// The outbox claim on its own: seed the pending backlog, then read the
+    /// plan and the per-batch cost of every band. Nothing of the trail runs
+    /// here, and the report carries no verdict, because the escalation ladder
+    /// reads the arms this mode never measures.
+    /// </summary>
+    private static async Task<ProbeOutcome> RunRelayAsync(
+        ProbeDatabase database,
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        Report($"Semeando {settings.RelayBacklog:N0} linhas pendentes no outbox.");
+        IReadOnlyList<RelayPlan> plans = await RelayPlanScenario.RunAsync(
+            database, settings.RelayBacklog, 100, cancellationToken);
+        foreach (RelayPlan plan in plans)
+        {
+            Report($"  {plan.Arm}, banda {plan.Band} ({plan.BandName}): lote p50 {plan.BatchP50Ms:0.000} ms, "
+                + $"{plan.RowsRemovedByFilter:N0} linhas descartadas pelo filtro.");
+        }
+
+        return new ProbeOutcome(
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            settings.Mode.ToString(),
+            new ProbeEnvironment(
+                Environment.MachineName,
+                Environment.ProcessorCount,
+                Environment.Version.ToString(),
+                database.IsThrowaway ? "postgres:17-alpine em contêiner" : "conexão informada",
+                database.IsThrowaway,
+                settings.Appenders,
+                settings.ArmDuration.TotalSeconds),
+            [],
+            null,
+            "não aplicável",
+            [],
+            [],
+            [],
+            null,
+            [],
+            null,
+            plans,
+            [],
+            null);
     }
 
     /// <summary>

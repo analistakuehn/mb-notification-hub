@@ -49,6 +49,14 @@ public sealed class OutboxMessage
     /// <summary>Priority class the relay orders its reads by.</summary>
     public string PriorityClass { get; }
 
+    /// <summary>
+    /// Drain band of the row, computed by the database from the destination and
+    /// the priority class. Producers never write it and the relay never derives
+    /// it at read time: it exists so the claim of one band is an equality on a
+    /// stored column that an index can answer.
+    /// </summary>
+    public int PriorityBand { get; }
+
     public DateTimeOffset CreatedAt { get; }
 
     /// <summary>Stamped by the relay after a successful publish; null while pending.</summary>

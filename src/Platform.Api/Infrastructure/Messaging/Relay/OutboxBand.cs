@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace NotificationHub.Api.Infrastructure.Messaging.Relay;
 
 /// <summary>
@@ -20,9 +22,12 @@ internal enum OutboxBand
 }
 
 /// <summary>
-/// Band vocabulary and classification of the relay reader. The SQL of the
-/// pending store mirrors <see cref="Classify"/> so both sides pick the same
-/// band; change them together.
+/// Band vocabulary and classification of the relay reader. The band is stored
+/// beside the row as a column the database computes from the same two values
+/// <see cref="Classify"/> reads, so the claim compares a column instead of
+/// evaluating an expression no index can answer. The two definitions are the
+/// same rule written twice, once in C# and once in SQL; an integration test
+/// confronts them over every known destination, and they change together.
 /// </summary>
 internal static class OutboxBands
 {
@@ -41,6 +46,22 @@ internal static class OutboxBands
 
     private const string CriticalClass = "critical";
     private const string TransactionalClass = "transactional";
+
+    /// <summary>
+    /// The stored form of <see cref="Classify"/>: the expression that computes
+    /// the band of a row from the destination and the priority class the
+    /// producer already wrote. It is the definition of a generated column, so
+    /// it evaluates once per insert and never at read time, and no writer can
+    /// leave it unset or set it to something else.
+    /// </summary>
+    internal static readonly string ClassificationSql = string.Create(
+        CultureInfo.InvariantCulture,
+        $"CASE WHEN destination = '{AuthDestination}' "
+        + $"OR (destination LIKE '{DispatchDestinationPrefix}%' "
+        + $"AND destination LIKE '%{AuthDestinationSuffix}') THEN {(int)OutboxBand.Auth} "
+        + $"WHEN priority_class = '{CriticalClass}' THEN {(int)OutboxBand.Critical} "
+        + $"WHEN priority_class = '{TransactionalClass}' THEN {(int)OutboxBand.Transactional} "
+        + $"ELSE {(int)OutboxBand.Operational} END");
 
     /// <summary>Every band, in the order a full instance drains them.</summary>
     internal static readonly OutboxBand[] DrainOrder =

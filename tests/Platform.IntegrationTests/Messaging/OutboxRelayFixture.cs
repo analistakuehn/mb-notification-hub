@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Text.Json;
 using Amazon.Runtime;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -90,6 +91,39 @@ public sealed class OutboxRelayFixture : IAsyncLifetime, IDisposable
         await using DbTransaction transaction = await connection.BeginTransactionAsync();
         Guid id = await writer.AppendAsync(transaction, message, CancellationToken.None);
         await transaction.CommitAsync();
+        return id;
+    }
+
+    /// <summary>
+    /// Appends a row the way every producer wrote before the band column
+    /// existed: the column list names every column of the row and none of them
+    /// is the band. Nothing in C# classifies this row, so what the relay finds
+    /// it by is whatever the database computed on the way in.
+    /// </summary>
+    public async Task<Guid> AppendWithoutBandAsync(string destination, string priorityClass)
+    {
+        const string insertSql = """
+            INSERT INTO platform.outbox
+                (id, destination, transport, event_type, message_key, headers, payload,
+                 priority_class, created_at, sent_at)
+            VALUES
+                (@id, @destination, 'sqs', @eventType, @messageKey, '{}'::jsonb,
+                 CAST(@payload AS jsonb), @priorityClass, @createdAt, NULL)
+            """;
+
+        var id = Guid.CreateVersion7();
+        await using var connection = new NpgsqlConnection(PostgresConnectionString);
+        await connection.OpenAsync();
+        await using DbCommand command = connection.CreateCommand();
+        command.CommandText = insertSql;
+        AddParameter(command, "id", id);
+        AddParameter(command, "destination", destination);
+        AddParameter(command, "eventType", OutboxEnvelopes.EventType);
+        AddParameter(command, "messageKey", $"cus_{Guid.NewGuid():N}");
+        AddParameter(command, "payload", JsonSerializer.Serialize(new { messageId = id }));
+        AddParameter(command, "priorityClass", priorityClass);
+        AddParameter(command, "createdAt", DateTimeOffset.UtcNow);
+        await command.ExecuteNonQueryAsync();
         return id;
     }
 
@@ -191,6 +225,14 @@ public sealed class OutboxRelayFixture : IAsyncLifetime, IDisposable
     {
         await _postgres.DisposeAsync();
         await _localStack.DisposeAsync();
+    }
+
+    private static void AddParameter(DbCommand command, string name, object value)
+    {
+        DbParameter parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
     }
 
     public void Dispose() => _sqs?.Dispose();

@@ -10,6 +10,13 @@ internal enum ProbeMode
 
     /// <summary>The short guard run compared against the versioned baseline.</summary>
     Smoke,
+
+    /// <summary>
+    /// The outbox claim alone: seed the pending backlog and read the plan and
+    /// the per-batch cost of every band. It exists apart from the full run
+    /// because the trail arms take hours and answer a different question.
+    /// </summary>
+    Relay,
 }
 
 /// <summary>
@@ -235,6 +242,7 @@ internal sealed record ProbeSettings
     {
         "full" => ProbeMode.Full,
         "smoke" => ProbeMode.Smoke,
+        "relay" => ProbeMode.Relay,
         _ => throw new ArgumentException($"Modo desconhecido: {value}", nameof(value)),
     };
 
