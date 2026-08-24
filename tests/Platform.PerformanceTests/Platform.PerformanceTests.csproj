@@ -11,8 +11,15 @@
     <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
   </ItemGroup>
 
-  <ItemGroup Label="Performance Framework">
-    <PackageReference Include="BenchmarkDotNet" />
+  <ItemGroup Label="Probe Infrastructure">
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <ItemGroup Label="Versioned Baseline">
+    <!-- Not copied to the output on purpose. The gate reads and rewrites the
+         file that is versioned, and a copy in the output directory would let a
+         run compare against, or write to, a stale duplicate. -->
+    <None Include="baselines\audit-chain-contention.json" />
   </ItemGroup>
 
 </Project>

@@ -53,6 +53,31 @@ A errata corrige a regra: **cada partição mensal é uma cadeia autocontida**, 
 
 A propriedade que a regra original buscava, tornar detectável o descarte de uma partição inteira, continua garantida, e por um caminho mais forte: a âncora é reconstruível a partir do nome da partição por qualquer verificador, e o manifest de fechamento é assinado e imutável. O código commitado (`Domain/AuditChain.cs`) já implementava a âncora determinística; a errata alinha o documento ao que a cadeia faz.
 
+### Errata de 2026-08-23: gatilho do plano B e forma reservada para ele
+
+O texto original tratava o plano B como consequência de um teste de carga que validaria "o p99 de ingestão", sem dizer o que reprovaria, e nomeava uma única forma de sub-cadeia. Esta errata fixa as duas coisas, sem mudar a decisão.
+
+**Gatilho, em escada.** Duas regras precisam valer ao mesmo tempo, medidas na taxa de append projetada:
+
+1. **Sub-orçamento**: espera pelo lock mais posse do lock cabem em 10 ms no p99, ou seja 20 % dos 50 ms que o design dá ao aceite REST inteiro (§11.2).
+2. **Regra de capacidade**, indicador antecedente: o teto implícito por partição, `1` dividido pelo p50 da posse, fica em pelo menos 2× a demanda sustentada de append. A fila explode antes de a média saturar, então esperar a média saturar é esperar demais.
+
+Falhando qualquer uma delas, a ordem de resposta é fixa: aplicar primeiro o índice de cauda e o colapso de round trips sob o lock, remedir, e só então considerar o plano B, porque só ele muda a forma da cadeia, a verificação e o manifest. Nenhuma dessas duas correções mexe na cadeia; ambas são mais baratas que o plano B e podem torná-lo desnecessário.
+
+**Forma do índice de cauda, corrigida pela medição de 2026-08-23.** A prescrição original desta errata era um índice parcial em `(occurred_at, seq DESC)`, e ela estava errada. Dentro de uma partição, a poda já satisfez o predicado de tempo, então `occurred_at` na frente é prefixo inútil; e como o predicado restante é faixa e não igualdade, a composta não fornece ordenação por `seq` dentro da faixa. O plano de execução confirma: sobre partição de dois milhões de linhas, sem índice a consulta custa 330 ms lendo 181.230 buffers, com a composta o planejador ignora o índice e repete a varredura em 371 ms, e com índice parcial em `(seq DESC)` custa 0,174 ms lendo 4 buffers. A forma adotada é **`(seq DESC) WHERE hash IS NOT NULL`**. Duas consequências: o predicado parcial precisa aparecer **literalmente** na consulta para o planejador casar o índice, e ele aparece hoje; e o mesmo índice serve o verificador horário e o export por faixa de `seq`, que também percorrem a partição por `seq`, de modo que o ganho não é só do caminho quente.
+
+**Colapso de round trips: quatro para três, não para dois.** Lock e `nextval` cabem num statement só, porque nenhum dos dois lê snapshot da tabela, e `nextval` na projeção sobre a expressão travada é avaliado depois da concessão, o que mantém ordem de sequência igual a ordem de cadeia. A leitura do `prev_hash` **não** entra nesse statement. A razão é o nível de isolamento e não o planejador: sob READ COMMITTED o statement tira seu snapshot ao iniciar, antes de bloquear no lock, então um statement que espera e depois lê a trilha lê estado anterior ao commit de quem ele esperou, recebe um elo obsoleto e bifurca a cadeia. A medição de 2026-08-23 registrou **6.707 elos bifurcados em 8.711 linhas** com a leitura dobrada, e nenhum com a leitura em statement próprio. O erro corrigido aqui é **de correção, não de desempenho**: a versão anterior desta errata embarcaria um escritor que forka a cadeia, que é exatamente o dano que a cadeia existe para impedir.
+
+**Dependência declarada do nível de isolamento.** O quatro para três só é correto porque o chamador está em READ COMMITTED, em que cada statement tira snapshot novo, já com o lock na mão. Um chamador em REPEATABLE READ ou SERIALIZABLE tira o snapshot no primeiro statement da transação, antes do lock, e a leitura obsoleta volta mesmo com os statements separados. Hoje o padrão do driver salva por acidente, não por desenho. A guarda no escritor, conferir o nível de isolamento e recusar o que não for READ COMMITTED com a razão registrada, é entrega da fatia corretiva; a dependência fica declarada aqui desde já, porque a próxima pessoa que escolher isolamento mais forte por segurança quebra a cadeia sem que nenhum teste avise.
+
+**Limite conhecido do plano B.** Sub-cadeias por `application` só distribuem contenção se o tráfego se espalhar por aplicações. O critério de saída da fase 1b migra templates de um produtor dominante, e com uma aplicação concentrando o volume o plano B rende quase nada. Por isso o discriminador de sub-cadeia é reservado como **string opaca** (`chainKey`), e não como o valor de `application`: assim o plano B e um plano por bucket de hash com número fixo de sub-cadeias, que funciona mesmo com produtor único, compartilham formato de manifest, gramática de âncora e implementação de verificação.
+
+**Ativação só em fronteira de partição.** Uma partição nasce com cadeia única ou multi-cadeia e nunca troca no meio. A partição M continua cadeia única, a M+1 nasce multi-cadeia, e a gramática de âncora distingue as duas: `notification-hub:audit-chain:{partição}:anchor` para a cadeia única, e `notification-hub:audit-chain:{partição}:{chainKey}:anchor` para um segmento. Não existe backfill, e nenhuma linha já gravada é reinterpretada.
+
+**Manifest com lista de segmentos.** O manifest passa a declarar os segmentos de cadeia como lista, hoje com exatamente um segmento, identificado pela âncora da partição. O `formatVersion` sobe uma vez só: o mesmo incremento carrega a lista de segmentos e a semântica da janela do manifest que está pendente de esclarecimento. Nada foi exportado em produção ainda, e depois do primeiro export o formato vira corpus imutável, então as duas mudanças precisam viajar juntas.
+
+**Nada de coluna nova em `audit_event` agora.** Uma coluna `chain_key` com valor único numa tabela append-only é ambiguidade retroativa sem contrapartida: as linhas já gravadas ficariam com um valor que ninguém escolheu. A coluna entra, se entrar, na mesma mudança que ativa o plano B numa fronteira de partição.
+
 ### Consequências
 
 **Positivas**

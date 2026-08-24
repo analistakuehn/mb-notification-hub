@@ -1,0 +1,14 @@
+{
+  "FormatVersion": 2,
+  "RecordedAtUtc": "2026-08-24T02:09:05.5664005+00:00",
+  "RecordedOn": "DESKTOP-PCIF06A / postgres:17-alpine em conteiner; mediana de 3 rodadas Release",
+  "Volumes": [
+    10000,
+    200000
+  ],
+  "Appenders": 4,
+  "RoundTripP50Ms": 0.4855,
+  "MitigatedHoldP50Ms": 2.2785,
+  "NormalizedHold": 4.6366,
+  "VolumeDrift": 0.8714
+}
