@@ -12,9 +12,9 @@ public sealed class RequestPayloadHashTests
             RecipientId: "cus_01J5X9",
             Class: "critical",
             TemplateKey: "auth.otp.login",
-            Locale: "pt-BR",
             TtlSeconds: 300)
         {
+            Locale = "pt-BR",
             Variables = JsonDocument.Parse(variablesJson).RootElement.Clone(),
             CorrelationId = "trace-7c1e",
         };
@@ -89,6 +89,23 @@ public sealed class RequestPayloadHashTests
 
         RequestNotification.ComputePayloadHash(saoPaulo)
             .ShouldBe(RequestNotification.ComputePayloadHash(utc));
+    }
+
+    /// <summary>
+    /// The locale reaches no decision of the hub, so it is not part of what
+    /// identifies a request. Hashing it would answer a retry that corrected the
+    /// field, or a client library that filled its default differently between
+    /// the attempt and the retry, with a conflict on an identical notification.
+    /// </summary>
+    [Fact]
+    public void The_locale_never_changes_the_hash()
+    {
+        RequestNotification.Command corrected = BaseCommand() with { Locale = "pt-br" };
+        RequestNotification.Command omitted = BaseCommand() with { Locale = null };
+
+        var baseline = RequestNotification.ComputePayloadHash(BaseCommand());
+        RequestNotification.ComputePayloadHash(corrected).ShouldBe(baseline);
+        RequestNotification.ComputePayloadHash(omitted).ShouldBe(baseline);
     }
 
     [Fact]

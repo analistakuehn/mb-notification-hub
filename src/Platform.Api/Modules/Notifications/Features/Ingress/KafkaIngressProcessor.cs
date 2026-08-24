@@ -19,7 +19,10 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Ingress;
 /// the authorization question against the producer registry, and turning a
 /// refusal into a dead-letter record instead of an HTTP problem.
 ///
-/// The order of the checks is the contract. Authorization runs before the
+/// The order of the checks is the contract. The envelope type is checked
+/// before the body binds, because the type is the schema version and binding
+/// first would let a later version pass on the coincidence of field names.
+/// Authorization runs before the
 /// catalog, so a principal outside the registry never learns which templates
 /// exist from the difference between two refusal reasons. The
 /// sensitive-variable restriction runs before the schema validation, because
@@ -37,6 +40,14 @@ internal sealed class KafkaIngressProcessor(
 {
     /// <summary>Header the producer stamps with its logical name.</summary>
     private const string ProducerHeader = "producer";
+
+    /// <summary>
+    /// The only envelope type this consumer accepts. The type is the schema
+    /// version, and it is checked before anything binds the body: a later
+    /// version whose fields happen to carry the same names would bind by luck
+    /// and be processed as if the producer had spoken this contract.
+    /// </summary>
+    internal const string RequestedEventType = "araia.notification.requested.v1";
 
     public string Consumer => IngressCommitWriter.ConsumerName;
 
@@ -59,6 +70,18 @@ internal sealed class KafkaIngressProcessor(
         }
 
         var producer = HeaderOrNull(context, ProducerHeader) ?? cloudEvent.Source;
+        if (!string.Equals(cloudEvent.Type, RequestedEventType, StringComparison.Ordinal))
+        {
+            return await RefuseAsync(
+                context,
+                new DeadLetterDiagnosis
+                {
+                    Reason = NotificationRejectionReasons.EventTypeUnsupported,
+                    Producer = producer,
+                },
+                cancellationToken);
+        }
+
         if (IngressRequestBinder.Bind(cloudEvent.Data) is not { } request)
         {
             return await RefuseAsync(
@@ -235,9 +258,9 @@ internal static class IngressRequestBinder
             ReadString(data, "recipientId") ?? string.Empty,
             ReadString(data, "class") ?? string.Empty,
             ReadString(data, "templateKey") ?? string.Empty,
-            ReadString(data, "locale") ?? string.Empty,
             ReadInt32(data, "ttlSeconds"))
         {
+            Locale = ReadString(data, "locale"),
             Variables = ReadObject(data, "variables"),
             Metadata = ReadObject(data, "metadata"),
             ChannelsHint = ReadStringArray(data, "channelsHint"),

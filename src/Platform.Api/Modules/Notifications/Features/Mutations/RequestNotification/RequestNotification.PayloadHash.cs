@@ -14,7 +14,7 @@ internal static partial class RequestNotification
     /// computed over the bound command so transport noise never changes the
     /// hash. Canonical form: one compact JSON object whose members appear in
     /// fixed ordinal order (<c>application</c>, <c>channelsHint</c>,
-    /// <c>class</c>, <c>correlationId</c>, <c>locale</c>, <c>metadata</c>,
+    /// <c>class</c>, <c>correlationId</c>, <c>metadata</c>,
     /// <c>recipientId</c>, <c>scheduledAt</c>, <c>templateKey</c>,
     /// <c>ttlSeconds</c>, <c>variables</c>); absent optional members are
     /// omitted, and a JSON-null <c>variables</c> or <c>metadata</c> counts as
@@ -24,6 +24,12 @@ internal static partial class RequestNotification
     /// preference; <c>scheduledAt</c> is normalized to UTC in the round-trip
     /// format. Two bodies differing only in property order, whitespace, or
     /// time-zone offset of the same instant therefore hash identically.
+    ///
+    /// <c>locale</c> is deliberately absent. It reaches no decision of the
+    /// hub, so two requests that differ only in it are the same notification;
+    /// hashing it would answer a retry that corrected the field, or a client
+    /// library that filled its default differently between the attempt and the
+    /// retry, with a conflict instead of the replay the producer is owed.
     /// </summary>
     internal static string ComputePayloadHash(Command command)
     {
@@ -52,7 +58,6 @@ internal static partial class RequestNotification
                 writer.WriteString("correlationId", command.CorrelationId);
             }
 
-            writer.WriteString("locale", command.Locale);
             if (command.Metadata is { ValueKind: JsonValueKind.Object } metadata)
             {
                 writer.WritePropertyName("metadata");

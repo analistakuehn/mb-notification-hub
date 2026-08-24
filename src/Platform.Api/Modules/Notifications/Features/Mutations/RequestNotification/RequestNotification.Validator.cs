@@ -19,7 +19,7 @@ internal static partial class RequestNotification
                 .Must(NotificationClasses.IsCanonical)
                 .WithMessage($"Class must be one of: {string.Join(", ", NotificationClasses.CanonicalValues)}.");
             RuleFor(command => command.TemplateKey).NotEmpty().MaximumLength(200);
-            RuleFor(command => command.Locale).NotEmpty().MaximumLength(20);
+            RuleFor(command => command.Locale).MaximumLength(20);
             RuleFor(command => command.TtlSeconds).GreaterThan(0).LessThanOrEqualTo(MaxTtlSeconds);
             RuleFor(command => command.CorrelationId).MaximumLength(200);
             RuleFor(command => command.Variables)

@@ -51,7 +51,7 @@ public sealed class RequestNotificationRateLimitTests(NotificationsApiFixture fi
         var retryAfter = int.Parse(limited.Headers.RetryAfter!.ToString(), CultureInfo.InvariantCulture);
         retryAfter.ShouldBeInRange(1, 60);
         JsonElement problem = await NotificationsApi.ReadJsonAsync(limited);
-        problem.GetProperty("type").GetString().ShouldBe("rate-limit-exceeded");
+        problem.GetProperty("type").GetString().ShouldBe("recipient-rate-limited");
 
         var entityId = $"{NotificationsApi.Application}:{rejectedKey}";
         List<AuditEvent> rejections = await fixture.QueryAuditDbAsync(db => db.AuditEvents
@@ -63,33 +63,82 @@ public sealed class RequestNotificationRateLimitTests(NotificationsApiFixture fi
         rejections[0].DetailsJson.ShouldContain("recipient-rate-limited");
     }
 
+    /// <summary>
+    /// The two budgets ask the producer for opposite behaviors, so the 429 has
+    /// to say which one refused. Both dimensions are exercised against the same
+    /// host: a problem type that ignored the dimension would answer the same
+    /// value twice and fail one of the two assertions, whichever value it hard
+    /// coded.
+    /// </summary>
     [RequiresDockerFact]
-    public async Task Exceeding_the_principal_limit_answers_429()
+    public async Task The_429_names_the_dimension_that_refused_and_only_the_recipient_one_is_audited()
     {
         (var templateKey, _) = await NotificationsApi.CreatePublishedTemplateAsync(fixture);
         using WebApplicationFactory<Program> host = fixture.WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, configuration) =>
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["Modules:Notifications:RateLimits:PerPrincipal:transactional:PermitLimit"] = "1",
+                    ["Modules:Notifications:RateLimits:PerPrincipal:transactional:PermitLimit"] = "3",
                     ["Modules:Notifications:RateLimits:PerPrincipal:transactional:WindowSeconds"] = "60",
+                    ["Modules:Notifications:RateLimits:PerRecipient:transactional:0:PermitLimit"] = "1",
+                    ["Modules:Notifications:RateLimits:PerRecipient:transactional:0:WindowSeconds"] = "60",
                 })));
         HttpClient producer = fixture.CreateProducerClient(
-            host, "producer-principal-limit", NotificationsApi.SendTransactional);
+            host, $"producer-dimensions-{Guid.NewGuid():N}", NotificationsApi.SendTransactional);
+        var recipientId = $"cus_{Guid.NewGuid():N}";
+        var recipientRejectedKey = $"dim-recipient-{Guid.NewGuid():N}";
+        var principalRejectedKey = $"dim-principal-{Guid.NewGuid():N}";
 
         (await NotificationsApi.PostNotificationAsync(
                 producer,
-                NotificationsApi.RequestBody(templateKey, recipientId: $"cus_{Guid.NewGuid():N}"),
-                $"prl-1-{Guid.NewGuid():N}"))
+                NotificationsApi.RequestBody(templateKey, recipientId: recipientId),
+                $"dim-accepted-{Guid.NewGuid():N}"))
             .StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        HttpResponseMessage limited = await NotificationsApi.PostNotificationAsync(
+        // Second request for the same recipient: the recipient window is gone
+        // while the principal window still has room.
+        HttpResponseMessage byRecipient = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(templateKey, recipientId: recipientId),
+            recipientRejectedKey);
+
+        byRecipient.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        byRecipient.Headers.RetryAfter.ShouldNotBeNull();
+        (await NotificationsApi.ReadJsonAsync(byRecipient))
+            .GetProperty("type").GetString().ShouldBe("recipient-rate-limited");
+
+        // Third and fourth requests spend the principal window; the fourth
+        // asks for a recipient with budget left, so only the principal
+        // dimension can refuse it.
+        (await NotificationsApi.PostNotificationAsync(
+                producer,
+                NotificationsApi.RequestBody(templateKey, recipientId: recipientId),
+                $"dim-filler-{Guid.NewGuid():N}"))
+            .StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        HttpResponseMessage byPrincipal = await NotificationsApi.PostNotificationAsync(
             producer,
             NotificationsApi.RequestBody(templateKey, recipientId: $"cus_{Guid.NewGuid():N}"),
-            $"prl-2-{Guid.NewGuid():N}");
+            principalRejectedKey);
 
-        limited.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
-        limited.Headers.RetryAfter.ShouldNotBeNull();
+        byPrincipal.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        byPrincipal.Headers.RetryAfter.ShouldNotBeNull();
+        (await NotificationsApi.ReadJsonAsync(byPrincipal))
+            .GetProperty("type").GetString().ShouldBe("principal-rate-limited");
+
+        // The recipient refusal is a business outcome and carries a trail; the
+        // principal refusal announces nothing, because one row per refused
+        // request is the storm the control exists to stop.
+        (await CountIngressRejectionsAsync(recipientRejectedKey)).ShouldBe(1);
+        (await CountIngressRejectionsAsync(principalRejectedKey)).ShouldBe(0);
+    }
+
+    private Task<int> CountIngressRejectionsAsync(string idempotencyKey)
+    {
+        var entityId = $"{NotificationsApi.Application}:{idempotencyKey}";
+        return fixture.QueryAuditDbAsync(db => db.AuditEvents
+            .AsNoTracking()
+            .CountAsync(candidate => candidate.Action == "notification.rejected_at_ingress"
+                && candidate.EntityId == entityId));
     }
 
     [RequiresDockerFact]

@@ -12,11 +12,16 @@ internal static partial class RequestNotification
     private const string IdempotencyKeyHeader = "Idempotency-Key";
     private const int MaxIdempotencyKeyLength = 200;
 
+    /// <summary>
+    /// The route carries no validation filter, on purpose. The use case
+    /// validates shape as its first act, and answering ahead of it would make
+    /// the same defect refused by the framework here and by the catalog on the
+    /// bus, with no trail and no rejection event on this side.
+    /// </summary>
     internal static void MapEndpoint(RouteGroupBuilder group)
         => group.MapPost("", HandleHttpAsync)
             .RequireAuthorization(NotificationsAuthorizationSetup.SendPolicyName)
             .RequireRateLimiting(NotificationsRateLimitingSetup.PolicyName)
-            .WithValidation<Command>()
             .WithRequestLogging();
 
     private static async Task<IResult> HandleHttpAsync(
@@ -63,11 +68,9 @@ internal static partial class RequestNotification
             Outcome.ProducerNotAuthorized => IngestionProblems.ClassNotAllowed(command.Class),
             Outcome.TemplateRejected rejected => IngestionProblems.TemplateRejection(
                 rejected.Reason, rejected.Detail, rejected.Checks),
-            Outcome.RateLimited limited => IngestionProblems.RateLimited(limited.RetryAfterSeconds),
-            // Unreachable over this route: the validation filter answers the
-            // published 400 before the use case runs. Mapped to the same shape
-            // so a filter that ever stops running changes no contract.
-            Outcome.PayloadInvalid invalid => Results.ValidationProblem(invalid.Errors),
+            Outcome.RateLimited limited => IngestionProblems.RateLimited(
+                limited.Dimension, limited.RetryAfterSeconds),
+            Outcome.PayloadInvalid invalid => IngestionProblems.PayloadInvalid(invalid.Errors),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError),
         };
     }

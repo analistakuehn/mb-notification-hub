@@ -115,7 +115,8 @@ internal static partial class RequestNotification
 
                 logger.RateLimitedAtIngress(
                     command.Application, canonicalClass, rateDecision.Dimension, rateDecision.RetryAfterSeconds);
-                return Result.Success<Outcome>(new Outcome.RateLimited(rateDecision.RetryAfterSeconds));
+                return Result.Success<Outcome>(
+                    new Outcome.RateLimited(rateDecision.Dimension, rateDecision.RetryAfterSeconds));
             }
 
             TemplateGateOutcome gate = await templateGate.EvaluateAsync(

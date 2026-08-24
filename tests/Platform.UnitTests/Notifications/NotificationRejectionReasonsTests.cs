@@ -47,6 +47,32 @@ public sealed class NotificationRejectionReasonsTests
     {
         NotificationRejectionReasons.IsCanonical(IngestionProblems.ClassNotAllowedType).ShouldBeTrue();
         NotificationRejectionReasons.IsCanonical(IngestionProblems.IdempotencyKeyConflictType).ShouldBeTrue();
+        NotificationRejectionReasons.IsCanonical(NotificationRejectionReasons.RecipientRateLimited).ShouldBeTrue();
+        NotificationRejectionReasons.IsCanonical(NotificationRejectionReasons.PayloadInvalid).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void The_protocol_only_problem_types_of_the_route_stay_out_of_the_catalog()
+    {
+        // A closed set of two, and closed on purpose: neither condition ever
+        // travels as the reason of a rejection event, so promoting them would
+        // publish vocabulary the bus never speaks. The principal budget in
+        // particular announces nothing, because one event per refused request
+        // is the storm the control exists to stop.
+        NotificationRejectionReasons.IsCanonical(IngestionProblems.IdempotencyKeyRequiredType).ShouldBeFalse();
+        NotificationRejectionReasons.IsCanonical(IngestionProblems.PrincipalRateLimitedType).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Catalog_covers_the_envelope_refusal_of_the_bus_ingress()
+    {
+        // The bus refuses an envelope whose declared type it does not consume,
+        // and the reason is its own instead of the generic shape refusal: the
+        // producer has to tell "your body is wrong" from "your version is not
+        // the one this topic speaks".
+        NotificationRejectionReasons.IsCanonical(NotificationRejectionReasons.EventTypeUnsupported).ShouldBeTrue();
+        NotificationRejectionReasons.EventTypeUnsupported
+            .ShouldNotBe(NotificationRejectionReasons.PayloadInvalid);
     }
 
     [Fact]

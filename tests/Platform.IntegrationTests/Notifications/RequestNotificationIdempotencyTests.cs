@@ -62,6 +62,63 @@ public sealed class RequestNotificationIdempotencyTests(NotificationsApiFixture 
         duplicates.ShouldBeGreaterThan(0);
     }
 
+    /// <summary>
+    /// The locale reaches no decision of the hub, so two attempts that differ
+    /// only in it are the same notification. A retry that corrected the field,
+    /// or a client library that filled its default differently between the
+    /// attempt and the retry, must replay and never conflict.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_retry_that_only_changes_the_locale_replays_instead_of_conflicting()
+    {
+        (var templateKey, _) = await NotificationsApi.CreatePublishedTemplateAsync(fixture);
+        HttpClient producer = fixture.CreateProducerClient("producer-locale", NotificationsApi.SendTransactional);
+        var idempotencyKey = $"locale-{Guid.NewGuid():N}";
+        var recipientId = $"cus_{Guid.NewGuid():N}";
+
+        HttpResponseMessage first = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(templateKey, recipientId: recipientId, locale: "pt-BR"),
+            idempotencyKey);
+        first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+
+        // The fast path and the database authority must give the same answer,
+        // because both compare the same canonical hash.
+        HttpResponseMessage corrected = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(templateKey, recipientId: recipientId, locale: "pt-br"),
+            idempotencyKey);
+        await RemoveFastPathEntryAsync(idempotencyKey);
+        HttpResponseMessage omitted = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(templateKey, recipientId: recipientId, locale: null),
+            idempotencyKey);
+
+        corrected.StatusCode.ShouldBe(HttpStatusCode.OK);
+        omitted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var firstId = (await NotificationsApi.ReadJsonAsync(first)).GetProperty("notificationId").GetString();
+        (await NotificationsApi.ReadJsonAsync(corrected))
+            .GetProperty("notificationId").GetString().ShouldBe(firstId);
+        (await NotificationsApi.ReadJsonAsync(omitted))
+            .GetProperty("notificationId").GetString().ShouldBe(firstId);
+
+        // Falsification of the replay itself: a field the hub does decide on
+        // still conflicts under the same key, so the two 200s above are the
+        // locale leaving the hash and not the comparison having stopped.
+        HttpResponseMessage divergent = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                templateKey, recipientId: recipientId, variables: new { orderId = "ord-2" }),
+            idempotencyKey);
+        divergent.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // One notification, whatever the locale of each attempt.
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(candidate => candidate.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(1);
+    }
+
     [RequiresDockerFact]
     public async Task The_same_key_with_a_different_body_is_a_conflict()
     {
@@ -110,9 +167,9 @@ public sealed class RequestNotificationIdempotencyTests(NotificationsApiFixture 
             RecipientId: recipientId,
             Class: "transactional",
             TemplateKey: templateKey,
-            Locale: "pt-BR",
             TtlSeconds: 300)
         {
+            Locale = "pt-BR",
             Variables = JsonDocument.Parse("""{"orderId":"ord-1"}""").RootElement.Clone(),
         });
         await fixture.ExecuteNotificationsDbAsync(async db =>

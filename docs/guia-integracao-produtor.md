@@ -25,7 +25,12 @@ e-mail, não envia telefone e não escolhe canal.
 Classes entregues nesta versão: `critical` e `transactional`. O vocabulário
 aceito pela ingestão também inclui `operational`, mas a versão atual não
 entrega nenhum caminho pensado para essa classe (sem janela de silêncio
-efetiva, sem liberação de adiamento). Trate `operational` como indisponível.
+efetiva, sem liberação de adiamento). Trate `operational` como indisponível, e
+saiba o motivo exato: nenhum componente desta versão lê o instante de
+liberação, então uma notificação que a política adiar fica parada
+indefinidamente, sem envio, sem falha e sem alarme. A contenção é
+administrativa e dupla: o papel `Notifications.Send.Operational` não é
+concedido e nenhum template dessa classe é publicado.
 
 Canais entregues nesta versão: `email` e `push`. Uma política publicada que
 liste `sms` ou `whatsapp` faz a notificação terminar em falha, porque não
@@ -52,7 +57,7 @@ Campos do corpo:
 | `recipientId` | sim | Até 100 caracteres. Identificador opaco do destinatário, nunca CPF, e-mail ou telefone. |
 | `class` | sim | `critical`, `transactional` ou `operational`. |
 | `templateKey` | sim | Até 200 caracteres. |
-| `locale` | sim | Até 20 caracteres. Exigido pela validação e **não usado**: veja a seção 4. |
+| `locale` | não | Até 20 caracteres. Aceito, **sem efeito** e fora do hash de idempotência: veja a seção 4. |
 | `ttlSeconds` | sim | Inteiro maior que zero e no máximo 2.592.000 (30 dias). |
 | `variables` | não | Objeto JSON. Ausente ou `null` significa nenhuma variável. |
 | `channelsHint` | não | Lista de strings de até 20 caracteres cada. Aceita e ignorada: veja a seção 4. |
@@ -108,15 +113,17 @@ mesmo tempo.
    framework, sem `type` do catálogo.
 3. Teto bruto de requisições por principal estourado: `429` com o corpo de erro
    padrão do framework e **sem** `Retry-After` (seção 8).
-4. Corpo malformado ou fora das regras de forma: `400` de validação.
-5. `Idempotency-Key` ausente, em branco ou com mais de 200 caracteres:
+4. `Idempotency-Key` ausente, em branco ou com mais de 200 caracteres:
    `400` com `type` `idempotency-key-required`.
+5. Corpo malformado ou fora das regras de forma: `400` com `type`
+   `payload-invalid` e a lista de erros por campo em `errors` (seção 6).
 6. Papel do token não cobre a classe pedida, ou o token não carrega identidade
    estável: `403` com `type` `class-not-allowed-for-principal`.
 7. Chave de idempotência já conhecida: `200` no replay, `409` no conflito
    (seção 3).
-8. Limite de negócio estourado: `429` com `type` `rate-limit-exceeded` e
-   cabeçalho `Retry-After` (seção 8).
+8. Limite de negócio estourado: `429` com `type` `recipient-rate-limited` ou
+   `principal-rate-limited`, conforme a dimensão, e cabeçalho `Retry-After`
+   (seção 8).
 9. Template recusa a solicitação: `422` com o motivo do catálogo no `type`
    (seção 5).
 10. Aceite: `202`.
@@ -126,6 +133,13 @@ então um replay legítimo nunca gasta orçamento do destinatário. E a
 autorização é avaliada **antes** do catálogo, então um principal não
 autorizado nunca descobre quais templates existem pela diferença entre dois
 motivos de recusa.
+
+Outro ponto, que muda o que você vê quando erra duas coisas ao mesmo tempo: a
+chave de idempotência é conferida **antes** da forma do corpo. Um corpo
+inválido enviado sem `Idempotency-Key` responde `idempotency-key-required`, e
+não `payload-invalid`. Isso é deliberado: a recusa por forma grava trilha, e a
+trilha precisa da chave para identificar a entidade que ela registra. Corrija a
+chave primeiro e reenvie para ver o relatório de campos.
 
 ### 2.2 Kafka: tópico `notifications.requested.v1`
 
@@ -162,6 +176,12 @@ existe cabeçalho HTTP para ela. Um evento sem `idempotencyKey` não é sequer
 vinculado ao comando: vai direto para a dead letter com motivo
 `payload-invalid`.
 
+O `type` do envelope é a **versão do esquema**, e o hub o confere antes de olhar
+o corpo. Um envelope com `type` diferente de `araia.notification.requested.v1`
+vai para a dead letter com o motivo `event-type-unsupported`, mesmo que o
+`data` esteja perfeito. Quando uma versão nova existir, o nome dela é que muda,
+e o hub consome as duas durante a transição.
+
 Cabeçalhos que o hub lê:
 
 | Cabeçalho | Uso |
@@ -174,6 +194,15 @@ Autorização em duas camadas. A primeira é a ACL de escrita do broker. A segun
 produtor, `application` e classe. Identidade fora do registro, ou pedindo
 classe que o registro não concede, resulta em dead letter com motivo
 `producer-not-authorized`.
+
+As duas camadas fazem coisas diferentes, e vale entender qual faz qual. O
+cabeçalho `producer` é escrito por você, e um consumidor Kafka não enxerga
+identidade autenticada de quem publicou. Quem autentica de fato é a ACL de
+escrita do broker; o registro de produtores é autorização declarativa e
+auditável sobre um nome declarado. Consequência prática para o seu time: o
+nome lógico do produtor é um compromisso operacional, não uma credencial.
+Nunca publique com o nome de outro time, e trate a ACL de escrita no tópico de
+entrada como a concessão sensível que ela é.
 
 Duas regras operacionais do produtor no barramento:
 
@@ -261,9 +290,15 @@ normalizado para UTC. Consequências práticas:
 
 - Dois corpos que diferem só na ordem das propriedades, no espaçamento ou no
   fuso de um mesmo instante **têm o mesmo hash** e são o mesmo replay.
-- `locale`, `channelsHint` e `metadata` **entram no hash**, mesmo sendo
-  ignorados pelo roteamento. Mudar qualquer um deles e repetir a chave produz
-  `409`, não um replay.
+- `channelsHint` e `metadata` **entram no hash**, mesmo sendo ignorados pelo
+  roteamento. Mudar qualquer um deles e repetir a chave produz `409`, não um
+  replay.
+- `locale` **não entra no hash**. Duas tentativas com a mesma chave que
+  diferem só no locale, inclusive uma delas sem o campo, resolvem como replay.
+  Ele é a única exceção entre os campos sem efeito, e por um motivo: um campo
+  que não alcança decisão nenhuma do hub não identifica a notificação, e fazer
+  a retentativa que corrigiu o locale colidir com a tentativa original seria
+  quebrar exatamente o caminho que a idempotência existe para proteger.
 
 **Derive a chave do evento de negócio, nunca gere aleatória.** Uma chave
 aleatória por tentativa não protege nada: cada retentativa do seu cliente HTTP
@@ -306,7 +341,8 @@ Três decisões pertencem à política publicada e ao catálogo, não à solicit
   alcançável.
 
 Três campos da solicitação são aceitos e não têm efeito nesta versão. O hub os
-valida, os inclui no hash de idempotência e depois os descarta.
+valida e depois os descarta. Dois deles, `channelsHint` e `scheduledAt`, entram
+no hash de idempotência; `locale` não entra, e a seção 3 explica por quê.
 
 **`channelsHint`**: aceito e ignorado. A ordem efetiva é a do plano da
 política. O motivo é que o hint não é persistido na aceitação, então a regra de
@@ -315,10 +351,10 @@ seleção de canal roda sem ele. Nenhuma reordenação por solicitação existe 
 reordenar preferência por solicitação. Quando isso acontecer, o hint volta como
 reordenação **dentro** dos canais já permitidos, jamais como adição de canal.
 
-**`locale`**: exigido pela validação e não persistido. O locale de renderização
-vem do perfil do destinatário ou do padrão do template. Envie um valor válido
-para passar na validação e não espere que ele mude o idioma da mensagem. Para
-influenciar o idioma, ajuste a preferência do destinatário pela rota de
+**`locale`**: opcional, não persistido e fora do hash de idempotência. O locale
+de renderização vem do perfil do destinatário ou do padrão do template. Omita o
+campo sem receio, e se enviar não espere que ele mude o idioma da mensagem.
+Para influenciar o idioma, ajuste a preferência do destinatário pela rota de
 contatos (seção 7).
 
 **`scheduledAt`**: aceito, armazenado e sem efeito. A notificação é enfileirada
@@ -534,8 +570,14 @@ timeout ou erro de servidor, sem veredito conclusivo, a tentativa fica em
 `unknown` e permanece assim: sem reconciliação, nada a resolve nesta versão.
 Trate `unknown` como indeterminado, não como falha e não como sucesso.
 
-**O evento `contact_suppressed` não existe.** Supressão de contato por retorno
-de provedor entra numa versão futura.
+**Supressão de contato é detectada e registrada internamente, não anunciada.**
+O evento `araia.notification.contact_suppressed.v1` não é publicado nesta
+versão. Não é que o hub ignore o fato: um token de push revogado pelo provedor
+já é registrado na trilha, na mesma transação do veredito do envio, e o
+dispositivo deixa de ser alcançável a partir dali. O que falta é o anúncio no
+barramento, mais os gatilhos que dependem de retorno de provedor, bounce de
+e-mail e número inválido. A entrega do evento é de versão futura, na mesma
+ressalva do `delivered` de e-mail.
 
 **Não existe stream de mudanças de status.** Não há assinatura por evento
 enviado pelo servidor. O que existe é o tópico de saída e a consulta.
@@ -545,16 +587,24 @@ enviado pelo servidor. O que existe é o tópico de saída e a consulta.
 Primeiro a distinção que organiza tudo:
 
 - **Rejeição de negócio** é um desfecho válido do hub. Ele funcionou, avaliou e
-  concluiu que a notificação não deve sair. Chega como `422` (na ingestão REST)
-  ou como evento `rejected` e status `rejected` na consulta (no pipeline). Não
-  é erro, não deve virar alerta de falha do seu serviço e, na maioria dos
-  casos, não deve ser retentada da mesma forma.
+  concluiu que a notificação não deve sair. Chega como `422` ou `429`
+  `recipient-rate-limited` na ingestão REST, ou como evento `rejected` e status
+  `rejected` na consulta (no pipeline). Não é erro, não deve virar alerta de
+  falha do seu serviço e, na maioria dos casos, não deve ser retentada da mesma
+  forma.
 - **Erro de protocolo** é problema da sua requisição ou do seu token: `400`,
-  `401`, `403` sem motivo do catálogo, `429` e `5xx`. Aqui sim há algo a
+  `401`, `403`, `429` `principal-rate-limited` e `5xx`. Aqui sim há algo a
   corrigir no cliente, ou a retentar.
 
+Repare que a linha divisória é o que **você faz**, e não onde o valor mora: o
+catálogo tem membros dos dois lados. `payload-invalid` é do catálogo e é erro
+de protocolo, porque quem corrige é o cliente; `recipient-rate-limited` é do
+catálogo e é rejeição de negócio, porque o hub decidiu proteger o cliente.
+
 O catálogo canônico de motivos vale para o `reason` de `rejected` e para o
-`type` do problema de `422`. É um vocabulário fechado.
+`type` do problema em todas as recusas de negócio e de forma da ingestão. É um
+vocabulário fechado, e fora dele existem exatamente dois `type` só de
+protocolo, listados no fim desta seção.
 
 | Motivo | O que significa | O que o produtor faz |
 |---|---|---|
@@ -571,7 +621,8 @@ O catálogo canônico de motivos vale para o `reason` de `rejected` e para o
 | `no-consent` | O destinatário não consentiu com a finalidade em nenhum canal elegível | Não retente. Colete o consentimento pelo caminho de cadastro |
 | `recipient-rate-limited` | O orçamento por destinatário daquela classe se esgotou | Não retente em laço. Respeite o intervalo e reavalie se o volume por cliente está correto |
 | `duplicate-window` | Uma notificação equivalente está dentro da janela de deduplicação da política | Provavelmente é duplicata legítima detectada. Se não for, revise a chave de negócio que está gerando repetição |
-| `payload-invalid` | O corpo é estruturalmente inválido | Corrija o corpo. No caminho Kafka esse é o motivo da dead letter para envelope ilegível ou sem `idempotencyKey` |
+| `payload-invalid` | O corpo é estruturalmente inválido, ou falha nas regras de forma | Corrija o corpo usando o dicionário `errors` da resposta. É o `type` do `400` no REST e, no Kafka, o motivo da dead letter para envelope ilegível ou sem `idempotencyKey` |
+| `event-type-unsupported` | O `type` do envelope não é o que este tópico consome | Publique com `araia.notification.requested.v1`. Só ocorre no caminho Kafka. Não confunda com `payload-invalid`: aqui o corpo pode estar perfeito e a versão do envelope é que está errada |
 | `idempotency-key-conflict` | A mesma chave chegou com corpo diferente | Escolha: se o corpo novo é o correto, use uma chave nova; se o antigo é o correto, pare de reenviar |
 | `expired` | O TTL venceu antes de a notificação alcançar um canal | Solicite de novo se o fato de negócio ainda vale. Reavalie se o `ttlSeconds` é curto demais |
 | `producer-disabled` | Declarado no vocabulário e **inalcançável nesta versão** | Nada. Ele existe para que o vocabulário não mude quando o desligamento de produtor chegar |
@@ -606,31 +657,39 @@ decididos depois do aceite, no pipeline: `no-valid-contact`, `no-consent`,
 `duplicate-window`, além de `template-render-failed` e `expired`. Eles chegam
 pelo evento `rejected` e pela consulta.
 
-**O erro de forma no REST não usa o catálogo.** Um corpo que falha na validação
-recebe o corpo de erro de validação padrão do framework, com a lista de erros
-por campo em `errors`, e o `type` desse `400` é a referência de status HTTP,
-não `payload-invalid`:
+**O erro de forma no REST usa o catálogo, e mantém o relatório por campo.** Um
+corpo que falha na validação recebe `payload-invalid` no `type` e a mesma lista
+de erros por campo em `errors`:
 
 ```http
 HTTP/1.1 400 Bad Request
 Content-Type: application/problem+json
 
 {
-  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
-  "title": "One or more validation errors occurred.",
+  "type": "payload-invalid",
+  "title": "payload-invalid",
   "status": 400,
+  "detail": "O corpo da solicitação não passa nas regras de forma da ingestão.",
   "errors": {
     "TtlSeconds": ["'Ttl Seconds' must be greater than '0'."]
   }
 }
 ```
 
-Nesse caso, e só nesse, a recusa por forma no caminho REST **não** gera evento
-de rejeição: ela é respondida antes de o caso de uso rodar. No caminho Kafka a
-mesma falha de forma gera dead letter com motivo `payload-invalid`.
+As chaves de `errors` são os nomes das propriedades do corpo em PascalCase, uma
+entrada por regra que falhou. Use `type` para decidir o que fazer e `errors`
+para saber onde corrigir.
+
+Essa recusa gera trilha e evento de rejeição nos dois transportes, com o mesmo
+motivo: o hub trata a falha de forma pelo que ela é, e não pelo transporte que
+a carregou. A única exceção continua sendo o corpo malformado **sem
+`recipientId`**, que não gera evento por falta de sujeito para chavear (seção
+5.1).
 
 Dois `type` de problema que existem no REST e não pertencem ao catálogo, porque
-são condições de protocolo: `idempotency-key-required` e `rate-limit-exceeded`.
+são condições de protocolo que nunca viajam no barramento:
+`idempotency-key-required` e `principal-rate-limited`. O conjunto é fechado
+nesses dois.
 
 ## 7. Dead letter
 
@@ -639,9 +698,9 @@ Só o caminho Kafka tem dead letter. No REST a recusa é a própria resposta.
 ### 7.1 Dead letter de notificações: `notifications.requested.dlt`
 
 Vai para lá todo registro **permanentemente** inválido: envelope ilegível,
-evento sem `idempotencyKey`, produtor não autorizado, recusa do catálogo,
-conflito de idempotência, estouro do orçamento por destinatário e recusa por
-variável sensível. Falha transitória nunca vai para a dead letter: nesse caso o
+`type` de envelope não suportado, evento sem `idempotencyKey`, produtor não
+autorizado, recusa do catálogo, conflito de idempotência, estouro do orçamento
+por destinatário e recusa por variável sensível. Falha transitória nunca vai para a dead letter: nesse caso o
 consumidor para de ler a partição e aplica contrapressão, sem avançar o offset.
 
 Cabeçalhos de diagnóstico do registro:
@@ -720,6 +779,11 @@ retenção.
 Motivos próprios dessa ingestão, que não se misturam com o catálogo de
 notificações: `source-not-authorized`, `payload-invalid`,
 `event-type-unsupported`, `recipient-unknown` e `no-contact-point-for-channel`.
+Dois deles se escrevem igual em ambos os vocabulários, `payload-invalid` e
+`event-type-unsupported`, e significam a mesma coisa em cada transporte, corpo
+inválido e tipo de envelope não consumido. Ainda assim são vocabulários
+separados: não valide um motivo de contato contra o catálogo de notificações
+nem o contrário, porque os dois conjuntos evoluem por decisões diferentes.
 
 ## 8. Checklist de integração
 
@@ -813,7 +877,8 @@ configuráveis por ambiente. A configuração vigente no repositório é:
 As janelas por destinatário são cumulativas: todas precisam passar. Uma classe
 sem entrada configurada não tem limite naquela dimensão.
 
-O estouro de limite de negócio no REST devolve:
+O estouro de limite de negócio no REST devolve `429` com o `type` da dimensão
+que recusou. Por destinatário:
 
 ```http
 HTTP/1.1 429 Too Many Requests
@@ -821,10 +886,25 @@ Retry-After: 384
 Content-Type: application/problem+json
 
 {
-  "type": "rate-limit-exceeded",
-  "title": "rate-limit-exceeded",
+  "type": "recipient-rate-limited",
+  "title": "recipient-rate-limited",
   "status": 429,
-  "detail": "O limite de solicitações foi atingido; tente novamente após o intervalo indicado."
+  "detail": "O orçamento de notificações deste destinatário na classe pedida se esgotou; não retente em laço."
+}
+```
+
+Por principal:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 12
+Content-Type: application/problem+json
+
+{
+  "type": "principal-rate-limited",
+  "title": "principal-rate-limited",
+  "status": 429,
+  "detail": "O limite de solicitações do seu principal foi atingido; reduza a vazão e tente novamente após o intervalo indicado."
 }
 ```
 
@@ -846,11 +926,23 @@ de contrapressão**. Se o seu serviço passar do orçamento por principal, os
 eventos continuam sendo processados e nada te avisa. O controle de vazão do
 lado do produtor é responsabilidade sua.
 
-**Como o `429` se distingue do resto no REST.** O `type` é sempre
-`rate-limit-exceeded`, qualquer que seja a dimensão que estourou. Para saber se
-foi o orçamento do destinatário, olhe o tópico de saída: o estouro por
-destinatário publica `araia.notification.rejected.v1` com motivo
-`recipient-rate-limited`; o estouro por principal não publica nada.
+**Como o `429` se distingue no REST, e por que isso importa para o seu
+cliente.** O `type` nomeia a dimensão, e as duas pedem comportamentos opostos:
+
+| `type` | O que significa | O que o produtor faz |
+|---|---|---|
+| `recipient-rate-limited` | O orçamento daquele destinatário na classe pedida se esgotou | **Não retente esta solicitação.** O cliente está protegido de propósito. Reavalie se o volume por cliente está correto |
+| `principal-rate-limited` | O seu próprio orçamento de requisições se esgotou | **Desacelere e retente** após o `Retry-After`. A solicitação continua legítima |
+
+Trate os dois de forma diferente na sua política de retentativa: retentar em
+laço um `recipient-rate-limited` só queima orçamento e não entrega nada,
+enquanto desistir de um `principal-rate-limited` perde uma notificação que o
+hub aceitaria alguns segundos depois.
+
+Os dois também se distinguem no tópico de saída: o estouro por destinatário
+publica `araia.notification.rejected.v1` com motivo `recipient-rate-limited`;
+o estouro por principal não publica nada, porque um evento por requisição
+recusada seria a própria tempestade que o controle existe para conter.
 
 **Comportamento em degradação.** Os dois controles apoiados em armazenamento
 externo (a via rápida de idempotência e o limitador de taxa) **falham abertos**

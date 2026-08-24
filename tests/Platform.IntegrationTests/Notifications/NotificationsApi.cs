@@ -14,24 +14,37 @@ internal static class NotificationsApi
 
     private static readonly string[] RequiredOrderId = ["orderId"];
 
+    /// <summary>
+    /// One request body. A null <paramref name="locale"/> omits the member
+    /// entirely instead of sending a JSON null, because the two are different
+    /// requests on the wire and the optional field has to be provably absent.
+    /// </summary>
     internal static object RequestBody(
         string templateKey,
         string @class = "transactional",
         string recipientId = "cus_01J5X9",
         object? variables = null,
         int ttlSeconds = 300,
-        string? correlationId = null)
-        => new
+        string? correlationId = null,
+        string? locale = "pt-BR")
+    {
+        var body = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            application = Application,
-            recipientId,
-            @class,
-            templateKey,
-            locale = "pt-BR",
-            variables = variables ?? new { orderId = "ord-1" },
-            ttlSeconds,
-            correlationId,
+            ["application"] = Application,
+            ["recipientId"] = recipientId,
+            ["class"] = @class,
+            ["templateKey"] = templateKey,
+            ["variables"] = variables ?? new { orderId = "ord-1" },
+            ["ttlSeconds"] = ttlSeconds,
+            ["correlationId"] = correlationId,
         };
+        if (locale is not null)
+        {
+            body["locale"] = locale;
+        }
+
+        return body;
+    }
 
     internal static async Task<HttpResponseMessage> PostNotificationAsync(
         HttpClient client,

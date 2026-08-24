@@ -19,16 +19,29 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
 
 ## Request fields not persisted at ingestion
 
-- **Assumption accepted**: `locale`, `channelsHint` and `metadata` are
-  validated, participate in the idempotency payload hash, and are not stored:
-  the notification row carries exactly the accepted data-model columns.
+- **Assumption accepted**: `channelsHint` and `metadata` are validated,
+  participate in the idempotency payload hash, and are not stored: the
+  notification row carries exactly the accepted data-model columns. `locale`
+  is the exception on both counts: it is optional and it is **not** part of the
+  hash.
 - **Evidence**: the accepted data model omits those columns, and the pipeline
-  stages re-read state from the store by design.
+  stages re-read state from the store by design. Nothing reads
+  `command.Locale`: the render locale comes from the recipient profile, then
+  the template default, then the module fallback
+  (`Features/Pipeline/Stages/RenderStage.cs`,
+  `Features/Fallback/FallbackRequestHandler.cs`). A field that reaches no
+  decision cannot identify a request, so hashing it would answer a retry that
+  corrected the locale, or a client library that filled its default
+  differently between the attempt and the retry, with a conflict on a
+  notification identical in everything that matters.
 - **Owner**: Notifications module maintainers.
-- **Status**: accepted.
+- **Status**: accepted. The locale half was corrected while no environment
+  held stored hashes, which is the only moment it costs nothing: after go-live
+  the same change is a data migration.
 - **Review condition**: the Core pipeline slice that needs locale or channel
   preference at render/route time must revisit the ingestion persistence
-  before consuming them.
+  before consuming them. A request locale that ever reaches a decision goes
+  back into the hash in the same change.
 
 ## ChannelSelection runs without the producer's channel hint
 
@@ -300,6 +313,32 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
 - **Status**: accepted, same bucket as the other pending deployment entries.
 - **Review condition**: the infrastructure delivery that provisions the queue
   topology deploys this role in the same round.
+
+## The operational class is accepted end to end and nothing releases a deferral
+
+- **Assumption accepted**: the ingestion accepts `operational` on both
+  transports. The canonical vocabulary declares it, the authorization policy
+  carries `Notifications.Send.Operational`, and the per-principal rate limit
+  ships an entry for it, while the phase delivers only `critical` and
+  `transactional`. No refusal by class is added to the code.
+- **Evidence**: `Domain/NotificationClasses.cs`,
+  `Infrastructure/Authorization/NotificationsAuthorizationSetup.cs` and the
+  rate-limit configuration. The effective containment is operational and takes
+  two deliberate administrative acts, granting the role and publishing a
+  template of the class; a refusal by class in code would encode a calendar
+  inside the domain vocabulary and would be removed in the next phase.
+- **Failure mode, which is worse than an unexercised rule**: no component of
+  this phase reads `release_at`. The quiet-hours rule can park a run on
+  `deferred`, and nothing releases it, so a postponed notification sits
+  indefinitely: never sent, never failed, and with no alarm. The only
+  observability is the structured warning of the commit writer.
+- **Owner**: Notifications module maintainers with Arquitetura.
+- **Status**: accepted with the record, and **blocking at the go-live gate**,
+  not at the declaration of the phase. The gate verifies that no `operational`
+  template is published and that the send role of that class is granted to
+  nobody.
+- **Review condition**: the slice that delivers the deferral releaser closes
+  this together with the quiet-hours window; until then the two are one item.
 
 ## Deferred observability is a structured log, not a metric
 

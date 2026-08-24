@@ -141,6 +141,89 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
         outboxMessage.Destination.ShouldBe("core-auth");
     }
 
+    /// <summary>
+    /// The shape refusal belongs to the use case, on both transports. The 400
+    /// keeps the per-field report the framework published and gains the catalog
+    /// code plus the trail that the bus path always had.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_body_that_fails_the_shape_rules_is_payload_invalid_with_the_field_report_and_a_trail()
+    {
+        HttpClient producer = fixture.CreateProducerClient("producer-shape", NotificationsApi.SendTransactional);
+        var idempotencyKey = $"shape-{Guid.NewGuid():N}";
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody("any.key", @class: "banana", ttlSeconds: 0),
+            idempotencyKey);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("payload-invalid");
+        problem.GetProperty("status").GetInt32().ShouldBe(400);
+
+        // The dictionary is the validator's own, unchanged: one entry per
+        // failed rule, keyed by property name, with the same messages.
+        JsonElement errors = problem.GetProperty("errors");
+        errors.EnumerateObject()
+            .Select(entry => entry.Name)
+            .Order(StringComparer.Ordinal)
+            .ShouldBe(["Class", "TtlSeconds"]);
+        errors.GetProperty("TtlSeconds")[0].GetString()
+            .ShouldBe("'Ttl Seconds' must be greater than '0'.");
+        errors.GetProperty("Class")[0].GetString()
+            .ShouldBe("Class must be one of: critical, transactional, operational.");
+
+        var entityId = $"{NotificationsApi.Application}:{idempotencyKey}";
+        List<AuditEvent> rejections = await fixture.QueryAuditDbAsync(db => db.AuditEvents
+            .AsNoTracking()
+            .Where(candidate => candidate.Action == "notification.rejected_at_ingress"
+                && candidate.EntityId == entityId)
+            .ToListAsync());
+        rejections.Count.ShouldBe(1);
+        rejections[0].DetailsJson.ShouldContain("payload-invalid");
+    }
+
+    /// <summary>
+    /// Accepted consequence of moving the shape check into the use case: the
+    /// key is answered first, which is the right order, because the trail needs
+    /// it for the identity of the entity it records.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task An_invalid_body_without_the_idempotency_key_is_answered_for_the_missing_key_first()
+    {
+        HttpClient producer = fixture.CreateProducerClient(
+            "producer-shape-nokey", NotificationsApi.SendTransactional);
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody("any.key", @class: "banana", ttlSeconds: 0),
+            idempotencyKey: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("idempotency-key-required");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_request_without_a_locale_is_accepted()
+    {
+        (var templateKey, _) = await NotificationsApi.CreatePublishedTemplateAsync(fixture);
+        HttpClient producer = fixture.CreateProducerClient("producer-nolocale", NotificationsApi.SendTransactional);
+        var recipientId = $"cus_{Guid.NewGuid():N}";
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(templateKey, recipientId: recipientId, locale: null),
+            $"nolocale-{Guid.NewGuid():N}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(candidate => candidate.RecipientId == recipientId)))
+            .ShouldBe(1);
+    }
+
     [RequiresDockerFact]
     public async Task A_missing_idempotency_key_header_is_a_bad_request_problem()
     {

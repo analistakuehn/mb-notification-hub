@@ -70,8 +70,14 @@ has no business effect and records its trail in its own short transaction.
   ingress maps it to a dead-letter record without either re-implementing a
   rule. The shape validation runs inside the use case, first, so an unreadable
   request is answered for what it is even when the producer would also fail
-  authorization; the route keeps its validation filter as the fast path that
-  preserves the published 400.
+  authorization. The route carries **no** validation filter: answering ahead of
+  the use case would refuse the same defect with the framework body here and
+  with `payload-invalid` on the bus, and would leave the synchronous refusal
+  without a trail and without a rejection event. The published 400 keeps the
+  per-field `errors` dictionary and gains the catalog code as its `type`. The
+  accepted consequence is the order: a malformed body without
+  `Idempotency-Key` is answered for the missing key first, because the trail
+  needs the key for the identity of the entity it records.
 - Authorization is resolved per transport before the use case runs:
   `RestProducerAuthorizer` over the Entra app roles (reason
   `class-not-allowed-for-principal`) and `KafkaProducerAuthorizer` over
@@ -104,10 +110,15 @@ has no business effect and records its trail in its own short transaction.
   group `notification-hub-ingress`, one record at a time, offsets committed per
   poll batch, at-least-once resolved by `platform.processed_messages` keyed
   `{topic}:{partition}:{offset}`.
-- Order of the checks, which is contract: envelope and size, shape validation,
-  kill switch (declaratory in this phase), producer registry, idempotency,
-  recipient budget, published catalog, sensitive-variable restriction,
-  variables schema, persistence. The registry runs before the catalog so a
+- Order of the checks, which is contract: envelope and size, envelope type,
+  shape validation, kill switch (declaratory in this phase), producer registry,
+  idempotency, recipient budget, published catalog, sensitive-variable
+  restriction, variables schema, persistence. The envelope type is checked
+  before the body binds, because the type is the schema version and a later
+  version would otherwise bind on the coincidence of field names; the refusal
+  is `event-type-unsupported`, its own catalog member, so the producer tells
+  "your body is wrong" from "your version is not the one this topic speaks".
+  The registry runs before the catalog so a
   refusal never leaks which templates exist; the sensitive-variable
   restriction runs before the schema validation because the validation reports
   findings over exactly the payload that must not be inspected; idempotency
@@ -330,7 +341,8 @@ has no business effect and records its trail in its own short transaction.
 
 - Two Redis-backed dimensions, both keyed by canonical class: per producer
   principal and per recipient (`Modules:Notifications:RateLimits`); exceeding
-  answers 429 with `Retry-After`, and the recipient dimension also records
+  answers 429 with `Retry-After` and the problem `type` of the dimension that
+  refused, and the recipient dimension also records
   `notification.rejected_at_ingress` with reason `recipient-rate-limited`.
 - Every Redis failure fails open with an alarm log: availability prevails and
   the manual kill switch is the compensation. The named ASP.NET policy on the
@@ -373,11 +385,21 @@ a pending cross-module decision.
   (`Features/Mutations/RequestNotification/RequestNotification.Response.cs`),
   and the endpoint maps each case to RFC 9457 problems
   (`Infrastructure/Http/IngestionProblems.cs`). Problem `type` values are
-  stable codes: `idempotency-key-required`, `idempotency-key-conflict`,
-  `class-not-allowed-for-principal`, `rate-limit-exceeded`,
-  `template-not-found`, `template-class-mismatch`,
+  stable codes: `idempotency-key-conflict`,
+  `class-not-allowed-for-principal`, `recipient-rate-limited`,
+  `payload-invalid`, `template-not-found`, `template-class-mismatch`,
   `template-variables-invalid`, plus the catalog reasons
-  `template-deprecated` and `template-disabled`.
+  `template-deprecated` and `template-disabled`. Exactly two codes are
+  protocol conditions of the route and stay out of the catalog, because
+  neither ever travels as the `reason` of a rejection event:
+  `idempotency-key-required` and `principal-rate-limited`.
+- **The 429 names the dimension.** The recipient budget answers
+  `recipient-rate-limited` and the principal budget answers
+  `principal-rate-limited`, because the two ask the producer for opposite
+  behaviors: an exhausted recipient budget means the customer is protected and
+  the request must not be retried, an exhausted principal budget means slow
+  down and retry. Only the recipient dimension records a trail and publishes a
+  rejection event.
 - The query surface has its own three stable codes
   (`Infrastructure/Http/QueryProblems.cs`): `invalid-request`,
   `invalid-cursor` and `notification-not-found`. The cursor gets a code of its

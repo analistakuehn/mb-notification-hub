@@ -58,6 +58,13 @@ public static class NotificationRejectionReasons
     /// <summary>The request body is structurally invalid.</summary>
     public const string PayloadInvalid = "payload-invalid";
 
+    /// <summary>
+    /// The envelope declares an event type this ingestion does not consume.
+    /// The type carries the schema version in its own name, so a body that
+    /// happens to bind is not evidence that the producer spoke this contract.
+    /// </summary>
+    public const string EventTypeUnsupported = "event-type-unsupported";
+
     /// <summary>The same idempotency key arrived with a different payload.</summary>
     public const string IdempotencyKeyConflict = "idempotency-key-conflict";
 
@@ -82,6 +89,7 @@ public static class NotificationRejectionReasons
         RecipientRateLimited,
         DuplicateWindow,
         PayloadInvalid,
+        EventTypeUnsupported,
         IdempotencyKeyConflict,
         Expired,
     };

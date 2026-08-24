@@ -1,3 +1,4 @@
+using NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.Mutations;
@@ -33,14 +34,21 @@ internal static partial class RequestNotification
             string Detail,
             IReadOnlyList<VariablesValidationCheck>? Checks) : Outcome;
 
-        /// <summary>A rate limit rejected the request; answer 429 with the retry hint.</summary>
-        internal sealed record RateLimited(int RetryAfterSeconds) : Outcome;
+        /// <summary>
+        /// A rate limit rejected the request; answer 429 with the retry hint.
+        /// The dimension travels with the outcome because the two ask the
+        /// producer for opposite behaviors: an exhausted recipient budget means
+        /// the customer is protected and the request must not be retried, while
+        /// an exhausted principal budget means slow down and retry.
+        /// </summary>
+        internal sealed record RateLimited(RateLimitedDimension Dimension, int RetryAfterSeconds) : Outcome;
 
         /// <summary>
-        /// The request failed the shape validation. Unreachable over REST,
-        /// where the endpoint filter answers the published 400 first; the bus
-        /// path needs it as data, because a malformed event has no caller to
-        /// answer and must reach the dead-letter topic with its field errors.
+        /// The request failed the shape validation, on either transport. The
+        /// use case owns this refusal so the same defect gets the same reason,
+        /// the same trail and the same rejection event whichever transport
+        /// carried it; the field errors travel so the synchronous caller keeps
+        /// its per-field report and the dead-letter record keeps its diagnosis.
         /// </summary>
         internal sealed record PayloadInvalid(IReadOnlyDictionary<string, string[]> Errors) : Outcome;
 

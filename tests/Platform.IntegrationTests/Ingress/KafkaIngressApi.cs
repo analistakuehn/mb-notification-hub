@@ -58,20 +58,25 @@ internal static class KafkaIngressApi
         return (key, version);
     }
 
-    /// <summary>One well-formed CloudEvent carrying a notification request.</summary>
+    /// <summary>
+    /// One well-formed CloudEvent carrying a notification request.
+    /// <paramref name="eventType"/> is a parameter so a test can hold the body
+    /// fixed and move only the declared schema version.
+    /// </summary>
     internal static string RequestedEvent(
         string application,
         string templateKey,
         string @class,
         string recipientId,
         string idempotencyKey,
-        object? variables = null)
+        object? variables = null,
+        string eventType = "araia.notification.requested.v1")
         => JsonSerializer.Serialize(new
         {
             specversion = "1.0",
             id = $"evt-{Guid.NewGuid():N}",
             source = "urn:araia:integration-tests",
-            type = "araia.notification.requested.v1",
+            type = eventType,
             time = DateTimeOffset.UtcNow,
             subject = recipientId,
             datacontenttype = "application/json",
