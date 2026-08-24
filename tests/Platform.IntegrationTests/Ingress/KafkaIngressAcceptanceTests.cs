@@ -12,7 +12,7 @@ namespace NotificationHub.IntegrationTests.Ingress;
 [Collection(KafkaIngressCollectionDefinition.Name)]
 public sealed class KafkaIngressAcceptanceTests(KafkaIngressFixture fixture)
 {
-    private const string Producer = "kyc-service";
+    private const string Producer = KafkaIngressFixture.RequestedProducer;
 
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(60);
 

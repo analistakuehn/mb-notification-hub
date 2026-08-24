@@ -23,8 +23,15 @@ public static class NotificationsRateLimitingSetup
     /// </summary>
     public const string QueryPolicyName = "notifications-query";
 
+    /// <summary>
+    /// Restrictive policy for administrative kill-switch transitions, isolated
+    /// from producer and query traffic and partitioned by the acting principal.
+    /// </summary>
+    public const string KillSwitchAdminPolicyName = "notifications-kill-switch-admin";
+
     private const int PermitLimit = 2000;
     private const int QueryPermitLimit = 120;
+    private const int KillSwitchAdminPermitLimit = 30;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     public static IServiceCollection AddNotificationsRateLimiting(this IServiceCollection services)
@@ -49,7 +56,26 @@ public static class NotificationsRateLimitingSetup
                         Window = Window,
                         QueueLimit = 0,
                     }));
+
+            options.AddPolicy(KillSwitchAdminPolicyName, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    ActorPartitionKey(httpContext),
+                    static _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = KillSwitchAdminPermitLimit,
+                        Window = Window,
+                        QueueLimit = 0,
+                    }));
         });
+
+    private static string ActorPartitionKey(HttpContext httpContext)
+    {
+        var actor = httpContext.User.FindFirstValue("oid")
+            ?? httpContext.User.FindFirstValue("sub");
+        return actor is null
+            ? $"address:{httpContext.Connection.RemoteIpAddress}"
+            : $"principal:{actor}";
+    }
 
     private static string PartitionKey(HttpContext httpContext)
     {

@@ -19,7 +19,7 @@ namespace NotificationHub.IntegrationTests.Ingress;
 [Collection(KafkaIngressCollectionDefinition.Name)]
 public sealed class KafkaIngressProvenanceTests(KafkaIngressFixture fixture)
 {
-    private const string Producer = "provenance-service";
+    private const string Producer = KafkaIngressFixture.RequestedProducer;
 
     [RequiresDockerFact]
     public async Task An_accepted_bus_event_records_its_source_coordinates_on_the_trail()

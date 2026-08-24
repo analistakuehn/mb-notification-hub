@@ -5,6 +5,7 @@ using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Fallback;
+using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 
@@ -21,9 +22,8 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 /// </summary>
 internal sealed class CoreMessageProcessor(
     NotificationsDbContext db,
-    NotificationPipeline pipeline,
+    CoreMessageHandlers handlers,
     PipelineCommitWriter commitWriter,
-    FallbackRequestHandler fallbackHandler,
     IAuditTrail auditTrail,
     TimeProvider timeProvider,
     ILogger<CoreMessageProcessor> logger) : ISqsMessageProcessor
@@ -44,16 +44,25 @@ internal sealed class CoreMessageProcessor(
         MessageEnvelope envelope,
         CancellationToken cancellationToken)
     {
-        if (string.Equals(envelope.Type, DispatchMessages.FallbackRequestedType, StringComparison.Ordinal))
-        {
-            return await fallbackHandler.ProcessAsync(envelope, cancellationToken);
-        }
-
+        var isFallback = string.Equals(
+            envelope.Type,
+            DispatchMessages.FallbackRequestedType,
+            StringComparison.Ordinal);
         if (!envelope.Payload.TryGetProperty("notificationId", out JsonElement idElement)
             || idElement.ValueKind != JsonValueKind.String
             || !Guid.TryParse(idElement.GetString(), out Guid notificationId))
         {
-            return new MessageDisposition.Discard(ReasonPayloadWithoutNotificationId);
+            return isFallback
+                ? await handlers.ProcessFallbackAsync(envelope, cancellationToken)
+                : new MessageDisposition.Discard(ReasonPayloadWithoutNotificationId);
+        }
+
+        if (isFallback
+            && (!envelope.Payload.TryGetProperty("failedAttemptId", out JsonElement failedAttemptId)
+                || failedAttemptId.ValueKind != JsonValueKind.String
+                || !Guid.TryParse(failedAttemptId.GetString(), out _)))
+        {
+            return await handlers.ProcessFallbackAsync(envelope, cancellationToken);
         }
 
         Notification? notification = await db.Notifications
@@ -66,15 +75,38 @@ internal sealed class CoreMessageProcessor(
             return new MessageDisposition.Discard(ReasonNotificationNotFound);
         }
 
-        if (notification.Status != NotificationStatuses.Accepted)
+        if (!isFallback && notification.Status != NotificationStatuses.Accepted)
         {
             await RecordDuplicateAsync(notification, cancellationToken);
             logger.PipelineDuplicateSkipped(notification.Id, notification.Status);
             return new MessageDisposition.Duplicate();
         }
 
+        if (isFallback && notification.Status != NotificationStatuses.Dispatched)
+        {
+            return await handlers.ProcessFallbackAsync(envelope, cancellationToken);
+        }
+
+        if (notification.ExpiresAt > timeProvider.GetUtcNow())
+        {
+            MessageDisposition? stopped = await handlers.EvaluateApplicationSwitchAsync(
+                notification,
+                envelope,
+                isFallback ? KillSwitchWorkKinds.Fallback : KillSwitchWorkKinds.Core,
+                cancellationToken);
+            if (stopped is not null)
+            {
+                return stopped;
+            }
+        }
+
+        if (isFallback)
+        {
+            return await handlers.ProcessFallbackAsync(envelope, cancellationToken);
+        }
+
         var context = new NotificationContext(notification, envelope.MessageId, commitWriter);
-        PipelineCommitResult result = await pipeline.RunAsync(context, cancellationToken);
+        PipelineCommitResult result = await handlers.RunPipelineAsync(context, cancellationToken);
         switch (result)
         {
             case PipelineCommitResult.Committed committed:
@@ -119,4 +151,31 @@ internal sealed class CoreMessageProcessor(
             cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
+}
+
+internal sealed class CoreMessageHandlers(
+    NotificationPipeline pipeline,
+    FallbackRequestHandler fallbackHandler,
+    ApplicationKillSwitchGate applicationKillSwitchGate)
+{
+    internal Task<PipelineCommitResult> RunPipelineAsync(
+        NotificationContext context,
+        CancellationToken cancellationToken)
+        => pipeline.RunAsync(context, cancellationToken);
+
+    internal Task<MessageDisposition> ProcessFallbackAsync(
+        MessageEnvelope envelope,
+        CancellationToken cancellationToken)
+        => fallbackHandler.ProcessAsync(envelope, cancellationToken);
+
+    internal Task<MessageDisposition?> EvaluateApplicationSwitchAsync(
+        Notification notification,
+        MessageEnvelope envelope,
+        string workKind,
+        CancellationToken cancellationToken)
+        => applicationKillSwitchGate.EvaluateAsync(
+            notification,
+            envelope,
+            workKind,
+            cancellationToken);
 }

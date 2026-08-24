@@ -15,7 +15,7 @@ namespace NotificationHub.IntegrationTests.Ingress;
 [Collection(KafkaIngressCollectionDefinition.Name)]
 public sealed class KafkaIngressEnvelopeTests(KafkaIngressFixture fixture)
 {
-    private const string Producer = "kyc-service";
+    private const string Producer = KafkaIngressFixture.RequestedProducer;
 
     [RequiresDockerFact]
     public async Task An_unsupported_event_type_is_refused_before_the_body_binds()
@@ -37,7 +37,10 @@ public sealed class KafkaIngressEnvelopeTests(KafkaIngressFixture fixture)
             recipientId,
             KafkaIngressApi.RequestedEvent(
                 application, templateKey, "transactional", recipientId, idempotencyKey,
-                eventType: "araia.notification.requested.v2"),
+                new KafkaIngressApi.RequestedEventOptions
+                {
+                    EventType = "araia.notification.requested.v2",
+                }),
             KafkaIngressApi.ProducerHeaders(Producer));
 
         unsupported.ShouldBeOfType<KafkaDisposition.DeadLetter>()

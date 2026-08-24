@@ -20,6 +20,10 @@ public static class NotificationsAuthorizationSetup
     /// </summary>
     public const string ReadPolicyName = "notifications-read";
 
+    public const string KillSwitchAdminPolicyName = "notifications-kill-switch-admin";
+
+    public const string KillSwitchAdminRole = "Platform.Admin";
+
     /// <summary>App role that grants the query surface.</summary>
     public const string ReadRole = "Notifications.Read";
 
@@ -34,7 +38,10 @@ public static class NotificationsAuthorizationSetup
             // read, because nothing binds a reading principal to an
             // application. The containment lives in the routes themselves,
             // which only ever answer for an exact identity.
-            .AddPolicy(ReadPolicyName, policy => policy.RequireRole(ReadRole));
+            .AddPolicy(ReadPolicyName, policy => policy.RequireRole(ReadRole))
+            .AddPolicy(
+                KillSwitchAdminPolicyName,
+                policy => policy.RequireRole(KillSwitchAdminRole));
         return services;
     }
 }

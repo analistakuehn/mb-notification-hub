@@ -26,6 +26,9 @@ public sealed record EmailMessage(
     string HtmlBody,
     string TextBody) : RenderedMessage;
 
+/// <summary>Rendered SMS content. The body is sent as plain text by the provider.</summary>
+public sealed record SmsMessage(string Body) : RenderedMessage;
+
 /// <summary>Rendered push content: visible notification plus the data payload the app consumes.</summary>
 public sealed record PushMessage(
     string Title,

@@ -3,9 +3,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
 using NotificationHub.Api.Modules.Notifications.Features.Mutations;
 using NotificationHub.Api.Modules.Notifications.Features.Queries;
+using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Idempotency;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
@@ -26,6 +28,7 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         services.AddNotificationsPersistence(configuration);
         services.AddNotificationsPartitioning(configuration);
         services.AddNotificationsAuthorization();
+        services.AddNotificationsKillSwitch();
         services.AddNotificationsRateLimiting();
         services.TryAddSingleton(TimeProvider.System);
 
@@ -50,6 +53,7 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         services.AddHostedService<IdempotencyPurgeService>();
 
         services.AddSingleton<IngressControls>();
+        services.AddSingleton<RequestNotification.IIngressAdmission, RequestNotification.IngressAdmission>();
 
         services.AddScoped<PublishedTemplateGate>();
         services.AddScoped<VariablesProtector>();
@@ -57,7 +61,15 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         // The synchronous posture: a rejection trail commits as soon as the
         // outcome is known, because the caller is about to receive the answer.
         services.AddScoped<IIngestionSink, CommittedIngestionSink>();
-        services.AddScoped<RequestNotification.Handler>();
+        services.AddScoped<RequestNotification.Handler>(static provider => new RequestNotification.Handler(
+            provider.GetRequiredService<IValidator<RequestNotification.Command>>(),
+            provider.GetRequiredService<PublishedTemplateGate>(),
+            provider.GetRequiredService<RequestNotification.IIngressAdmission>(),
+            provider.GetRequiredService<VariablesProtector>(),
+            provider.GetRequiredService<IIngestionSink>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<ILogger<RequestNotification.Handler>>()));
+        services.AddScoped<KillSwitchAdministration.Handler>();
         services.TryAddScoped<IValidator<RequestNotification.Command>, RequestNotification.Validator>();
 
         // Query surface: read-only context, target enrichment through the
@@ -84,5 +96,8 @@ public sealed class NotificationsModule : IModule, IEndpointModule
 
         RouteGroupBuilder recipients = app.MapGroup("/v1/recipients");
         ListRecipientNotifications.MapEndpoint(recipients);
+
+        RouteGroupBuilder killSwitch = notifications.MapGroup("/kill-switch");
+        KillSwitchAdministration.MapEndpoint(killSwitch);
     }
 }

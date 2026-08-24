@@ -8,6 +8,7 @@ using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Rules;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Redis;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Templates;
@@ -58,6 +59,8 @@ public sealed class CoreWorkerRole : IWorkerRoleModule
         services.AddTemplateManagementReadSurface(configuration);
         services.AddContactConsentReadSurface(configuration);
         services.AddNotificationsPersistence(configuration);
+        services.AddNotificationsKillSwitch();
+        services.AddNotificationsKillSwitchHolds();
 
         services.AddOptions<NotificationsRedisOptions>()
             .Bind(configuration.GetSection(NotificationsRedisOptions.SectionName))
@@ -80,6 +83,7 @@ public sealed class CoreWorkerRole : IWorkerRoleModule
         services.AddScoped<RenderStage>();
         services.AddScoped<RouteStage>();
         services.AddScoped(serviceProvider => new NotificationPipeline(StagesInOrder(serviceProvider)));
+        services.AddScoped<CoreMessageHandlers>();
         services.AddScoped<PipelineCommitWriter>();
         services.AddScoped<FallbackRequestHandler>();
         services.AddScoped<IPoisonMessageSink, CorePoisonMessageSink>();

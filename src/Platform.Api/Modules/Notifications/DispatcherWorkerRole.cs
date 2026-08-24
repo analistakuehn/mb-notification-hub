@@ -5,6 +5,7 @@ using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
@@ -41,11 +42,13 @@ public sealed class DispatcherWorkerRole : IWorkerRoleModule
 
     /// <summary>
     /// Channels whose adapters this role hosts, mirroring the provider
-    /// surface it composes: SendGrid delivers e-mail and FCM delivers push.
+    /// surface it composes: SendGrid delivers e-mail, Twilio delivers SMS and
+    /// FCM delivers push.
     /// A configured channel outside this set refuses to boot, because a
     /// dispatcher without an adapter would drain messages it can never send.
     /// </summary>
-    internal static readonly string[] HostedChannels = [Channel.Email.Value, Channel.Push.Value];
+    internal static readonly string[] HostedChannels =
+        [Channel.Email.Value, Channel.Sms.Value, Channel.Push.Value];
 
     /// <summary>Queue suffix of each band, in slot-priority order.</summary>
     internal static readonly (OutboxBand Band, string Suffix)[] BandSuffixes =
@@ -66,6 +69,8 @@ public sealed class DispatcherWorkerRole : IWorkerRoleModule
         services.AddContactConsentDeviceLifecycle(configuration);
         services.AddDispatchProviderSurface(configuration);
         services.AddNotificationsPersistence(configuration);
+        services.AddNotificationsKillSwitch();
+        services.AddNotificationsKillSwitchHolds();
 
         services.AddScoped<AttemptDispatchWriter>();
         services.AddScoped<IPoisonMessageSink, DispatchPoisonMessageSink>();

@@ -657,6 +657,12 @@
           "StackExchange.Redis": "[2.8.16, )"
         }
       },
+      "NotificationHub.Platform.GoLiveChecks": {
+        "type": "Project",
+        "dependencies": {
+          "NotificationHub.Api": "[1.0.0, )"
+        }
+      },
       "Asp.Versioning.Http": {
         "type": "CentralTransitive",
         "requested": "[10.0.0, )",

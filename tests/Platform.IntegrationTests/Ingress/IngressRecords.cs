@@ -44,10 +44,11 @@ internal static class IngressRecords
         ServiceProvider provider,
         string key,
         string body,
-        IReadOnlyDictionary<string, string>? headers = null)
+        IReadOnlyDictionary<string, string>? headers = null,
+        string? topic = null)
     {
         TopicPartitionOffset position = await fixture.ProduceAsync(
-            KafkaIngressFixture.RequestedTopic, key, body, headers);
+            topic ?? KafkaIngressFixture.RequestedTopic, key, body, headers);
         using IServiceScope scope = provider.CreateScope();
         return await scope.ServiceProvider
             .GetRequiredService<KafkaIngressProcessor>()

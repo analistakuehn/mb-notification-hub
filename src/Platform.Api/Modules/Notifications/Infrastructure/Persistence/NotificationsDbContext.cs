@@ -41,6 +41,10 @@ public class NotificationsDbContext : DbContext
     /// <summary>Read-only at runtime: a deploy job materializes the grants from the infrastructure repository.</summary>
     public DbSet<ProducerRegistration> ProducerRegistrations => Set<ProducerRegistration>();
 
+    public DbSet<KillSwitchState> KillSwitches => Set<KillSwitchState>();
+
+    public DbSet<KillSwitchHold> KillSwitchHolds => Set<KillSwitchHold>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("notifications");

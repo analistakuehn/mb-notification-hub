@@ -65,6 +65,8 @@ internal static partial class RequestNotification
             Outcome.Replayed replayed => Results.Ok(new Response(
                 NotificationId.Format(replayed.NotificationId), NotificationStatuses.Accepted)),
             Outcome.IdempotencyConflict => IngestionProblems.IdempotencyConflict(),
+            Outcome.ProducerDisabled => IngestionProblems.ProducerDisabled(),
+            Outcome.KillSwitchUnavailable => IngestionProblems.KillSwitchUnavailable(),
             Outcome.ProducerNotAuthorized => IngestionProblems.ClassNotAllowed(command.Class),
             Outcome.TemplateRejected rejected => IngestionProblems.TemplateRejection(
                 rejected.Reason, rejected.Detail, rejected.Checks),

@@ -20,8 +20,8 @@ namespace NotificationHub.IntegrationTests.Dispatching;
 /// code as a sensitive variable, so the two forms differ and every transition
 /// is observable.
 /// </summary>
-[Collection(CorePipelineCollectionDefinition.Name)]
 public sealed class RenderedContentRetentionTests(CorePipelineFixture fixture)
+    : IClassFixture<CorePipelineFixture>
 {
     /// <summary>Value of the sensitive variable the seeded template renders.</summary>
     private const string AccessCode = "123456";

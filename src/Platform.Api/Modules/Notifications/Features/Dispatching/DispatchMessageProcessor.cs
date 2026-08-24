@@ -5,6 +5,7 @@ using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
@@ -45,7 +46,7 @@ internal enum DispatchVerdict
 internal sealed class DispatchMessageProcessor(
     NotificationsDbContext db,
     AttemptDispatchWriter writer,
-    IChannelProviderResolver providerResolver,
+    ChannelKillSwitchGate channelKillSwitchGate,
     IRecipientDirectory recipientDirectory,
     IDeviceTokenLifecycle deviceTokenLifecycle,
     IEnvelopeCipher cipher,
@@ -89,7 +90,9 @@ internal sealed class DispatchMessageProcessor(
         }
 
         NotificationAttempt? attempt = await db.NotificationAttempts
-            .FirstOrDefaultAsync(candidate => candidate.Id == attemptId, cancellationToken);
+            .FirstOrDefaultAsync(
+                candidate => candidate.Id == attemptId && candidate.NotificationId == notificationId,
+                cancellationToken);
         if (attempt is null)
         {
             // The outbox commits with the attempt, so an absent row means the
@@ -119,7 +122,14 @@ internal sealed class DispatchMessageProcessor(
             return new MessageDisposition.Discard($"channel-unknown:{attempt.Channel}");
         }
 
-        Result<IChannelProvider> provider = await providerResolver.ResolveAsync(
+        MessageDisposition? stopped = await channelKillSwitchGate.EvaluateAsync(
+            notification, attempt, envelope, claimed: false, cancellationToken);
+        if (stopped is not null)
+        {
+            return stopped;
+        }
+
+        Result<IChannelProvider> provider = await channelKillSwitchGate.ResolveProviderAsync(
             channel.Value!, cancellationToken);
         if (provider.IsFailure)
         {
@@ -130,6 +140,8 @@ internal sealed class DispatchMessageProcessor(
 
         var isPush = string.Equals(
             attempt.Channel, AttemptDispatchWriter.PushChannel, StringComparison.Ordinal);
+        var isSms = string.Equals(
+            attempt.Channel, Channel.Sms.Value, StringComparison.Ordinal);
         Guid? deviceTokenId = attempt.DeviceTokenId;
         if (isPush && deviceTokenId is null)
         {
@@ -174,7 +186,7 @@ internal sealed class DispatchMessageProcessor(
         }
 
         Result<DeliveryTarget> target = await ResolveTargetAsync(
-            notification, attempt, isPush, deviceTokenId, cancellationToken);
+            notification, attempt, isPush, isSms, deviceTokenId, cancellationToken);
         if (target.IsFailure)
         {
             var errorCode = isPush ? ErrorDeviceTokenInactive : ErrorContactPointUnavailable;
@@ -195,10 +207,21 @@ internal sealed class DispatchMessageProcessor(
             content.ToRenderedMessage(),
             new DispatchCorrelation(notification.Id, attempt.Id));
 
+        stopped = await channelKillSwitchGate.EvaluateAsync(
+            notification, attempt, envelope, claimed: true, cancellationToken);
+        if (stopped is not null)
+        {
+            return stopped;
+        }
+
         ProviderResult result = await provider.Value!.SendAsync(request, cancellationToken);
-        return await SettleVerdictAsync(
-            envelope, notification, attempt, provider.Value!.ProviderKey, isPush, deviceTokenId,
-            result, cancellationToken);
+        var settlement = new DispatchSettlementContext(
+            notification,
+            attempt,
+            provider.Value!.ProviderKey,
+            deviceTokenId,
+            envelope.MessageId);
+        return await SettleVerdictAsync(settlement, result, cancellationToken);
     }
 
     /// <summary>Maps the normalized provider outcome to the attempt transition it commands.</summary>
@@ -215,12 +238,7 @@ internal sealed class DispatchMessageProcessor(
         };
 
     private async Task<MessageDisposition> SettleVerdictAsync(
-        MessageEnvelope envelope,
-        Notification notification,
-        NotificationAttempt attempt,
-        string providerKey,
-        bool isPush,
-        Guid? deviceTokenId,
+        DispatchSettlementContext context,
         ProviderResult result,
         CancellationToken cancellationToken)
     {
@@ -228,52 +246,72 @@ internal sealed class DispatchMessageProcessor(
         {
             case DispatchVerdict.Sent:
                 var sent = await writer.RecordSentAsync(
-                    attempt, notification, providerKey, result.ProviderMessageId,
-                    envelope.MessageId, deliveredOnAcceptance: isPush, cancellationToken);
+                    context.Attempt, context.Notification, context.ProviderKey, result.ProviderMessageId,
+                    context.MessageId, deliveredOnAcceptance: context.IsPush, cancellationToken);
                 if (sent)
                 {
-                    logger.DispatchAttemptSent(attempt.Id, notification.Id, providerKey);
+                    logger.DispatchAttemptSent(
+                        context.Attempt.Id, context.Notification.Id, context.ProviderKey);
                 }
 
                 return sent ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
             case DispatchVerdict.Failed:
                 var errorCode = result.ErrorCode ?? "provider-rejected";
                 var failed = await writer.RecordFailureAsync(
-                    attempt, notification, errorCode, envelope.MessageId, cancellationToken);
+                    context.Attempt, context.Notification, errorCode, context.MessageId, cancellationToken);
                 if (failed)
                 {
-                    logger.DispatchAttemptFailed(attempt.Id, notification.Id, errorCode);
-                    if (isPush && deviceTokenId is { } tokenId
+                    logger.DispatchAttemptFailed(context.Attempt.Id, context.Notification.Id, errorCode);
+                    if (context.IsPush && context.DeviceTokenId is { } tokenId
                         && TokenInvalidationCodes.Contains(result.ErrorCode, StringComparer.Ordinal))
                     {
                         // After the verdict commit and outside its transaction
                         // on purpose: the invalidation is the owning module's
                         // own transactional write, idempotent on repetition.
                         await ReportDeadTokenAsync(
-                            notification.RecipientId, tokenId, result.ErrorCode!, cancellationToken);
+                            context.Notification.RecipientId,
+                            tokenId,
+                            result.ErrorCode!,
+                            cancellationToken);
                     }
                 }
 
                 return failed ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
             case DispatchVerdict.Requeue:
-                await writer.RevertToQueuedAsync(attempt, cancellationToken);
+                await writer.RevertToQueuedAsync(context.Attempt, cancellationToken);
                 var reason = result.Outcome == ProviderOutcome.Throttled
                     ? ReasonProviderThrottled
                     : ReasonCircuitOpen;
-                logger.DispatchAttemptRequeued(attempt.Id, notification.Id, reason);
+                logger.DispatchAttemptRequeued(context.Attempt.Id, context.Notification.Id, reason);
                 return new MessageDisposition.Postponed(result.RetryAfter, reason);
             case DispatchVerdict.Unknown:
                 var parked = await writer.RecordUnknownAsync(
-                    attempt, notification, result.ErrorCode, envelope.MessageId, cancellationToken);
+                    context.Attempt,
+                    context.Notification,
+                    result.ErrorCode,
+                    context.MessageId,
+                    cancellationToken);
                 if (parked)
                 {
-                    logger.DispatchAttemptUnknown(attempt.Id, notification.Id, result.ErrorCode);
+                    logger.DispatchAttemptUnknown(
+                        context.Attempt.Id, context.Notification.Id, result.ErrorCode);
                 }
 
                 return parked ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
             default:
                 throw new InvalidOperationException("Veredito de despacho não suportado.");
         }
+    }
+
+    private sealed record DispatchSettlementContext(
+        Notification Notification,
+        NotificationAttempt Attempt,
+        string ProviderKey,
+        Guid? DeviceTokenId,
+        Guid MessageId)
+    {
+        internal bool IsPush => string.Equals(
+            Attempt.Channel, AttemptDispatchWriter.PushChannel, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -314,6 +352,7 @@ internal sealed class DispatchMessageProcessor(
         Notification notification,
         NotificationAttempt attempt,
         bool isPush,
+        bool isSms,
         Guid? deviceTokenId,
         CancellationToken cancellationToken)
     {
@@ -340,7 +379,9 @@ internal sealed class DispatchMessageProcessor(
             notification.RecipientId, contactPointId, cancellationToken);
         return value.IsFailure
             ? new Result<DeliveryTarget>(false, default, value.ErrorKind, value.Error)
-            : Result.Success<DeliveryTarget>(new EmailDeliveryTarget(value.Value!));
+            : Result.Success<DeliveryTarget>(isSms
+                ? new SmsDeliveryTarget(value.Value!)
+                : new EmailDeliveryTarget(value.Value!));
     }
 
     /// <summary>

@@ -10,6 +10,7 @@
 
   <ItemGroup Label="Project References">
     <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
+    <ProjectReference Include="..\..\tools\Platform.GoLiveChecks\Platform.GoLiveChecks.csproj" />
   </ItemGroup>
 
   <ItemGroup Label="Implicit Usings">

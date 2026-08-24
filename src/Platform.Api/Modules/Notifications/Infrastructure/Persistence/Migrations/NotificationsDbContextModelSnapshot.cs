@@ -57,6 +57,130 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                     b.ToTable("idempotency_key", "notifications");
                 });
 
+            modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Domain.KillSwitchHold", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Destination")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("destination");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<DateTimeOffset?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("released_at");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("scope");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.Property<string>("WorkId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("work_id");
+
+                    b.Property<string>("WorkKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("work_kind");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt", "Id")
+                        .HasDatabaseName("ix_kill_switch_hold_unreleased")
+                        .HasFilter("released_at IS NULL");
+
+                    b.HasIndex("WorkKind", "WorkId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_kill_switch_hold_work");
+
+                    b.ToTable("kill_switch_hold", "notifications", t =>
+                        {
+                            t.HasCheckConstraint("ck_kill_switch_hold_scope", "scope IN ('producer', 'application', 'channel')");
+
+                            t.HasCheckConstraint("ck_kill_switch_hold_version", "version > 0");
+
+                            t.HasCheckConstraint("ck_kill_switch_hold_work_kind", "work_kind IN ('core', 'fallback', 'dispatch')");
+                        });
+                });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Domain.KillSwitchState", b =>
+                {
+                    b.Property<string>("Scope")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("scope");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("actor");
+
+                    b.Property<string>("SecondActor")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("second_actor");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("state");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Scope", "Key");
+
+                    b.ToTable("kill_switch", "notifications", t =>
+                        {
+                            t.HasCheckConstraint("ck_kill_switch_scope", "scope IN ('producer', 'application', 'channel')");
+
+                            t.HasCheckConstraint("ck_kill_switch_state", "state IN ('active', 'inactive')");
+
+                            t.HasCheckConstraint("ck_kill_switch_version", "version > 0");
+                        });
+                });
+
             modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Domain.Notification", b =>
                 {
                     b.Property<Guid>("Id")

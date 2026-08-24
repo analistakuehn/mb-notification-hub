@@ -1,6 +1,10 @@
 using System.Text.Json;
+using FluentValidation;
+using FluentValidation.Results;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
+using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Features.Mutations;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
@@ -32,14 +36,14 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Ingress;
 /// </summary>
 internal sealed class KafkaIngressProcessor(
     RequestNotification.Handler handler,
+    IValidator<RequestNotification.Command> validator,
     KafkaProducerAuthorizer authorizer,
-    DeferredTrailIngestionSink sink,
-    IngressCommitWriter commitWriter,
-    IngressDeadLetterWriter deadLetterWriter,
+    KafkaIngressSettlement settlement,
+    KafkaIngressTopicMap topicMap,
+    IKillSwitch killSwitch,
     ILogger<KafkaIngressProcessor> logger) : IKafkaMessageProcessor
 {
-    /// <summary>Header the producer stamps with its logical name.</summary>
-    private const string ProducerHeader = "producer";
+    internal const string KillSwitchUnavailableReason = "producer-kill-switch-unavailable";
 
     /// <summary>
     /// The only envelope type this consumer accepts. The type is the schema
@@ -57,22 +61,22 @@ internal sealed class KafkaIngressProcessor(
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        var producer = topicMap.ResolveLogicalProducer(context.Topic);
         if (context.Event is not { } cloudEvent)
         {
-            return await RefuseAsync(
+            return await settlement.RefuseAsync(
                 context,
                 new DeadLetterDiagnosis
                 {
                     Reason = NotificationRejectionReasons.PayloadInvalid,
-                    Producer = HeaderOrNull(context, ProducerHeader),
+                    Producer = producer,
                 },
                 cancellationToken);
         }
 
-        var producer = HeaderOrNull(context, ProducerHeader) ?? cloudEvent.Source;
         if (!string.Equals(cloudEvent.Type, RequestedEventType, StringComparison.Ordinal))
         {
-            return await RefuseAsync(
+            return await settlement.RefuseAsync(
                 context,
                 new DeadLetterDiagnosis
                 {
@@ -84,7 +88,7 @@ internal sealed class KafkaIngressProcessor(
 
         if (IngressRequestBinder.Bind(cloudEvent.Data) is not { } request)
         {
-            return await RefuseAsync(
+            return await settlement.RefuseAsync(
                 context,
                 new DeadLetterDiagnosis
                 {
@@ -94,11 +98,58 @@ internal sealed class KafkaIngressProcessor(
                 cancellationToken);
         }
 
-        // The kill switch of the design has no table in this phase; when it
-        // arrives it is evaluated here, ahead of the registry.
-        ProducerAuthorization authorization = await authorizer.AuthorizeAsync(
-            producer, request.Command.Application, request.Command.Class, cancellationToken);
+        // Use the handler's validator before consulting either authority. The
+        // handler repeats the same validation when it records the outcome, so
+        // the transport does not duplicate any rule or refusal construction.
+        ValidationResult validation = await validator.ValidateAsync(request.Command, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return await HandleAsync(
+                context,
+                cloudEvent,
+                request,
+                producer,
+                new ProducerAuthorization.Allowed(),
+                cancellationToken);
+        }
 
+        KillSwitchEvaluation evaluation = await killSwitch.EvaluateAsync(
+            KillSwitchScope.Producer,
+            producer,
+            cancellationToken);
+        ProducerAuthorization authorization;
+        switch (evaluation)
+        {
+            case KillSwitchEvaluation.Allowed:
+                authorization = await authorizer.AuthorizeAsync(
+                    producer,
+                    request.Command.Application,
+                    request.Command.Class,
+                    cancellationToken);
+                break;
+            case KillSwitchEvaluation.Blocked:
+                authorization = new ProducerAuthorization.Denied(
+                    NotificationRejectionReasons.ProducerDisabled);
+                break;
+            case KillSwitchEvaluation.Unavailable:
+                return new KafkaDisposition.Retry(KillSwitchUnavailableReason);
+            default:
+                throw new InvalidOperationException(
+                    $"Avaliação de kill switch desconhecida: {evaluation}.");
+        }
+
+        return await HandleAsync(
+            context, cloudEvent, request, producer, authorization, cancellationToken);
+    }
+
+    private async Task<KafkaDisposition> HandleAsync(
+        KafkaMessageContext context,
+        CloudEvent cloudEvent,
+        IngressRequest request,
+        string producer,
+        ProducerAuthorization authorization,
+        CancellationToken cancellationToken)
+    {
         Result<RequestNotification.Outcome> result = await handler.HandleAsync(
             request.Command,
             producer,
@@ -126,35 +177,37 @@ internal sealed class KafkaIngressProcessor(
         {
             case RequestNotification.Outcome.Accepted accepted:
                 logger.IngressEventAccepted(context.Topic, context.Partition, context.Offset, accepted.NotificationId);
-                return await CommitAsync(context, new KafkaDisposition.Processed(), cancellationToken);
+                return await settlement.CommitAsync(
+                    context, new KafkaDisposition.Processed(), cancellationToken);
 
             case RequestNotification.Outcome.Replayed replayed:
                 logger.IngressEventReplayed(context.Topic, context.Partition, context.Offset, replayed.NotificationId);
-                return await CommitAsync(context, new KafkaDisposition.Duplicate(), cancellationToken);
+                return await settlement.CommitAsync(
+                    context, new KafkaDisposition.Duplicate(), cancellationToken);
 
             case RequestNotification.Outcome.SensitiveVariablesOnBus sensitive:
-                return await RefuseAsync(
+                return await settlement.RefuseAsync(
                     context,
                     Diagnose(request, producer, NotificationRejectionReasons.SensitiveVariablesOnBus)
                         with { RedactedVariableNames = sensitive.VariableNames },
                     cancellationToken);
 
             case RequestNotification.Outcome.ProducerNotAuthorized denied:
-                return await RefuseAsync(
+                return await settlement.RefuseAsync(
                     context, Diagnose(request, producer, denied.Reason), cancellationToken);
 
             case RequestNotification.Outcome.TemplateRejected rejected:
-                return await RefuseAsync(
+                return await settlement.RefuseAsync(
                     context, Diagnose(request, producer, rejected.Reason), cancellationToken);
 
             case RequestNotification.Outcome.PayloadInvalid:
-                return await RefuseAsync(
+                return await settlement.RefuseAsync(
                     context,
                     Diagnose(request, producer, NotificationRejectionReasons.PayloadInvalid),
                     cancellationToken);
 
             case RequestNotification.Outcome.IdempotencyConflict:
-                return await RefuseAsync(
+                return await settlement.RefuseAsync(
                     context,
                     Diagnose(request, producer, NotificationRejectionReasons.IdempotencyKeyConflict),
                     cancellationToken);
@@ -162,7 +215,7 @@ internal sealed class KafkaIngressProcessor(
             case RequestNotification.Outcome.RateLimited:
                 // Only the recipient budget rejects on this path: the
                 // principal dimension is counted and observed, never refused.
-                return await RefuseAsync(
+                return await settlement.RefuseAsync(
                     context,
                     Diagnose(request, producer, NotificationRejectionReasons.RecipientRateLimited),
                     cancellationToken);
@@ -171,30 +224,6 @@ internal sealed class KafkaIngressProcessor(
                 throw new InvalidOperationException(
                     $"Desfecho de ingestão não suportado: {outcome.GetType().Name}.");
         }
-    }
-
-    /// <summary>
-    /// Records the refusal on the dead-letter topic and only then commits the
-    /// trail and the deduplication mark. The order is the whole point: a mark
-    /// written first would make the replay of a crash skip a record nobody
-    /// ever put on the dead-letter topic.
-    /// </summary>
-    private async Task<KafkaDisposition> RefuseAsync(
-        KafkaMessageContext context,
-        DeadLetterDiagnosis diagnosis,
-        CancellationToken cancellationToken)
-    {
-        await deadLetterWriter.ProduceAsync(context, diagnosis, cancellationToken);
-        return await CommitAsync(context, new KafkaDisposition.DeadLetter(diagnosis.Reason), cancellationToken);
-    }
-
-    private async Task<KafkaDisposition> CommitAsync(
-        KafkaMessageContext context,
-        KafkaDisposition disposition,
-        CancellationToken cancellationToken)
-    {
-        var committed = await commitWriter.TryCommitAsync(context.DedupeId, sink, cancellationToken);
-        return committed ? disposition : new KafkaDisposition.Duplicate();
     }
 
     /// <summary>
@@ -225,22 +254,54 @@ internal sealed class KafkaIngressProcessor(
             IdempotencyKey = request.IdempotencyKey,
         };
 
-    private static string? HeaderOrNull(KafkaMessageContext context, string name)
-        => context.Headers.TryGetValue(name, out var value) && value.Length > 0 ? value : null;
+}
+
+/// <summary>
+/// Settles one ingress record after its outcome is known. A refusal reaches
+/// the dead-letter topic before its trail and deduplication mark commit, so an
+/// offset can advance only after both durable records exist.
+/// </summary>
+internal sealed class KafkaIngressSettlement(
+    DeferredTrailIngestionSink sink,
+    IngressCommitWriter commitWriter,
+    IngressDeadLetterWriter deadLetterWriter)
+{
+    internal async Task<KafkaDisposition> RefuseAsync(
+        KafkaMessageContext context,
+        DeadLetterDiagnosis diagnosis,
+        CancellationToken cancellationToken)
+    {
+        await deadLetterWriter.ProduceAsync(context, diagnosis, cancellationToken);
+        return await CommitAsync(
+            context,
+            new KafkaDisposition.DeadLetter(diagnosis.Reason),
+            cancellationToken);
+    }
+
+    internal async Task<KafkaDisposition> CommitAsync(
+        KafkaMessageContext context,
+        KafkaDisposition disposition,
+        CancellationToken cancellationToken)
+    {
+        var committed = await commitWriter.TryCommitAsync(context.DedupeId, sink, cancellationToken);
+        return committed ? disposition : new KafkaDisposition.Duplicate();
+    }
 }
 
 /// <summary>One bus request bound to the ingestion command, with its idempotency scope.</summary>
 internal sealed record IngressRequest(RequestNotification.Command Command, string IdempotencyKey);
 
 /// <summary>
-/// Binds the event body to the ingestion command. Binding is deliberately
-/// permissive about values and strict about the idempotency key: a missing or
-/// mistyped field becomes an empty value the shared validator refuses with a
-/// field-level report, while a request without an idempotency key has no
-/// scope to be idempotent in and cannot be bound at all.
+/// Binds the event body to the ingestion command. Required command fields stay
+/// permissive so the shared validator can report their value rules. Optional
+/// fields preserve missing and JSON null as absence, but reject a value whose
+/// JSON type or format cannot represent the command contract. The idempotency
+/// key is transport identity and must be valid before any persistence starts.
 /// </summary>
 internal static class IngressRequestBinder
 {
+    private const int MaxIdempotencyKeyLength = 200;
+
     public static IngressRequest? Bind(JsonElement data)
     {
         if (data.ValueKind != JsonValueKind.Object)
@@ -248,7 +309,22 @@ internal static class IngressRequestBinder
             return null;
         }
 
-        if (ReadString(data, "idempotencyKey") is not { Length: > 0 } idempotencyKey)
+        var idempotencyKey = ReadString(data, "idempotencyKey");
+        if (string.IsNullOrWhiteSpace(idempotencyKey)
+            || idempotencyKey.Length > MaxIdempotencyKeyLength)
+        {
+            return null;
+        }
+
+        if (!TryReadOptionalString(data, "locale", out var locale)
+            || !TryReadOptionalObject(data, "variables", out JsonElement? variables)
+            || !TryReadOptionalObject(data, "metadata", out JsonElement? metadata)
+            || !TryReadOptionalStringArray(
+                data,
+                "channelsHint",
+                out IReadOnlyList<string>? channelsHint)
+            || !TryReadOptionalString(data, "correlationId", out var correlationId)
+            || !TryReadOptionalDateTimeOffset(data, "scheduledAt", out DateTimeOffset? scheduledAt))
         {
             return null;
         }
@@ -260,12 +336,12 @@ internal static class IngressRequestBinder
             ReadString(data, "templateKey") ?? string.Empty,
             ReadInt32(data, "ttlSeconds"))
         {
-            Locale = ReadString(data, "locale"),
-            Variables = ReadObject(data, "variables"),
-            Metadata = ReadObject(data, "metadata"),
-            ChannelsHint = ReadStringArray(data, "channelsHint"),
-            CorrelationId = ReadString(data, "correlationId"),
-            ScheduledAt = ReadDateTimeOffset(data, "scheduledAt"),
+            Locale = locale,
+            Variables = variables,
+            Metadata = metadata,
+            ChannelsHint = channelsHint,
+            CorrelationId = correlationId,
+            ScheduledAt = scheduledAt,
         };
         return new IngressRequest(command, idempotencyKey);
     }
@@ -282,27 +358,104 @@ internal static class IngressRequestBinder
                 ? value
                 : 0;
 
-    private static JsonElement? ReadObject(JsonElement data, string name)
-        => data.TryGetProperty(name, out JsonElement element) && element.ValueKind == JsonValueKind.Object
-            ? element.Clone()
-            : null;
-
-    private static IReadOnlyList<string>? ReadStringArray(JsonElement data, string name)
+    private static bool TryReadOptionalString(
+        JsonElement data,
+        string name,
+        out string? value)
     {
-        if (!data.TryGetProperty(name, out JsonElement element) || element.ValueKind != JsonValueKind.Array)
+        if (!data.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind == JsonValueKind.Null)
         {
-            return null;
+            value = null;
+            return true;
         }
 
-        return [.. element.EnumerateArray()
-            .Where(item => item.ValueKind == JsonValueKind.String)
-            .Select(item => item.GetString()!)];
+        if (element.ValueKind != JsonValueKind.String)
+        {
+            value = null;
+            return false;
+        }
+
+        value = element.GetString();
+        return true;
     }
 
-    private static DateTimeOffset? ReadDateTimeOffset(JsonElement data, string name)
-        => data.TryGetProperty(name, out JsonElement element)
-            && element.ValueKind == JsonValueKind.String
-            && element.TryGetDateTimeOffset(out DateTimeOffset value)
-                ? value
-                : null;
+    private static bool TryReadOptionalObject(
+        JsonElement data,
+        string name,
+        out JsonElement? value)
+    {
+        if (!data.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind == JsonValueKind.Null)
+        {
+            value = null;
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            value = null;
+            return false;
+        }
+
+        value = element.Clone();
+        return true;
+    }
+
+    private static bool TryReadOptionalStringArray(
+        JsonElement data,
+        string name,
+        out IReadOnlyList<string>? value)
+    {
+        if (!data.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind == JsonValueKind.Null)
+        {
+            value = null;
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            value = null;
+            return false;
+        }
+
+        List<string> items = [];
+        foreach (JsonElement item in element.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                value = null;
+                return false;
+            }
+
+            items.Add(item.GetString()!);
+        }
+
+        value = items;
+        return true;
+    }
+
+    private static bool TryReadOptionalDateTimeOffset(
+        JsonElement data,
+        string name,
+        out DateTimeOffset? value)
+    {
+        if (!data.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind == JsonValueKind.Null)
+        {
+            value = null;
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.String
+            || !element.TryGetDateTimeOffset(out DateTimeOffset parsed))
+        {
+            value = null;
+            return false;
+        }
+
+        value = parsed;
+        return true;
+    }
 }

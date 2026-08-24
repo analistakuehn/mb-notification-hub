@@ -2,10 +2,10 @@ namespace NotificationHub.Api.Modules.Notifications.Integration.V1;
 
 /// <summary>
 /// The canonical rejection-reason catalog of the notification lifecycle,
-/// versioned with the outgoing event schema. Every reason a producer can
-/// receive, on the REST problem type or on the <c>reason</c> of a rejection or
-/// failure event, is a member of this set: one vocabulary, whatever the
-/// transport that carried the request.
+/// versioned with the outgoing event schema. Every <c>rejected.reason</c> and
+/// every catalog-backed REST problem type is a member of this closed set,
+/// whatever transport carried the request. A <c>failed.reason</c> belongs to
+/// the open delivery-provider vocabulary and is not constrained by this set.
 ///
 /// Collapsing a specific reason into a generic one destroys the producer's
 /// diagnosis, so a new decision point adds a member here instead of reusing

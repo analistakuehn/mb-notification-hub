@@ -9,6 +9,7 @@ using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.Worker;
@@ -110,23 +111,23 @@ public sealed class WorkerHostCompositionTests
             .Queues.Select(binding => binding.QueueName)
             .ShouldBe(
             [
-                "dispatch-email-auth", "dispatch-push-auth",
-                "dispatch-email-critical", "dispatch-push-critical",
-                "dispatch-email-transactional", "dispatch-push-transactional",
-                "dispatch-email-operational", "dispatch-push-operational",
+                "dispatch-email-auth", "dispatch-sms-auth", "dispatch-push-auth",
+                "dispatch-email-critical", "dispatch-sms-critical", "dispatch-push-critical",
+                "dispatch-email-transactional", "dispatch-sms-transactional", "dispatch-push-transactional",
+                "dispatch-email-operational", "dispatch-sms-operational", "dispatch-push-operational",
             ]);
     }
 
     [Fact]
-    public void The_dispatcher_role_refuses_to_boot_for_a_channel_without_a_hosted_adapter()
+    public void The_dispatcher_role_refuses_to_boot_for_a_known_channel_without_a_hosted_adapter()
     {
         Dictionary<string, string?> settings = DispatcherSettings();
-        settings["Modules:Notifications:Dispatcher:Channels:0"] = "sms";
+        settings["Modules:Notifications:Dispatcher:Channels:0"] = "whatsapp";
         HostApplicationBuilder builder = CreateBuilder(settings);
 
         Should.Throw<InvalidOperationException>(
                 () => WorkerRoleCatalog.Register(builder.Services, builder.Configuration))
-            .Message.ShouldContain("sms");
+            .Message.ShouldContain("whatsapp");
     }
 
     private static Dictionary<string, string?> DispatcherSettings()
@@ -171,7 +172,7 @@ public sealed class WorkerHostCompositionTests
     }
 
     [Fact]
-    public void The_notifications_maintenance_role_hosts_exactly_the_content_sweep_and_the_backfill()
+    public void The_notifications_maintenance_role_hosts_exactly_the_content_services_and_the_kill_switch_hold_releaser()
     {
         HostApplicationBuilder builder = CreateBuilder(new Dictionary<string, string?>
         {
@@ -188,9 +189,11 @@ public sealed class WorkerHostCompositionTests
         IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
         hosted.OfType<RenderedContentSweepService>().ShouldHaveSingleItem();
         hosted.OfType<RenderedContentBackfillService>().ShouldHaveSingleItem();
+        hosted.OfType<KillSwitchHoldReleaseService>().ShouldHaveSingleItem();
         hosted
             .Where(service => service is not RenderedContentSweepService
-                && service is not RenderedContentBackfillService)
+                && service is not RenderedContentBackfillService
+                && service is not KillSwitchHoldReleaseService)
             .ShouldAllBe(service => service.GetType().Namespace!.StartsWith("Microsoft.", StringComparison.Ordinal));
 
         // The backfill rebuilds the masked form through the published render

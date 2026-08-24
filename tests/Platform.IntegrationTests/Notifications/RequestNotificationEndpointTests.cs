@@ -81,6 +81,66 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
     }
 
     [RequiresDockerFact]
+    public async Task A_disabled_producer_records_exactly_one_rejection_trail_and_event_without_acceptance()
+    {
+        var producerId = $"producer-disabled-{Guid.NewGuid():N}";
+        var recipientId = $"cus_{Guid.NewGuid():N}";
+        var idempotencyKey = $"producer-disabled-{Guid.NewGuid():N}";
+        HttpClient admin = fixture.CreatePlatformAdminClient("admin-producer-disabled");
+        HttpResponseMessage activated = await admin.PutAsJsonAsync(
+            $"/v1/notifications/kill-switch/producer/{producerId}",
+            new { active = true });
+        activated.StatusCode.ShouldBe(HttpStatusCode.OK);
+        HttpClient producer = fixture.CreateProducerClient(
+            producerId,
+            NotificationsApi.SendTransactional);
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody("template-is-never-read", recipientId: recipientId),
+            idempotencyKey);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await NotificationsApi.ReadJsonAsync(response))
+            .GetProperty("type").GetString().ShouldBe("producer-disabled");
+
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(notification => notification.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+        (await fixture.QueryNotificationsDbAsync(db => db.IdempotencyRegistrations
+            .AsNoTracking()
+            .CountAsync(registration => registration.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+
+        var entityId = $"{NotificationsApi.Application}:{idempotencyKey}";
+        List<AuditEvent> trails = await fixture.QueryAuditDbAsync(db => db.AuditEvents
+            .AsNoTracking()
+            .Where(entry => entry.EntityId == entityId)
+            .ToListAsync());
+        trails.Count.ShouldBe(1);
+        trails[0].Action.ShouldBe("notification.rejected_at_ingress");
+        trails[0].ActorId.ShouldBe(producerId);
+        using (JsonDocument details = JsonDocument.Parse(trails[0].DetailsJson))
+        {
+            details.RootElement.GetProperty("reason").GetString().ShouldBe("producer-disabled");
+            details.RootElement.GetProperty("source").GetString().ShouldBe("rest");
+        }
+
+        List<OutboxMessage> events = await fixture.QueryPlatformDbAsync(db => db.OutboxMessages
+            .AsNoTracking()
+            .Where(message => message.MessageKey == recipientId)
+            .ToListAsync());
+        events.Count.ShouldBe(1);
+        events[0].Destination.ShouldBe("notifications.events.v1");
+        events[0].EventType.ShouldBe("araia.notification.rejected.v1");
+        CloudEventParse parse = CloudEventParser.Parse(events[0].PayloadJson);
+        parse.InvalidReason.ShouldBeNull();
+        parse.Event!.Data.GetProperty("reason").GetString().ShouldBe("producer-disabled");
+        parse.Event.Data.GetProperty("idempotencyKey").GetString().ShouldBe(idempotencyKey);
+    }
+
+    [RequiresDockerFact]
     public async Task The_variables_are_stored_masked_and_the_envelope_decrypts_to_the_original_object()
     {
         (var templateKey, _) = await NotificationsApi.CreatePublishedTemplateAsync(

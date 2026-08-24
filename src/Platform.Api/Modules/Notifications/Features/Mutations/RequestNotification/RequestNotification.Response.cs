@@ -28,6 +28,12 @@ internal static partial class RequestNotification
         /// <summary>Same idempotency key, different payload; answer 409.</summary>
         internal sealed record IdempotencyConflict : Outcome;
 
+        /// <summary>The emergency control disabled this producer; answer 403.</summary>
+        internal sealed record ProducerDisabled : Outcome;
+
+        /// <summary>The emergency-control authority is unavailable; answer 503.</summary>
+        internal sealed record KillSwitchUnavailable : Outcome;
+
         /// <summary>The published catalog rejected the request; answer 422 with the stable reason.</summary>
         internal sealed record TemplateRejected(
             string Reason,

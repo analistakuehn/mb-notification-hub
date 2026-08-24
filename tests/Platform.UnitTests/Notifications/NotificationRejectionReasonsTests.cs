@@ -54,13 +54,21 @@ public sealed class NotificationRejectionReasonsTests
     [Fact]
     public void The_protocol_only_problem_types_of_the_route_stay_out_of_the_catalog()
     {
-        // A closed set of two, and closed on purpose: neither condition ever
-        // travels as the reason of a rejection event, so promoting them would
-        // publish vocabulary the bus never speaks. The principal budget in
-        // particular announces nothing, because one event per refused request
-        // is the storm the control exists to stop.
+        // Neither protocol condition travels as the reason of a rejection
+        // event, so promoting either would publish vocabulary the bus never
+        // speaks. The principal budget in particular announces nothing,
+        // because one event per refused request is the storm the control
+        // exists to stop.
         NotificationRejectionReasons.IsCanonical(IngestionProblems.IdempotencyKeyRequiredType).ShouldBeFalse();
         NotificationRejectionReasons.IsCanonical(IngestionProblems.PrincipalRateLimitedType).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Kill_switch_unavailability_stays_out_of_the_rejection_catalog()
+    {
+        // Operational unavailability answers only the synchronous caller and
+        // never becomes a rejection event reason on the bus.
+        NotificationRejectionReasons.IsCanonical(IngestionProblems.KillSwitchUnavailableType).ShouldBeFalse();
     }
 
     [Fact]
@@ -85,6 +93,14 @@ public sealed class NotificationRejectionReasonsTests
     }
 
     [Fact]
+    public void Provider_failure_codes_stay_out_of_the_rejection_catalog()
+    {
+        // Delivery providers own an open failure vocabulary. Adding this FCM
+        // code to the closed rejection set must make this contract fail.
+        NotificationRejectionReasons.IsCanonical("UNREGISTERED").ShouldBeFalse();
+    }
+
+    [Fact]
     public void The_quiet_hours_reason_stays_out_of_the_rejection_catalog()
     {
         // A deferral is not a rejection: the notification is still going out,
@@ -94,12 +110,12 @@ public sealed class NotificationRejectionReasonsTests
     }
 
     [Fact]
-    public void The_disabled_producer_reason_exists_and_is_unreachable_in_this_phase()
+    public void Catalog_covers_the_disabled_producer_reason()
     {
-        // Declared, never produced: the registry has no enabled column, on
-        // purpose, because a switched-off row would be a slow lever pretending
-        // to be an emergency stop. The value stays in the catalog so the
-        // vocabulary does not shift when the kill switch lands.
+        // A producer kill switch rejects through the same closed vocabulary
+        // consumed by notification producers.
         NotificationRejectionReasons.IsCanonical(NotificationRejectionReasons.ProducerDisabled).ShouldBeTrue();
+        NotificationRejectionReasons.ProducerDisabled
+            .ShouldNotBe(NotificationRejectionReasons.ProducerNotAuthorized);
     }
 }

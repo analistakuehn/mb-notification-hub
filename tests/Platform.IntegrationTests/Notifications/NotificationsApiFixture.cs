@@ -98,6 +98,24 @@ public sealed class NotificationsApiFixture : WebApplicationFactory<Program>, IA
     public HttpClient CreatePublisherClient(string subject)
         => CreateClientWithToken(subject, [AuthorizationSetup.PublisherRole]);
 
+    public HttpClient CreatePlatformAdminClient(string subject, string? objectId = null)
+        => CreateClientWithToken(subject, ["Platform.Admin"], objectId);
+
+    public HttpClient CreatePlatformAdminClient(
+        WebApplicationFactory<Program> host,
+        string subject,
+        string? objectId = null)
+    {
+        HttpClient client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            CreateToken(subject, ["Platform.Admin"], objectId));
+        return client;
+    }
+
+    public HttpClient CreatePlatformAdminClientWithoutActor()
+        => CreateClientWithToken(subject: null, ["Platform.Admin"]);
+
     public async Task<T> QueryNotificationsDbAsync<T>(Func<NotificationsDbContext, Task<T>> query)
     {
         using IServiceScope scope = Services.CreateScope();
@@ -162,26 +180,42 @@ public sealed class NotificationsApiFixture : WebApplicationFactory<Program>, IA
         await _redis.DisposeAsync();
     }
 
-    private HttpClient CreateClientWithToken(string subject, IReadOnlyList<string> roles)
+    private HttpClient CreateClientWithToken(
+        string? subject,
+        IReadOnlyList<string> roles,
+        string? objectId = null)
     {
         HttpClient client = CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", CreateToken(subject, roles));
+            new AuthenticationHeaderValue("Bearer", CreateToken(subject, roles, objectId));
         return client;
     }
 
-    private string CreateToken(string subject, IReadOnlyList<string> roles)
+    private string CreateToken(
+        string? subject,
+        IReadOnlyList<string> roles,
+        string? objectId = null)
     {
+        var claims = new Dictionary<string, object>
+        {
+            ["role"] = roles,
+        };
+        if (subject is not null)
+        {
+            claims["sub"] = subject;
+        }
+
+        if (objectId is not null)
+        {
+            claims["oid"] = objectId;
+        }
+
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = Issuer,
             Audience = Audience,
             Expires = DateTime.UtcNow.AddMinutes(10),
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = subject,
-                ["role"] = roles,
-            },
+            Claims = claims,
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(_signingKey),
                 SecurityAlgorithms.HmacSha256),

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Fcm;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.SendGrid;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Twilio;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Resilience;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using Polly;
@@ -20,6 +21,10 @@ public static class DispatchProviderSetup
             .ValidateOnStart();
         services.AddOptions<FcmOptions>()
             .Bind(configuration.GetSection(FcmOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<TwilioOptions>()
+            .Bind(configuration.GetSection(TwilioOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
@@ -49,6 +54,19 @@ public static class DispatchProviderSetup
                 AddSendPipeline(builder, config.CircuitBreaker, config.TimeoutSeconds);
             });
 
+        services.AddHttpClient(TwilioChannelProvider.HttpClientName, (serviceProvider, client) =>
+            {
+                TwilioOptions config = serviceProvider
+                    .GetRequiredService<IOptions<TwilioOptions>>().Value;
+                client.BaseAddress = new Uri(config.BaseAddress);
+            })
+            .AddResilienceHandler("dispatch-twilio-pipeline", (builder, context) =>
+            {
+                TwilioOptions config = context.ServiceProvider
+                    .GetRequiredService<IOptions<TwilioOptions>>().Value;
+                AddSendPipeline(builder, config.CircuitBreaker, config.TimeoutSeconds);
+            });
+
         // Token acquisition is the only retried call in this module: the
         // grant is idempotent at the endpoint, unlike a message send.
         services.AddHttpClient(FcmAccessTokenSource.HttpClientName)
@@ -67,6 +85,7 @@ public static class DispatchProviderSetup
         services.AddSingleton<FcmAccessTokenSource>();
         services.AddSingleton<SendGridChannelProvider>();
         services.AddSingleton<FcmChannelProvider>();
+        services.AddSingleton<TwilioChannelProvider>();
         services.AddSingleton<IChannelProvider>(serviceProvider =>
             new ConcurrencyLimitedChannelProvider(
                 serviceProvider.GetRequiredService<SendGridChannelProvider>(),
@@ -75,6 +94,10 @@ public static class DispatchProviderSetup
             new ConcurrencyLimitedChannelProvider(
                 serviceProvider.GetRequiredService<FcmChannelProvider>(),
                 serviceProvider.GetRequiredService<IOptions<FcmOptions>>().Value.MaxConcurrency));
+        services.AddSingleton<IChannelProvider>(serviceProvider =>
+            new ConcurrencyLimitedChannelProvider(
+                serviceProvider.GetRequiredService<TwilioChannelProvider>(),
+                serviceProvider.GetRequiredService<IOptions<TwilioOptions>>().Value.MaxConcurrency));
 
         return services;
     }

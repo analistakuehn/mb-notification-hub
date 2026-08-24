@@ -1,5 +1,7 @@
 using NotificationHub.Api.Composition;
 using NotificationHub.Api.Infrastructure.Cryptography;
+using NotificationHub.Api.Infrastructure.Messaging;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 
@@ -26,6 +28,7 @@ public sealed class NotificationsMaintenanceWorkerRole : IWorkerRoleModule
 
     public static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
+        services.AddPlatformMessaging(configuration);
         services.AddEnvelopeEncryption(configuration);
 
         // The backfill rebuilds the masked form from the published template,
@@ -33,6 +36,8 @@ public sealed class NotificationsMaintenanceWorkerRole : IWorkerRoleModule
         // exactly like the pipeline does.
         services.AddTemplateManagementReadSurface(configuration);
         services.AddNotificationsPersistence(configuration);
+        services.AddNotificationsKillSwitch();
+        services.AddNotificationsKillSwitchHoldReleaser();
 
         services.AddOptions<RenderedContentRetentionOptions>()
             .Bind(configuration.GetSection(RenderedContentRetentionOptions.SectionName))

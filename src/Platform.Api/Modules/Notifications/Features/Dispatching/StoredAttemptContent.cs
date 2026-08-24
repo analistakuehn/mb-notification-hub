@@ -42,6 +42,7 @@ internal sealed record StoredAttemptContent(
         => Channel switch
         {
             "email" => new EmailMessage(Subject ?? "", "", Body, BodyText ?? ""),
+            "sms" => new SmsMessage(Body),
             "push" => new PushMessage(Subject ?? "", Body, EmptyData),
             _ => throw new InvalidOperationException(
                 $"O canal '{Channel}' não possui projeção de conteúdo nesta fase."),

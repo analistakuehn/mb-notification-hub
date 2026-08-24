@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using NotificationHub.Api.Composition;
 using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.Messaging;
@@ -9,6 +10,7 @@ using NotificationHub.Api.Modules.Notifications.Features.Mutations;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Idempotency;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
@@ -40,6 +42,7 @@ public sealed class KafkaIngressWorkerRole : IWorkerRoleModule
         services.AddAuditTrailSurface();
         services.AddTemplateManagementReadSurface(configuration);
         services.AddNotificationsPersistence(configuration);
+        services.AddNotificationsKillSwitch();
 
         services.AddOptions<NotificationsRedisOptions>()
             .Bind(configuration.GetSection(NotificationsRedisOptions.SectionName))
@@ -70,12 +73,14 @@ public sealed class KafkaIngressWorkerRole : IWorkerRoleModule
             .Bind(configuration.GetSection(KafkaIngressOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<KafkaIngressOptions>, KafkaIngressOptionsValidator>();
         services.AddSingleton<IngressDeadLetterWriter>();
 
         services.AddScoped<PublishedTemplateGate>();
         services.AddScoped<VariablesProtector>();
         services.AddScoped<IngestionWriter>();
         services.AddScoped<IngressCommitWriter>();
+        services.AddScoped<KafkaIngressSettlement>();
 
         // The asynchronous posture: the rejection trail waits for the
         // dead-letter record to exist and commits with the deduplication mark.
@@ -89,7 +94,9 @@ public sealed class KafkaIngressWorkerRole : IWorkerRoleModule
         KafkaIngressOptions ingress = configuration
             .GetSection(KafkaIngressOptions.SectionName)
             .Get<KafkaIngressOptions>() ?? new KafkaIngressOptions();
+        KafkaIngressTopicMap topicMap = KafkaIngressTopicMap.Create(ingress);
+        services.AddSingleton(topicMap);
         services.AddKafkaTopicConsumer<KafkaIngressProcessor>(
-            ingress.ConsumerGroup, [ingress.RequestedTopic]);
+            topicMap.ConsumerGroup, topicMap.Topics);
     }
 }

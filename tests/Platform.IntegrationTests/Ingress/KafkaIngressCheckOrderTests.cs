@@ -16,7 +16,7 @@ namespace NotificationHub.IntegrationTests.Ingress;
 [Collection(KafkaIngressCollectionDefinition.Name)]
 public sealed class KafkaIngressCheckOrderTests(KafkaIngressFixture fixture)
 {
-    private const string Producer = "order-service";
+    private const string Producer = KafkaIngressFixture.RequestedProducer;
 
     private static readonly TimeSpan ReadBudget = TimeSpan.FromSeconds(30);
 
@@ -26,7 +26,8 @@ public sealed class KafkaIngressCheckOrderTests(KafkaIngressFixture fixture)
         var application = KafkaIngressApi.NewApplication();
         (var publishedKey, _) =
             await KafkaIngressApi.CreatePublishedTemplateAsync(fixture, application, "transactional");
-        await fixture.SeedProducerGrantsAsync(("granted-service", application, "transactional"));
+        await fixture.SeedProducerGrantsAsync(
+            (KafkaIngressFixture.SecondaryRequestedProducer, application, "transactional"));
         await using ServiceProvider provider = fixture.BuildIngressProvider();
 
         var existingKey = KafkaIngressApi.NewIdempotencyKey();
@@ -49,16 +50,17 @@ public sealed class KafkaIngressCheckOrderTests(KafkaIngressFixture fixture)
         askedExisting.ShouldBeOfType<KafkaDisposition.DeadLetter>().Reason.ShouldBe("producer-not-authorized");
         askedMissing.ShouldBeOfType<KafkaDisposition.DeadLetter>().Reason.ShouldBe("producer-not-authorized");
 
-        // Falsification: an authorized principal does tell the two apart, so
-        // the equality above is the authorization check and not a catalog that
-        // answers the same way to everyone.
+        // Falsification: the dedicated topic of an authorized producer does
+        // tell the two apart, so the equality above is the authorization check
+        // and not a catalog that answers the same way to everyone.
         var authorizedMissing = KafkaIngressApi.NewIdempotencyKey();
         KafkaDisposition authorized = await IngressRecords.ProcessAsync(
             fixture, provider, recipientId,
             KafkaIngressApi.RequestedEvent(
                 application, "template-that-was-never-published", "transactional",
                 recipientId, authorizedMissing),
-            KafkaIngressApi.ProducerHeaders("granted-service"));
+            KafkaIngressApi.ProducerHeaders("untrusted-header"),
+            KafkaIngressFixture.SecondaryRequestedTopic);
         authorized.ShouldBeOfType<KafkaDisposition.DeadLetter>().Reason.ShouldBe("template-not-found");
     }
 
@@ -82,7 +84,10 @@ public sealed class KafkaIngressCheckOrderTests(KafkaIngressFixture fixture)
             // for the declared variable plus one the schema does not know.
             KafkaIngressApi.RequestedEvent(
                 application, templateKey, "transactional", recipientId, idempotencyKey,
-                variables: new { code = 12345, leftover = secret }),
+                new KafkaIngressApi.RequestedEventOptions
+                {
+                    Variables = new { code = 12345, leftover = secret },
+                }),
             KafkaIngressApi.ProducerHeaders(Producer));
 
         // The schema report would describe the very payload the restriction

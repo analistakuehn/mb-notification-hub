@@ -15,7 +15,7 @@ namespace NotificationHub.IntegrationTests.Ingress;
 [Collection(KafkaIngressCollectionDefinition.Name)]
 public sealed class KafkaIngressSensitiveVariablesTests(KafkaIngressFixture fixture)
 {
-    private const string Producer = "auth-service";
+    private const string Producer = KafkaIngressFixture.RequestedProducer;
 
     private static readonly TimeSpan ReadBudget = TimeSpan.FromSeconds(30);
 
@@ -39,7 +39,10 @@ public sealed class KafkaIngressSensitiveVariablesTests(KafkaIngressFixture fixt
             // alone, so the producer can decide before publishing.
             KafkaIngressApi.RequestedEvent(
                 application, templateKey, "transactional", recipientId, idempotencyKey,
-                variables: new { code = "483920" }),
+                new KafkaIngressApi.RequestedEventOptions
+                {
+                    Variables = new { code = "483920" },
+                }),
             KafkaIngressApi.ProducerHeaders(Producer));
 
         disposition.ShouldBeOfType<KafkaDisposition.DeadLetter>()
@@ -68,7 +71,10 @@ public sealed class KafkaIngressSensitiveVariablesTests(KafkaIngressFixture fixt
             recipientId,
             KafkaIngressApi.RequestedEvent(
                 application, templateKey, "transactional", recipientId, idempotencyKey,
-                variables: new { code = secret }),
+                new KafkaIngressApi.RequestedEventOptions
+                {
+                    Variables = new { code = secret },
+                }),
             KafkaIngressApi.ProducerHeaders(Producer));
 
         ConsumeResult<string, byte[]> record = fixture
@@ -110,7 +116,11 @@ public sealed class KafkaIngressSensitiveVariablesTests(KafkaIngressFixture fixt
             recipientId,
             KafkaIngressApi.RequestedEvent(
                 application, "template-that-was-never-published", "transactional",
-                recipientId, idempotencyKey, variables: new { code = marker }),
+                recipientId, idempotencyKey,
+                new KafkaIngressApi.RequestedEventOptions
+                {
+                    Variables = new { code = marker },
+                }),
             KafkaIngressApi.ProducerHeaders(Producer));
 
         ConsumeResult<string, byte[]> record = fixture

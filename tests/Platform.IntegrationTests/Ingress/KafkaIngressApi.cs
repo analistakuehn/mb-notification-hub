@@ -60,8 +60,9 @@ internal static class KafkaIngressApi
 
     /// <summary>
     /// One well-formed CloudEvent carrying a notification request.
-    /// <paramref name="eventType"/> is a parameter so a test can hold the body
-    /// fixed and move only the declared schema version.
+    /// <paramref name="options"/> groups the optional event variations so a
+    /// test can hold the request identity fixed and move only one contract
+    /// dimension.
     /// </summary>
     internal static string RequestedEvent(
         string application,
@@ -69,14 +70,15 @@ internal static class KafkaIngressApi
         string @class,
         string recipientId,
         string idempotencyKey,
-        object? variables = null,
-        string eventType = "araia.notification.requested.v1")
-        => JsonSerializer.Serialize(new
+        RequestedEventOptions? options = null)
+    {
+        RequestedEventOptions eventOptions = options ?? new RequestedEventOptions();
+        return JsonSerializer.Serialize(new
         {
             specversion = "1.0",
             id = $"evt-{Guid.NewGuid():N}",
-            source = "urn:araia:integration-tests",
-            type = eventType,
+            source = eventOptions.EventSource,
+            type = eventOptions.EventType,
             time = DateTimeOffset.UtcNow,
             subject = recipientId,
             datacontenttype = "application/json",
@@ -88,11 +90,21 @@ internal static class KafkaIngressApi
                 @class,
                 templateKey,
                 locale = "pt-BR",
-                variables = variables ?? new { code = "123456" },
+                variables = eventOptions.Variables,
                 ttlSeconds = 300,
             },
         });
+    }
 
     internal static Dictionary<string, string> ProducerHeaders(string producer)
         => new(StringComparer.Ordinal) { ["producer"] = producer };
+
+    internal sealed record RequestedEventOptions
+    {
+        internal string EventType { get; init; } = "araia.notification.requested.v1";
+
+        internal string EventSource { get; init; } = "urn:araia:integration-tests";
+
+        internal object? Variables { get; init; } = new { code = "123456" };
+    }
 }

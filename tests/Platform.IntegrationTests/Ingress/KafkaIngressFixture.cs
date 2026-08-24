@@ -31,7 +31,10 @@ namespace NotificationHub.IntegrationTests.Ingress;
 /// </summary>
 public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    public const string RequestedTopic = "notifications.requested.v1";
+    public const string RequestedTopic = "notifications.requested.kyc.v1";
+    public const string SecondaryRequestedTopic = "notifications.requested.billing.v1";
+    public const string RequestedProducer = "kyc-service";
+    public const string SecondaryRequestedProducer = "billing-service";
     public const string DeadLetterTopic = "notifications.requested.dlt";
     public const string ConsumerGroup = "notification-hub-ingress";
     public const string RedisKeyPrefix = "it-ingress:";
@@ -101,9 +104,12 @@ public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsync
             ["Modules:Notifications:Redis:ConnectionString"] = RedisConnectionString,
             ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,
             ["Modules:Notifications:ProducerRegistry:CacheTtlSeconds"] = "1",
-            ["Modules:Notifications:KafkaIngress:RequestedTopic"] = RequestedTopic,
             ["Modules:Notifications:KafkaIngress:DeadLetterTopic"] = DeadLetterTopic,
             ["Modules:Notifications:KafkaIngress:ConsumerGroup"] = ConsumerGroup,
+            ["Modules:Notifications:KafkaIngress:Bindings:0:Topic"] = RequestedTopic,
+            ["Modules:Notifications:KafkaIngress:Bindings:0:LogicalProducer"] = RequestedProducer,
+            ["Modules:Notifications:KafkaIngress:Bindings:1:Topic"] = SecondaryRequestedTopic,
+            ["Modules:Notifications:KafkaIngress:Bindings:1:LogicalProducer"] = SecondaryRequestedProducer,
             ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
         };
         if (overrides is not null)
@@ -276,6 +282,12 @@ public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsync
             await admin.CreateTopicsAsync(
             [
                 new TopicSpecification { Name = RequestedTopic, NumPartitions = 1, ReplicationFactor = 1 },
+                new TopicSpecification
+                {
+                    Name = SecondaryRequestedTopic,
+                    NumPartitions = 1,
+                    ReplicationFactor = 1,
+                },
                 new TopicSpecification { Name = DeadLetterTopic, NumPartitions = 1, ReplicationFactor = 1 },
             ]);
         }

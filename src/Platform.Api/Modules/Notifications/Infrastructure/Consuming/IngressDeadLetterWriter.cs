@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
 
@@ -31,14 +33,13 @@ internal sealed record DeadLetterDiagnosis
 /// Records one permanently invalid bus event on the dead-letter topic with the
 /// diagnostics the producing team needs to fix it.
 ///
-/// The body is the original one for every reason but the sensitive-variable
-/// restriction. There the control would defeat itself: the entry topic keeps
-/// records for a day and the dead-letter topic for two weeks, so copying the
-/// refused body verbatim would move the secret to a topic that holds it
-/// fourteen times longer. For that reason alone the variables object is
-/// replaced by the list of variable names the template declares, values never
-/// travel, and a header announces the redaction so nobody mistakes the record
-/// for a faithful copy on redrive.
+/// Before producer trust, and when that trust is explicitly denied or disabled,
+/// the body is rebuilt from an allow-list of safe diagnostics. Payload values
+/// never travel to a topic with longer retention. The sensitive-variable
+/// restriction keeps its narrower behavior: only the variables object is
+/// replaced by the names the template declares. Refusals after producer trust
+/// retain the original body unless that restriction applies. A header announces
+/// either form of redaction so nobody mistakes the record for a faithful copy.
 /// </summary>
 internal sealed class IngressDeadLetterWriter(
     IKafkaDeadLetterProducer producer,
@@ -64,38 +65,45 @@ internal sealed class IngressDeadLetterWriter(
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(diagnosis);
 
-        var redacted = diagnosis.RedactedVariableNames is not null;
+        var redactPayload = RequiresPayloadRedaction(diagnosis.Reason);
+        var redactVariables = diagnosis.RedactedVariableNames is not null;
+        var redacted = redactPayload || redactVariables;
         var headers = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [DeadLetterHeaders.Reason] = diagnosis.Reason,
             [DeadLetterHeaders.SourceTopic] = context.Topic,
             [DeadLetterHeaders.SourcePartition] =
-                context.Partition.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                context.Partition.ToString(CultureInfo.InvariantCulture),
             [DeadLetterHeaders.SourceOffset] =
-                context.Offset.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                context.Offset.ToString(CultureInfo.InvariantCulture),
             [DeadLetterHeaders.OccurredAt] = timeProvider.GetUtcNow().ToString("O"),
             [DeadLetterHeaders.Redacted] = redacted ? "true" : "false",
         };
         AddWhenPresent(headers, ProducerHeader, diagnosis.Producer);
-        AddWhenPresent(headers, ApplicationHeader, diagnosis.Application);
-        AddWhenPresent(headers, ClassHeader, diagnosis.Class);
-        AddWhenPresent(headers, IdempotencyKeyHeader, diagnosis.IdempotencyKey);
-        AddWhenPresent(
-            headers,
-            DeadLetterHeaders.Traceparent,
-            context.Event?.Traceparent
-                ?? (context.Headers.TryGetValue(DeadLetterHeaders.Traceparent, out var traceparent)
-                    ? traceparent
-                    : null));
+        if (!redactPayload)
+        {
+            AddWhenPresent(headers, ApplicationHeader, diagnosis.Application);
+            AddWhenPresent(headers, ClassHeader, diagnosis.Class);
+            AddWhenPresent(headers, IdempotencyKeyHeader, diagnosis.IdempotencyKey);
+            AddWhenPresent(
+                headers,
+                DeadLetterHeaders.Traceparent,
+                context.Event?.Traceparent
+                    ?? (context.Headers.TryGetValue(DeadLetterHeaders.Traceparent, out var traceparent)
+                        ? traceparent
+                        : null));
+        }
 
         await producer.ProduceAsync(
             new DeadLetterRecord
             {
                 Topic = options.Value.DeadLetterTopic,
-                Key = context.Key,
-                Body = redacted
-                    ? RedactVariables(context.Body, diagnosis.RedactedVariableNames!)
-                    : context.Body,
+                Key = redactPayload ? diagnosis.Producer : context.Key,
+                Body = redactPayload
+                    ? Summarize(context, diagnosis)
+                    : redactVariables
+                        ? RedactVariables(context.Body, diagnosis.RedactedVariableNames!)
+                        : context.Body,
                 Headers = headers,
             },
             cancellationToken);
@@ -108,8 +116,31 @@ internal sealed class IngressDeadLetterWriter(
             context.Partition,
             context.Offset,
             diagnosis.Producer,
-            diagnosis.Application,
+            redactPayload ? null : diagnosis.Application,
             redacted);
+    }
+
+    /// <summary>
+    /// Rebuilds a refusal from the diagnostic allow-list. The raw envelope is
+    /// deliberately not an input, so variables, metadata, subjects, sources,
+    /// and future payload fields cannot cross this boundary by accident.
+    /// </summary>
+    internal static string Summarize(
+        KafkaMessageContext context,
+        DeadLetterDiagnosis diagnosis)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(diagnosis);
+
+        var summary = new JsonObject
+        {
+            [DeadLetterHeaders.Reason] = diagnosis.Reason,
+            [DeadLetterHeaders.SourceTopic] = context.Topic,
+            [DeadLetterHeaders.SourcePartition] = context.Partition,
+            [DeadLetterHeaders.SourceOffset] = context.Offset,
+        };
+        AddWhenPresent(summary, ProducerHeader, diagnosis.Producer);
+        return summary.ToJsonString();
     }
 
     /// <summary>
@@ -136,6 +167,20 @@ internal sealed class IngressDeadLetterWriter(
 
         data[VariablesProperty] = new JsonArray([.. variableNames.Select(name => JsonValue.Create(name))]);
         return envelope.ToJsonString();
+    }
+
+    private static bool RequiresPayloadRedaction(string reason)
+        => reason is NotificationRejectionReasons.PayloadInvalid
+            or NotificationRejectionReasons.EventTypeUnsupported
+            or NotificationRejectionReasons.ProducerDisabled
+            or NotificationRejectionReasons.ProducerNotAuthorized;
+
+    private static void AddWhenPresent(JsonObject body, string name, string? value)
+    {
+        if (value is { Length: > 0 })
+        {
+            body[name] = value;
+        }
     }
 
     private static void AddWhenPresent(Dictionary<string, string> headers, string name, string? value)

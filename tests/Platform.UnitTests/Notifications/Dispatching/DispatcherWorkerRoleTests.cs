@@ -13,10 +13,10 @@ public sealed class DispatcherWorkerRoleTests
 
         bindings.Select(binding => binding.QueueName).ShouldBe(
         [
-            "dispatch-email-auth", "dispatch-push-auth",
-            "dispatch-email-critical", "dispatch-push-critical",
-            "dispatch-email-transactional", "dispatch-push-transactional",
-            "dispatch-email-operational", "dispatch-push-operational",
+            "dispatch-email-auth", "dispatch-sms-auth", "dispatch-push-auth",
+            "dispatch-email-critical", "dispatch-sms-critical", "dispatch-push-critical",
+            "dispatch-email-transactional", "dispatch-sms-transactional", "dispatch-push-transactional",
+            "dispatch-email-operational", "dispatch-sms-operational", "dispatch-push-operational",
         ]);
     }
 
@@ -62,7 +62,7 @@ public sealed class DispatcherWorkerRoleTests
     [Fact]
     public void A_channel_without_a_hosted_adapter_refuses_to_boot()
         => Should.Throw<InvalidOperationException>(() => DispatcherWorkerRole.QueueBindings(
-                Configuration(("Modules:Notifications:Dispatcher:Channels:0", "sms"))))
+                Configuration(("Modules:Notifications:Dispatcher:Channels:0", "whatsapp"))))
             .Message.ShouldContain("adapter");
 
     private static IConfiguration Configuration(params (string Key, string Value)[] settings)

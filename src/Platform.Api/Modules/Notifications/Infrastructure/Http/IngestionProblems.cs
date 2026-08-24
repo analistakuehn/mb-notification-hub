@@ -10,17 +10,19 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 /// <c>type</c> carries the stable rejection code; template rejections expose
 /// the failed variable checks as the <c>checks</c> extension member.
 ///
-/// Two codes are protocol conditions of this route and deliberately stay out
-/// of the canonical catalog, because neither ever reaches the bus as the
-/// <c>reason</c> of a rejection event: <see cref="IdempotencyKeyRequiredType"/>
-/// and <see cref="PrincipalRateLimitedType"/>. Every other code answered here
-/// is a catalog member.
+/// Three HTTP-only codes deliberately stay out of the canonical catalog:
+/// <see cref="IdempotencyKeyRequiredType"/>,
+/// <see cref="PrincipalRateLimitedType"/>, and
+/// <see cref="KillSwitchUnavailableType"/>. None reaches the bus as the
+/// <c>reason</c> of a rejection event. Every other code answered here is a
+/// catalog member.
 /// </summary>
 internal static class IngestionProblems
 {
     internal const string IdempotencyKeyRequiredType = "idempotency-key-required";
     internal const string IdempotencyKeyConflictType = "idempotency-key-conflict";
     internal const string ClassNotAllowedType = "class-not-allowed-for-principal";
+    internal const string KillSwitchUnavailableType = "kill-switch-unavailable";
 
     /// <summary>
     /// The producer's own request budget is exhausted. It is a code of its own
@@ -41,6 +43,18 @@ internal static class IngestionProblems
             StatusCodes.Status403Forbidden,
             ClassNotAllowedType,
             $"O token do produtor não cobre a classe '{canonicalClass}'.");
+
+    internal static IResult ProducerDisabled()
+        => Problem(
+            StatusCodes.Status403Forbidden,
+            NotificationRejectionReasons.ProducerDisabled,
+            "O produtor está bloqueado pelo controle de emergência.");
+
+    internal static IResult KillSwitchUnavailable()
+        => Problem(
+            StatusCodes.Status503ServiceUnavailable,
+            KillSwitchUnavailableType,
+            "A autoridade do controle de emergência está indisponível.");
 
     internal static IResult IdempotencyConflict()
         => Problem(

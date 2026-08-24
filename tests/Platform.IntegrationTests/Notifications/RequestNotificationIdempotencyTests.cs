@@ -1,8 +1,13 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using StackExchange.Redis;
 
@@ -33,6 +38,134 @@ public sealed class RequestNotificationIdempotencyTests(NotificationsApiFixture 
             .AsNoTracking()
             .CountAsync(candidate => candidate.IdempotencyKey == idempotencyKey));
         notifications.ShouldBe(1);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_safe_replay_is_resolved_before_the_producer_kill_switch()
+    {
+        (var templateKey, _) = await NotificationsApi.CreatePublishedTemplateAsync(fixture);
+        var producerId = $"producer-replay-switch-{Guid.NewGuid():N}";
+        HttpClient producer = fixture.CreateProducerClient(producerId, NotificationsApi.SendTransactional);
+        HttpClient admin = fixture.CreatePlatformAdminClient("admin-replay-switch");
+        var idempotencyKey = $"replay-switch-{Guid.NewGuid():N}";
+        var body = NotificationsApi.RequestBody(templateKey, recipientId: $"cus_{Guid.NewGuid():N}");
+
+        HttpResponseMessage first = await NotificationsApi.PostNotificationAsync(
+            producer, body, idempotencyKey);
+        first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        await RemoveFastPathEntryAsync(idempotencyKey);
+
+        HttpResponseMessage activated = await admin.PutAsJsonAsync(
+            $"/v1/notifications/kill-switch/producer/{producerId}",
+            new { active = true });
+        activated.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        HttpResponseMessage replay = await NotificationsApi.PostNotificationAsync(
+            producer, body, idempotencyKey);
+        HttpResponseMessage fresh = await NotificationsApi.PostNotificationAsync(
+            producer, body, $"fresh-after-switch-{Guid.NewGuid():N}");
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK);
+        fresh.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        var firstId = (await NotificationsApi.ReadJsonAsync(first)).GetProperty("notificationId").GetString();
+        (await NotificationsApi.ReadJsonAsync(replay))
+            .GetProperty("notificationId").GetString().ShouldBe(firstId);
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(candidate => candidate.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(1);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_divergent_replay_beyond_the_fast_path_conflicts_before_an_active_switch()
+    {
+        (var templateKey, _) = await NotificationsApi.CreatePublishedTemplateAsync(fixture);
+        var producerId = $"producer-conflict-switch-{Guid.NewGuid():N}";
+        HttpClient producer = fixture.CreateProducerClient(producerId, NotificationsApi.SendTransactional);
+        HttpClient admin = fixture.CreatePlatformAdminClient("admin-conflict-switch");
+        var idempotencyKey = $"conflict-switch-{Guid.NewGuid():N}";
+        var recipientId = $"cus_{Guid.NewGuid():N}";
+
+        HttpResponseMessage first = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(templateKey, recipientId: recipientId),
+            idempotencyKey);
+        first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        await RemoveFastPathEntryAsync(idempotencyKey);
+
+        HttpResponseMessage activated = await admin.PutAsJsonAsync(
+            $"/v1/notifications/kill-switch/producer/{producerId}",
+            new { active = true });
+        activated.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        HttpResponseMessage conflict = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                templateKey,
+                recipientId: recipientId,
+                variables: new { orderId = "ord-divergent" }),
+            idempotencyKey);
+        HttpResponseMessage fresh = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(templateKey, recipientId: recipientId),
+            $"fresh-conflict-switch-{Guid.NewGuid():N}");
+
+        conflict.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await NotificationsApi.ReadJsonAsync(conflict))
+            .GetProperty("type").GetString().ShouldBe("idempotency-key-conflict");
+        fresh.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(candidate => candidate.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(1);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_replay_beyond_the_fast_path_bypasses_an_unavailable_switch()
+    {
+        (var templateKey, _) = await NotificationsApi.CreatePublishedTemplateAsync(fixture);
+        var producerId = $"producer-replay-unavailable-{Guid.NewGuid():N}";
+        var idempotencyKey = $"replay-unavailable-{Guid.NewGuid():N}";
+        var recipientId = $"cus_{Guid.NewGuid():N}";
+        var body = NotificationsApi.RequestBody(templateKey, recipientId: recipientId);
+        HttpClient producer = fixture.CreateProducerClient(producerId, NotificationsApi.SendTransactional);
+
+        HttpResponseMessage first = await NotificationsApi.PostNotificationAsync(
+            producer, body, idempotencyKey);
+        first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var firstId = (await NotificationsApi.ReadJsonAsync(first))
+            .GetProperty("notificationId").GetString();
+        await RemoveFastPathEntryAsync(idempotencyKey);
+
+        using WebApplicationFactory<Program> unavailableHost = fixture.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IKillSwitchSnapshotSource>();
+                services.AddSingleton<IKillSwitchSnapshotSource, ThrowingSnapshotSource>();
+            }));
+        HttpClient unavailableProducer = fixture.CreateProducerClient(
+            unavailableHost,
+            producerId,
+            NotificationsApi.SendTransactional);
+
+        HttpResponseMessage replay = await NotificationsApi.PostNotificationAsync(
+            unavailableProducer, body, idempotencyKey);
+        var freshKey = $"fresh-unavailable-{Guid.NewGuid():N}";
+        HttpResponseMessage fresh = await NotificationsApi.PostNotificationAsync(
+            unavailableProducer, body, freshKey);
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await NotificationsApi.ReadJsonAsync(replay))
+            .GetProperty("notificationId").GetString().ShouldBe(firstId);
+        fresh.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(candidate => candidate.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(1);
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(candidate => candidate.IdempotencyKey == freshKey)))
+            .ShouldBe(0);
     }
 
     [RequiresDockerFact]
@@ -210,5 +343,16 @@ public sealed class RequestNotificationIdempotencyTests(NotificationsApiFixture 
         await using ConnectionMultiplexer connection = await ConnectionMultiplexer.ConnectAsync(options);
         await connection.GetDatabase().KeyDeleteAsync(
             $"{NotificationsApiFixture.RedisKeyPrefix}idem:{NotificationsApi.Application}:{idempotencyKey}");
+    }
+
+    private sealed class ThrowingSnapshotSource : IKillSwitchSnapshotSource
+    {
+        public Task<IReadOnlySet<KillSwitchAddress>> LoadActiveAsync(
+            CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            return Task.FromException<IReadOnlySet<KillSwitchAddress>>(
+                new InvalidOperationException("postgres unavailable"));
+        }
     }
 }

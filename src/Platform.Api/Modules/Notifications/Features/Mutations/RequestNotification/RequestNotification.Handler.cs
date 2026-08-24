@@ -46,12 +46,35 @@ internal static partial class RequestNotification
     internal sealed class Handler(
         IValidator<Command> validator,
         PublishedTemplateGate templateGate,
-        IngressControls controls,
+        IIngressAdmission admission,
         VariablesProtector variablesProtector,
         IIngestionSink sink,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
+        /// <summary>
+        /// Worker composition for the bus path, whose producer kill switch is
+        /// evaluated before the shared use case is invoked.
+        /// </summary>
+        public Handler(
+            IValidator<Command> validator,
+            PublishedTemplateGate templateGate,
+            IngressControls controls,
+            VariablesProtector variablesProtector,
+            IIngestionSink sink,
+            TimeProvider timeProvider,
+            ILogger<Handler> logger)
+            : this(
+                validator,
+                templateGate,
+                IngressAdmission.ForBus(controls),
+                variablesProtector,
+                sink,
+                timeProvider,
+                logger)
+        {
+        }
+
         public async Task<Result<Outcome>> HandleAsync(
             Command command,
             string producer,
@@ -82,29 +105,49 @@ internal static partial class RequestNotification
 
             var payloadHash = ComputePayloadHash(command);
 
-            RememberedAcceptance? remembered =
-                await controls.FindRememberedAsync(command.Application, idempotencyKey, cancellationToken);
-            if (remembered is { } acceptance)
+            AdmissionDecision admissionDecision = await admission.EvaluateAsync(
+                command,
+                producer,
+                origin,
+                idempotencyKey,
+                cancellationToken);
+            if (admissionDecision is AdmissionDecision.Replay replay)
             {
                 return await ResolveReplayAsync(
                     command,
                     producer,
                     origin,
                     new ReplayCandidate(
-                        idempotencyKey, payloadHash, acceptance.NotificationId, acceptance.PayloadHash),
+                        idempotencyKey,
+                        payloadHash,
+                        replay.Acceptance.NotificationId,
+                        replay.Acceptance.PayloadHash),
                     cancellationToken);
             }
 
-            RateLimitDecision rateDecision = await controls.EvaluateRateLimitAsync(
-                new RateLimitSubject(producer, command.Application, command.RecipientId, canonicalClass),
-                enforcePrincipalLimit: origin.Source == IngestionSource.Rest,
-                cancellationToken);
-            if (!rateDecision.Allowed)
+            if (admissionDecision is AdmissionDecision.ProducerDisabled)
+            {
+                await RejectAsync(
+                    command,
+                    producer,
+                    origin,
+                    idempotencyKey,
+                    NotificationRejectionReasons.ProducerDisabled,
+                    cancellationToken);
+                return Result.Success<Outcome>(new Outcome.ProducerDisabled());
+            }
+
+            if (admissionDecision is AdmissionDecision.KillSwitchUnavailable)
+            {
+                return Result.Success<Outcome>(new Outcome.KillSwitchUnavailable());
+            }
+
+            if (admissionDecision is AdmissionDecision.RateLimited limited)
             {
                 // The principal dimension never records a trail: under the
                 // pressure it exists to absorb, one audit row and one event per
                 // refused request is the storm the control was meant to stop.
-                if (rateDecision.Dimension == RateLimitedDimension.Recipient)
+                if (limited.Decision.Dimension == RateLimitedDimension.Recipient)
                 {
                     await sink.RecordTrailAsync(
                         RecipientRateLimitedEntry(command, producer, origin, idempotencyKey),
@@ -114,9 +157,20 @@ internal static partial class RequestNotification
                 }
 
                 logger.RateLimitedAtIngress(
-                    command.Application, canonicalClass, rateDecision.Dimension, rateDecision.RetryAfterSeconds);
+                    command.Application,
+                    canonicalClass,
+                    limited.Decision.Dimension,
+                    limited.Decision.RetryAfterSeconds);
                 return Result.Success<Outcome>(
-                    new Outcome.RateLimited(rateDecision.Dimension, rateDecision.RetryAfterSeconds));
+                    new Outcome.RateLimited(
+                        limited.Decision.Dimension,
+                        limited.Decision.RetryAfterSeconds));
+            }
+
+            if (admissionDecision is not AdmissionDecision.Allowed)
+            {
+                throw new InvalidOperationException(
+                    $"Decisão de admissão desconhecida: {admissionDecision.GetType().Name}.");
             }
 
             TemplateGateOutcome gate = await templateGate.EvaluateAsync(
@@ -172,7 +226,7 @@ internal static partial class RequestNotification
                     cancellationToken);
             }
 
-            await controls.RememberAsync(
+            await admission.RememberAsync(
                 command.Application,
                 idempotencyKey,
                 new RememberedAcceptance(notification.Id, payloadHash),

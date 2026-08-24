@@ -11,7 +11,7 @@ namespace NotificationHub.IntegrationTests.Ingress;
 [Collection(KafkaIngressCollectionDefinition.Name)]
 public sealed class KafkaIngressDedupeTests(KafkaIngressFixture fixture)
 {
-    private const string Producer = "dedupe-service";
+    private const string Producer = KafkaIngressFixture.RequestedProducer;
 
     private static readonly TimeSpan ReadBudget = TimeSpan.FromSeconds(30);
 

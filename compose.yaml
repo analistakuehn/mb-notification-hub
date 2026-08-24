@@ -1,0 +1,134 @@
+name: notification-hub-dev
+
+x-user-secrets-volume: &user-secrets-volume
+  - ${NOTIFICATION_HUB_USER_SECRETS_DIR:-./.docker/user-secrets}:/root/.microsoft/usersecrets/4f0f3676-a1b6-5a57-9b8c-b9c6b6517ec9:ro
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: notificationhub
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d notificationhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  localstack:
+    image: localstack/localstack:4.8.1
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SERVICES: s3,sqs
+      PERSISTENCE: "0"
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./docker/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Platform.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      Platform__Messaging__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__Notifications__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__ContactConsent__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__Dispatch__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__Audit__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__TemplateManagement__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__Notifications__Redis__ConnectionString: redis:6379
+      Modules__ContactConsent__Redis__ConnectionString: redis:6379
+      Modules__TemplateManagement__Cache__Redis__ConnectionString: redis:6379
+    volumes:
+      *user-secrets-volume
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/Platform.Worker/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      Worker__Role: outbox-relay
+      Platform__Messaging__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Platform__Messaging__Sqs__ServiceUrl: http://localstack:4566
+      Platform__Messaging__Sqs__Region: us-east-1
+      Platform__Messaging__Sqs__AccessKey: test
+      Platform__Messaging__Sqs__SecretKey: test
+      Modules__Audit__WormExport__ServiceUrl: http://localstack:4566
+      Modules__Audit__WormExport__Region: us-east-1
+      Modules__Audit__WormExport__AccessKey: test
+      Modules__Audit__WormExport__SecretKey: test
+      Modules__Audit__WormExport__ForcePathStyle: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  dispatcher:
+    build:
+      context: .
+      dockerfile: src/Platform.Worker/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      Worker__Role: dispatcher
+      Platform__Messaging__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Platform__Messaging__Sqs__ServiceUrl: http://localstack:4566
+      Platform__Messaging__Sqs__Region: us-east-1
+      Platform__Messaging__Sqs__AccessKey: test
+      Platform__Messaging__Sqs__SecretKey: test
+      Modules__Notifications__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__ContactConsent__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__ContactConsent__Redis__ConnectionString: redis:6379
+      Modules__Dispatch__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__Audit__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__Notifications__Redis__ConnectionString: redis:6379
+    volumes:
+      *user-secrets-volume
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:

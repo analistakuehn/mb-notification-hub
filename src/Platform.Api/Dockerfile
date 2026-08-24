@@ -10,8 +10,10 @@ WORKDIR /src
 COPY ["Directory.Build.props", "."]
 COPY ["Directory.Packages.props", "."]
 COPY ["global.json", "."]
+COPY ["NuGet.Config", "."]
 COPY ["src/Platform.Api/Platform.Api.csproj", "src/Platform.Api/"]
-RUN dotnet restore "src/Platform.Api/Platform.Api.csproj"
+COPY ["src/Platform.Api/packages.lock.json", "src/Platform.Api/"]
+RUN dotnet restore "src/Platform.Api/Platform.Api.csproj" --locked-mode
 COPY . .
 WORKDIR "/src/src/Platform.Api"
 RUN dotnet publish "Platform.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false

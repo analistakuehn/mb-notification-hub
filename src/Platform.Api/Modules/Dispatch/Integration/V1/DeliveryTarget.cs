@@ -19,6 +19,10 @@ public abstract record DeliveryTarget
 public sealed record EmailDeliveryTarget(
     [property: PersonalData] string EmailAddress) : DeliveryTarget;
 
+/// <summary>Destination of an SMS attempt in international E.164 format.</summary>
+public sealed record SmsDeliveryTarget(
+    [property: PersonalData] string PhoneNumber) : DeliveryTarget;
+
 /// <summary>Destination of a push attempt: one device token, one attempt.</summary>
 public sealed record PushDeliveryTarget(
     [property: PersonalData] string DeviceToken) : DeliveryTarget;
