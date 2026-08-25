@@ -26,7 +26,7 @@ public sealed class GoLiveConfigurationTests
             "graph-token");
         environment[variable] = invalidValue;
 
-        GateConfiguration? configuration = GateConfiguration.Load(
+        var configuration = GateConfiguration.Load(
             name => environment.GetValueOrDefault(name));
 
         configuration.ShouldBeNull();

@@ -60,7 +60,7 @@ public sealed class QuietHoursDeferralTests(EndToEndPipelineFixture fixture)
     public async Task An_operational_notification_parked_by_the_window_leaves_when_the_window_ends()
     {
         await using FakeProviderServer provider = await StartProviderAsync();
-        TimeZoneInfo zone = TimeZoneInfo.FindSystemTimeZoneById(RecipientTimezone);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(RecipientTimezone);
         (var from, var to) = OpenWindow(zone, ReleasableWindowEnds);
         DateTimeOffset windowEnds = NextOccurrenceOf(to, zone);
 
@@ -134,7 +134,7 @@ public sealed class QuietHoursDeferralTests(EndToEndPipelineFixture fixture)
     [RequiresDockerFact]
     public async Task The_window_that_parks_an_operational_notification_never_holds_critical_or_authentication()
     {
-        TimeZoneInfo zone = TimeZoneInfo.FindSystemTimeZoneById(RecipientTimezone);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(RecipientTimezone);
         (var from, var to) = OpenWindow(zone, LastingWindowEnds);
         var application = CorePipelineApi.NewApplication();
         var recipientId = await CorePipelineApi.RegisterRecipientAsync(
@@ -201,7 +201,7 @@ public sealed class QuietHoursDeferralTests(EndToEndPipelineFixture fixture)
         var time = TimeOnly.ParseExact(localTime, "HH:mm", CultureInfo.InvariantCulture);
         DateTimeOffset localNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone);
         var day = DateOnly.FromDateTime(localNow.DateTime);
-        DateTime candidate = day.ToDateTime(time, DateTimeKind.Unspecified);
+        var candidate = day.ToDateTime(time, DateTimeKind.Unspecified);
         if (candidate <= localNow.DateTime)
         {
             candidate = day.AddDays(1).ToDateTime(time, DateTimeKind.Unspecified);

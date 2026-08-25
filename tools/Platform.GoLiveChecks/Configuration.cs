@@ -67,7 +67,7 @@ internal static class GoLiveCheckApplication
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        GateConfiguration? configuration = GateConfiguration.Load(readEnvironment);
+        var configuration = GateConfiguration.Load(readEnvironment);
         if (configuration is null)
         {
             var receiptPath = readEnvironment(GoLiveEnvironmentVariables.ReceiptPath);
