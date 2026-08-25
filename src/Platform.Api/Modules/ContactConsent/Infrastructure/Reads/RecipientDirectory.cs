@@ -59,7 +59,7 @@ internal sealed class RecipientDirectory(
                 (consent, point) => new { consent, point.Channel })
             .ToListAsync(cancellationToken);
 
-        List<ConsentDecision> consents = consentRecords
+        var consents = consentRecords
             .GroupBy(record => (record.consent.Purpose, record.Channel))
             .Select(group => group
                 .OrderByDescending(record => record.consent.RecordedAt)

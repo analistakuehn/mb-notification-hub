@@ -33,7 +33,7 @@ public sealed class SuppressionRemovalEndpointTests(ContactConsentApiFixture fix
             OperatorClient(), recipientId, contactPointId, "cliente confirmou o endereço por telefone");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("contactPointId").GetGuid().ShouldBe(contactPointId);
 
         // The row is stamped and kept: why a message was never sent has to
@@ -174,7 +174,7 @@ public sealed class SuppressionRemovalEndpointTests(ContactConsentApiFixture fix
                     Api.Modules.ContactConsent.Infrastructure.Persistence.ContactConsentDbContext>();
             db.RecipientProfiles.Add(
                 RecipientProfile.Create(recipientId, null, null, DateTimeOffset.UtcNow));
-            ContactPoint point = ContactPoint.Declare(
+            var point = ContactPoint.Declare(
                 recipientId,
                 channel,
                 RandomNumberGenerator.GetBytes(16),

@@ -89,7 +89,7 @@ public sealed class CorePipelineSuppressionTests(CorePipelineFixture fixture)
         resultByRule.ShouldNotContainKey("QuietHours");
         resultByRule.ShouldNotContainKey("ChannelSelection");
 
-        using JsonDocument evidence = JsonDocument.Parse(refusal.EvidenceJson);
+        using var evidence = JsonDocument.Parse(refusal.EvidenceJson);
         Channels(evidence, "suppressed").ShouldBe([ContactChannels.Sms]);
         Channels(evidence, "surviving").ShouldBeEmpty();
 

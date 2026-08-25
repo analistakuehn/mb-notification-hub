@@ -65,7 +65,7 @@ public sealed class CorePipelineHappyPathTests(CorePipelineFixture fixture)
         IEnvelopeCipher cipher = worker.GetRequiredService<IEnvelopeCipher>();
         var plaintext = await cipher.DecryptAsync(
             application, attempt.RenderedContentEncrypted, CancellationToken.None);
-        using JsonDocument rendered = JsonDocument.Parse(plaintext);
+        using var rendered = JsonDocument.Parse(plaintext);
         rendered.RootElement.GetProperty("channel").GetString().ShouldBe("push");
         rendered.RootElement.GetProperty("body").GetString()!.ShouldContain("123456");
         attempt.ContentHashFull.ShouldNotBe(attempt.ContentHashMasked);
@@ -80,7 +80,7 @@ public sealed class CorePipelineHappyPathTests(CorePipelineFixture fixture)
             .Where(evaluation => evaluation.NotificationId == notificationId)
             .ToListAsync());
         evaluations.Count.ShouldBe(5);
-        Dictionary<string, string> resultByRule = evaluations.ToDictionary(
+        var resultByRule = evaluations.ToDictionary(
             evaluation => evaluation.Rule,
             evaluation => evaluation.Result);
         resultByRule["ConsentGate"].ShouldBe("allow");
@@ -97,7 +97,7 @@ public sealed class CorePipelineHappyPathTests(CorePipelineFixture fixture)
                 WHERE destination = 'dispatch-push-auth' AND payload->'payload'->>'notificationId' = {notificationId.ToString()}
                 """)
             .SingleAsync());
-        using JsonDocument dispatchEnvelope = JsonDocument.Parse(outboxPayload);
+        using var dispatchEnvelope = JsonDocument.Parse(outboxPayload);
         dispatchEnvelope.RootElement.GetProperty("type").GetString().ShouldBe("attempt.queued");
         dispatchEnvelope.RootElement.GetProperty("payload").GetProperty("attemptId").GetGuid()
             .ShouldBe(attempt.Id);

@@ -58,7 +58,7 @@ internal static class PolicyEvidenceProjection
             ? keys
             : new HashSet<string>(StringComparer.Ordinal);
 
-        using JsonDocument document = JsonDocument.Parse(evidenceJson);
+        using var document = JsonDocument.Parse(evidenceJson);
         if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
             return new PolicyEvidenceView(EmptyObject(), []);
@@ -88,7 +88,7 @@ internal static class PolicyEvidenceProjection
 
     private static JsonElement ToElement(JsonObject value)
     {
-        using JsonDocument document = JsonDocument.Parse(value.ToJsonString());
+        using var document = JsonDocument.Parse(value.ToJsonString());
         return document.RootElement.Clone();
     }
 }

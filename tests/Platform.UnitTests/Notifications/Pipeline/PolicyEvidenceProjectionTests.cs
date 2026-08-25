@@ -200,7 +200,7 @@ public sealed class PolicyEvidenceProjectionTests
         string rule,
         PolicyRuleResult result)
     {
-        using JsonDocument evidence = JsonDocument.Parse(result.EvidenceJson);
+        using var evidence = JsonDocument.Parse(result.EvidenceJson);
         HashSet<string> forRule = keys.TryGetValue(rule, out HashSet<string>? existing)
             ? existing
             : keys[rule] = new HashSet<string>(StringComparer.Ordinal);

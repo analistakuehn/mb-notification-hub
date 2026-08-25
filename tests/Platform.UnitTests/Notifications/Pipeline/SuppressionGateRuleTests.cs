@@ -29,7 +29,7 @@ public sealed class SuppressionGateRuleTests
         PolicyRuleResult result = await Evaluate(TwoPoints, [], ["sms", "email"]);
 
         PolicyRuleResult.Allow allow = result.ShouldBeOfType<PolicyRuleResult.Allow>();
-        using JsonDocument evidence = JsonDocument.Parse(allow.EvidenceJson);
+        using var evidence = JsonDocument.Parse(allow.EvidenceJson);
         evidence.RootElement.GetProperty("suppressed").EnumerateArray().ShouldBeEmpty();
         Channels(evidence, "surviving").ShouldBe(["email", "sms"]);
     }
@@ -42,7 +42,7 @@ public sealed class SuppressionGateRuleTests
 
         PolicyRuleResult.FilterChannels filter = result.ShouldBeOfType<PolicyRuleResult.FilterChannels>();
         filter.Channels.Select(channel => channel.Value).ShouldBe(["sms"]);
-        using JsonDocument evidence = JsonDocument.Parse(filter.EvidenceJson);
+        using var evidence = JsonDocument.Parse(filter.EvidenceJson);
         Channels(evidence, "suppressed").ShouldBe(["email"]);
         Channels(evidence, "surviving").ShouldBe(["sms"]);
     }

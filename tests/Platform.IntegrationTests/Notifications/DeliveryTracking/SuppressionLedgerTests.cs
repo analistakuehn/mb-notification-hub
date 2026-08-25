@@ -60,7 +60,7 @@ public sealed class SuppressionLedgerTests(DeliveryTrackingFixture fixture)
         announced.Count.ShouldBe(
             1,
             "a supressão é anunciada uma vez por decisão, nunca uma vez por sinal relatado.");
-        using JsonDocument data = JsonDocument.Parse(announced[0]);
+        using var data = JsonDocument.Parse(announced[0]);
         JsonElement payload = data.RootElement.GetProperty("data");
         payload.GetProperty("recipientId").GetString().ShouldBe(recipientId);
         payload.GetProperty("channel").GetString().ShouldBe(ContactChannels.Email);
@@ -278,7 +278,7 @@ public sealed class SuppressionLedgerTests(DeliveryTrackingFixture fixture)
                     RecipientProfile.Create(recipientId, null, null, DateTimeOffset.UtcNow));
             }
 
-            ContactPoint point = ContactPoint.Declare(
+            var point = ContactPoint.Declare(
                 recipientId,
                 channel,
                 RandomNumberGenerator.GetBytes(16),

@@ -40,7 +40,7 @@ internal sealed class SuppressionGateRule(TimeProvider timeProvider) : IPolicyRu
             ?? throw new InvalidOperationException("A regra de supressão requer o destinatário resolvido.");
 
         DateTimeOffset now = timeProvider.GetUtcNow();
-        HashSet<Guid> suppressedPoints = recipient.Suppressions
+        var suppressedPoints = recipient.Suppressions
             .Where(suppression => suppression.Until is null || suppression.Until > now)
             .Select(suppression => suppression.ContactPointId)
             .ToHashSet();
