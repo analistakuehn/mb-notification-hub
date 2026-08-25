@@ -198,15 +198,80 @@ internal static class DispatchApi
         return notificationId;
     }
 
-    /// <summary>Dispatcher settings pointing both providers at the given fake server.</summary>
+    /// <summary>
+    /// Publishes a template whose only content is the SMS body given, which is
+    /// what an authentication flow ships: no subject, no HTML, one line.
+    /// </summary>
+    internal static async Task<(string Key, int Version)> CreatePublishedSmsTemplateAsync(
+        CorePipelineFixture fixture,
+        string application,
+        string @class,
+        string purpose,
+        string body = "Código de acesso: {{ code }}.")
+    {
+        HttpClient author = fixture.CreateAuthorClient("template-author");
+        HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
+        var key = TemplateApi.NewKey("sms");
+
+        HttpResponseMessage created = await author.PostAsJsonAsync("/v1/templates", new
+        {
+            key,
+            application,
+            @class,
+            ownerTeam = "growth-squad",
+            purpose,
+            legalBasis = "execucao-de-contrato",
+            defaultLocale = "pt-BR",
+        });
+        created.EnsureSuccessStatusCode();
+
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        etag = await TemplateApi.PutContentAsync(author, key, version, "sms/pt-BR", new { body }, etag);
+        await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new { code = new { type = "string" } },
+            required = RequiredCode,
+        }, etag);
+        await TemplateApi.PublishAsync(publisher, key, version);
+        return (key, version);
+    }
+
+    /// <summary>
+    /// Registers a recipient reachable by SMS on a number of its own. The
+    /// number is unique per call on purpose: the dispatch tests share a
+    /// collection, and a fixed number would make one test's provider request
+    /// indistinguishable from a neighbour's.
+    /// </summary>
+    internal static async Task<(string RecipientId, string PhoneNumber)> RegisterSmsRecipientAsync(
+        CorePipelineFixture fixture)
+    {
+        HttpClient contacts = fixture.CreateContactsClient("contacts-writer");
+        var recipientId = ContactConsentApi.NewRecipientId();
+        var phoneNumber = NewPhoneNumber();
+        HttpResponseMessage declared = await ContactConsentApi.PutContactPointsAsync(
+            contacts,
+            recipientId,
+            ContactConsentApi.ContactPointsBody([ContactConsentApi.ContactPoint("sms", phoneNumber)]));
+        declared.EnsureSuccessStatusCode();
+        return (recipientId, phoneNumber);
+    }
+
+    /// <summary>A Brazilian mobile number in the shape the SMS adapter accepts.</summary>
+    internal static string NewPhoneNumber()
+        => $"+5511{RandomNumberGenerator.GetInt32(900_000_000, 999_999_999).ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>Dispatcher settings pointing every provider at the given fake server.</summary>
     internal static Dictionary<string, string?> ProviderSettings(
         Uri sendGridBase,
         Uri fcmBase,
-        int timeoutSeconds = 5)
+        int timeoutSeconds = 5,
+        Uri? twilioBase = null,
+        string? statusCallbackUrl = null)
     {
         using var rsa = RSA.Create(2048);
         var timeout = timeoutSeconds.ToString(CultureInfo.InvariantCulture);
-        return new Dictionary<string, string?>
+        var settings = new Dictionary<string, string?>
         {
             ["Modules:Dispatch:Providers:SendGrid:BaseAddress"] = sendGridBase.ToString(),
             ["Modules:Dispatch:Providers:SendGrid:ApiKey"] = "test-key",
@@ -219,6 +284,20 @@ internal static class DispatchApi
             ["Modules:Dispatch:Providers:Fcm:TokenUri"] = new Uri(fcmBase, FcmTokenPath).ToString(),
             ["Modules:Dispatch:Providers:Fcm:TimeoutSeconds"] = timeout,
         };
+
+        if (twilioBase is not null)
+        {
+            settings["Modules:Dispatch:Providers:Twilio:BaseAddress"] = twilioBase.ToString();
+            settings["Modules:Dispatch:Providers:Twilio:Product"] = "ProgrammableMessaging";
+            settings["Modules:Dispatch:Providers:Twilio:AuthenticationMode"] = "AuthToken";
+            settings["Modules:Dispatch:Providers:Twilio:AccountSid"] = "AC-test";
+            settings["Modules:Dispatch:Providers:Twilio:CredentialSecret"] = "auth-token";
+            settings["Modules:Dispatch:Providers:Twilio:MessagingServiceSid"] = "MG-test";
+            settings["Modules:Dispatch:Providers:Twilio:TimeoutSeconds"] = timeout;
+            settings["Modules:Dispatch:Providers:Twilio:StatusCallbackUrl"] = statusCallbackUrl;
+        }
+
+        return settings;
     }
 
     /// <summary>Reads the pending outbox payloads addressed to one destination and mentioning the notification.</summary>

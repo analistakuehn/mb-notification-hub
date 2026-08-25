@@ -320,6 +320,16 @@ curta própria.
   nova precisa entrar na lista de divulgação de
   `Infrastructure/Auditing/PolicyEvidenceProjection.cs`, que um teste de
   completude cobra.
+- Estágio Render: o conteúdo chega pronto do catálogo publicado, e este módulo
+  não o reescreve. Duas consequências vêm de lá e aparecem aqui. A primeira é
+  que o corpo de SMS chega normalizado (forma composta, sem caracteres de
+  controle e sem quebras de linha) e os dois hashes auditados descrevem essa
+  forma, que é exatamente a que o provider recebe. A segunda é que um render
+  de SMS de finalidade de autenticação que produza um link é recusado pelo
+  renderer, e o estágio o traduz para o motivo canônico
+  `authentication-sms-link`, separado de `template-render-failed`: o template
+  está íntegro e quem recusou foi uma regra de segurança. O alarme de segurança
+  é registrado onde a deteção acontece, no módulo dono do render.
 - A barreira de deduplicação é o `SET NX` do Redis com chave
   `(application, templateKey, recipientId)`, a janela da política como TTL e o
   id da notificação como valor, de modo que uma reentrega reconheça a própria
@@ -393,6 +403,18 @@ curta própria.
   partição pela janela de `created_at` da notificação, senão a escrita varre
   todas as partições de `notification_attempt`. Produtor novo de gatilho não
   precisa de nada: o ponto de encontro é o handler.
+- **A validade restante decide se o envio ainda vale.** Depois do claim e antes
+  de revelar o destino, o dispatcher mede `expires_at - agora` e a entrega ao
+  adaptador em `DispatchRequest.Validity`, para que o provider saiba por quanto
+  tempo ainda faz sentido manter a mensagem na fila dele. Validade esgotada não
+  chama o provider: a tentativa é encerrada como `failed` com o código
+  `notification-expired`, sem consumir mensagem, e o plano avança pelo mesmo
+  caminho de qualquer falha definitiva. A medição vem depois do claim porque a
+  resposta precisa descrever o instante da chamada, e antes da revelação porque
+  uma mensagem que ninguém vai mais ler não justifica um contato em claro na
+  memória. Na última etapa do plano esse encerramento chega como `failed` com
+  esse motivo, e não como `expired`: quem escreve `expired` depois do dispatch é
+  o handler de fallback, que é o único a ver o plano inteiro.
 - PII somente no momento do envio: a renderização selada é aberta em memória, o
   endereço de e-mail vem de `RevealContactValueAsync`, e o token de push vem de
   `RevealDeviceTokenAsync`, ambos transitórios. Os resultados FCM `UNREGISTERED`
@@ -650,6 +672,19 @@ curta própria.
   quando o hash recalculado corresponde ao `content_hash_masked` armazenado. Uma
   linha sem correspondência permanece intocada e aparece em um log estruturado
   de revisão.
+- **SMS gravado antes da normalização não casa mais, e isso é o backfill
+  funcionando.** A normalização de encoding do SMS mudou os bytes que o render
+  produz, então uma tentativa de SMS selada antes dela tem
+  `content_hash_masked` calculado sobre a forma antiga. O `RenderedContentBackfill`
+  renderiza de novo, obtém a forma normalizada, o hash não corresponde, e a
+  linha permanece **intocada**, com `hash-mismatch` no log estruturado de
+  revisão. Esse é exatamente o comportamento que o duplo hash existe para
+  garantir: o backfill só substitui conteúdo quando prova que está olhando para
+  a mesma mensagem, e uma divergência é motivo para não tocar, nunca para
+  reescrever. Não é defeito, não deve ser "consertado" afrouxando a comparação,
+  e o volume dessas linhas é finito: são as tentativas de SMS anteriores à
+  mudança. Quem for reconciliá-las precisa saber que a diferença é de
+  normalização, e não de conteúdo.
 - Os dois hashes nunca mudam: `content_hash_full` permanece como âncora para
   confrontar evidências externas, e `content_hash_masked` é o valor que a
   superfície de auditoria verifica em relação à forma durável.

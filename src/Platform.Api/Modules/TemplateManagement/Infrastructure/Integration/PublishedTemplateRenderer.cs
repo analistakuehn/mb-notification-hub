@@ -19,7 +19,8 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integrat
 internal sealed class PublishedTemplateRenderer(
     TemplateManagementDbContext dbContext,
     ScribanTemplateEngine engine,
-    PublishedReadCache cache) : IPublishedTemplateRenderer
+    PublishedReadCache cache,
+    ILogger<PublishedTemplateRenderer> logger) : IPublishedTemplateRenderer
 {
     public async Task<Result<PublishedTemplateRender>> RenderAsync(
         PublishedRenderRequest request,
@@ -83,17 +84,28 @@ internal sealed class PublishedTemplateRenderer(
 
         TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
         Result<RenderedForm> full = await RenderFormAsync(
-            content, request.Variables, wrapper.Value, cancellationToken);
+            channel.Value!, content, request.Variables, wrapper.Value, cancellationToken);
         if (full.IsFailure)
         {
             return full.AsFailure<RenderedForm, PublishedTemplateRender>();
+        }
+
+        if (CarriesAuthenticationSmsLink(template, channel.Value!, full.Value!))
+        {
+            // Alarm, not a note: publication already refuses this shape, so a
+            // render that produces one means the link arrived through a
+            // variable value at request time. The message never leaves.
+            logger.AuthenticationSmsLinkRefused(
+                request.Application, request.TemplateKey, version.Version);
+            return Result.ValidationError<PublishedTemplateRender>(
+                TemplateValidation.AuthenticationSmsLinkCode);
         }
 
         RenderedForm? masked = null;
         if (request.IncludeMaskedForm)
         {
             Result<RenderedForm> maskedForm = await RenderMaskedFormAsync(
-                template, content, request.Variables, wrapper.Value, full.Value!, cancellationToken);
+                template, channel.Value!, content, request.Variables, wrapper.Value, full.Value!, cancellationToken);
             if (maskedForm.IsFailure)
             {
                 return maskedForm.AsFailure<RenderedForm, PublishedTemplateRender>();
@@ -147,6 +159,7 @@ internal sealed class PublishedTemplateRenderer(
     /// </summary>
     private async Task<Result<RenderedForm>> RenderMaskedFormAsync(
         Template template,
+        Channel channel,
         TemplateContent content,
         JsonElement? variables,
         LayoutWrapper? wrapper,
@@ -160,10 +173,25 @@ internal sealed class PublishedTemplateRenderer(
 
         JsonElement? maskedVariables = VariableMasking.MaskSensitiveVariables(
             variables, template.SensitiveVariables);
-        return await RenderFormAsync(content, maskedVariables, wrapper, cancellationToken);
+        return await RenderFormAsync(channel, content, maskedVariables, wrapper, cancellationToken);
     }
 
+    /// <summary>
+    /// Whether this render puts something clickable inside an authentication
+    /// SMS. One authentication code is the price of a false positive here; a
+    /// false negative is a phishing link inside the one message people are
+    /// trained to act on without thinking.
+    /// </summary>
+    private static bool CarriesAuthenticationSmsLink(Template template, Channel channel, RenderedForm form)
+        => channel == Channel.Sms
+            && string.Equals(
+                template.Purpose, TemplateValidation.AuthenticationPurpose, StringComparison.Ordinal)
+            && (TemplateValidation.ContainsLinkLikeText(form.Body)
+                || TemplateValidation.ContainsLinkLikeText(form.Subject)
+                || TemplateValidation.ContainsLinkLikeText(form.BodyText));
+
     private async Task<Result<RenderedForm>> RenderFormAsync(
+        Channel channel,
         TemplateContent content,
         JsonElement? variables,
         LayoutWrapper? wrapper,
@@ -217,11 +245,29 @@ internal sealed class PublishedTemplateRenderer(
             }
         }
 
+        // Normalization comes before the hash, and that order is the whole
+        // point: the audited hash has to describe the bytes the provider
+        // receives, so normalizing afterwards would break the equality the
+        // audit checks and leave every SMS looking tampered with.
+        var normalizedSubject = subject.Value;
+        var normalizedBody = wrappedBody;
+        var normalizedBodyText = wrappedBodyText;
+        if (channel == Channel.Sms)
+        {
+            normalizedSubject = normalizedSubject is null
+                ? null
+                : SmsContentNormalizer.Normalize(normalizedSubject);
+            normalizedBody = SmsContentNormalizer.Normalize(normalizedBody);
+            normalizedBodyText = normalizedBodyText is null
+                ? null
+                : SmsContentNormalizer.Normalize(normalizedBodyText);
+        }
+
         return Result.Success(new RenderedForm(
-            subject.Value,
-            wrappedBody,
-            wrappedBodyText,
-            CanonicalHash.OfFields(subject.Value, wrappedBody, wrappedBodyText)));
+            normalizedSubject,
+            normalizedBody,
+            normalizedBodyText,
+            CanonicalHash.OfFields(normalizedSubject, normalizedBody, normalizedBodyText)));
     }
 
     /// <summary>

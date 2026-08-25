@@ -41,8 +41,17 @@
 - `DispatchRequest` carries one optional correlation member
   (`DispatchCorrelation(NotificationId, AttemptId)`), a pure pass-through
   for webhook reconciliation: the SendGrid adapter writes both ids into
-  `custom_args`, the FCM adapter ignores the member, and the identifiers
+  `custom_args`, the Twilio adapter appends them to the callback address it
+  gives the provider, the FCM adapter ignores the member, and the identifiers
   never enter the rendered content nor its audited hashes.
+- `DispatchRequest.Validity` states how long the message is still worth
+  delivering, counted from the call. It is the remaining validity of the
+  notification, computed by the caller that owns that state, and it reaches
+  the provider as its own validity knob when the provider has one. Null means
+  the caller states nothing and the provider keeps its default. Deciding not
+  to call a provider at all is the caller's decision and never the adapter's:
+  a validity that already ended is settled by the dispatcher, which is the
+  only party that can end an attempt.
 - Every provider verdict returns as a result; exceptions are reserved for
   caller defects (wrong channel in the request) and misconfiguration
   (missing API key, missing service account). Configuration guards fire at
@@ -60,7 +69,45 @@
 - The e-mail preheader is part of the rendered shape, but Mail Send v3 has
   no preheader field; embedding it into the HTML belongs to the render
   stage. Adapters never rewrite content: the audited content hash must
-  describe the exact bytes handed to the provider.
+  describe the exact bytes handed to the provider. SMS encoding follows the
+  same rule for the same reason: composing accents, dropping control
+  characters and flattening line breaks all happen at the render stage, and
+  an adapter that normalized here would leave the trail describing a message
+  nobody sent.
+
+## SMS specifics
+
+- The sender is a Messaging Service when one is configured
+  (`Modules:Dispatch:Providers:Twilio:MessagingServiceSid`), so the provider
+  picks from the sender pool and keeps the sticky sender per destination.
+  Without one the adapter keeps the single verified number, because that is
+  what a local environment has; Programmable Messaging still requires one of
+  the two.
+- The sender pool is a property of the deployment, not of the calling
+  application. Per-application pools need the application on the request, and
+  the published send contract does not carry it: the correlation member is
+  identifiers only, on purpose. Adding it is an architecture decision, not an
+  adapter change.
+- `StatusCallback` is built from a configured absolute address
+  (`StatusCallbackUrl`) plus the correlation identifiers as query parameters
+  named after the members of `DispatchCorrelation`. The provider echoes
+  nothing back in the callback body, so the address it was given is the only
+  place left to carry them, and the route that reads them binds by exactly
+  those names. Empty configuration, or a request without correlation, sends
+  no callback address at all: a callback nobody can tie to an attempt is
+  feedback nobody can apply, and it would still cost this hub a retry loop.
+- `ValidityPeriod` is the request's remaining validity in whole seconds,
+  clamped to `MaxValidityPeriodSeconds`. The ceiling is configuration because
+  the provider revises its own limit on its own schedule, and clamping beats
+  refusing: a message that is still deliverable must not be lost to a number
+  the provider would reject.
+- Destination guards are configuration with the shipped values as defaults.
+  `DestinationPattern` says the number is well formed and
+  `AllowedCountryPrefixes` says this deployment may address that market at
+  all. They stay separate because they answer different questions, and an
+  explicitly empty prefix list turns the market guard off while the format
+  guard remains. An unparsable pattern surfaces at send time, like every
+  other configuration guard here.
 
 ## Delivery feedback contract
 
@@ -101,6 +148,13 @@
   on their own schedule. An unset list keeps the shipped default; a
   configured list replaces it whole. Anything the lists do not name stays
   `SuppressionSignal.None`.
+- The shipped SMS list names codes an operator could read as temporary (an
+  unknown or unreachable handset, a landline or unreachable carrier), and
+  that is deliberate: on this channel one signal suppresses nothing, because
+  the ledger asks for two refusals inside seven days. A handset unreachable
+  once is an outage; the same number refusing twice in a week is the
+  destination. A test that expects suppression from the first SMS refusal is
+  reading the e-mail rule and fails correctly.
 - An unmapped word is handled differently per provider, on purpose. A Twilio
   status callback carries one status, so a word outside the vocabulary is a
   provider change and the callback is refused. A SendGrid batch mixes

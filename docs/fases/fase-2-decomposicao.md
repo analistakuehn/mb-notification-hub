@@ -275,8 +275,8 @@ Status observado no repositório na revisão de 2026-08-24:
 | F2-3 | Pergunta 7 da reconstrução respondível | F2-2 | Pendente |
 | F2-4 | Convivência dos dois gatilhos de fallback | F2-2 | Concluída (commit `7af6e32`) |
 | F2-5 | Scheduler DB-backed no papel `delivery-tracker` | F2-4 | Concluída (commit `7af6e32`) |
-| F2-6 | Supressão automática, reversível e auditada | F2-2 | Concluída |
-| F2-7 | Adapter SMS completo | F2-1, F2-2 | Pendente |
+| F2-6 | Supressão automática, reversível e auditada | F2-2 | Concluída (commit `47ab335`) |
+| F2-7 | Adapter SMS completo | F2-1, F2-2 | Concluída, com o pool de sender por aplicação transferido para a F2-8 |
 | F2-8 | Rate limit por provedor e kill switch automático de canal | F2-7 | Pendente |
 | F2-9 | Reconciliação por canal | F2-2, F2-5, F2-7 | Pendente |
 | F2-10 | Relatório mensal de evidências | F2-2 | Pendente |
@@ -290,7 +290,9 @@ Três achados que a implementação confirmou e que não estavam previstos nesta
 2. **A URL assinada é material de autenticação, não diagnóstico.** A assinatura da Twilio cobre a URL completa. Atrás de balanceador, a URL vista pelo processo pode divergir da que o provedor assinou, e toda assinatura válida seria recusada em produção enquanto passa em teste. A F2-2 monta a URL a partir de uma base pública configurável.
 3. **O sinal de supressão não é persistido na evidência.** O esquema de `delivery_event` fixado na F2-2 não tem coluna para ele, e o consumidor reconstrói o evento canônico sem o sinal. A F2-6 acrescenta a coluna em migração própria, em vez de reclassificar dentro de Notifications, porque a classificação é conhecimento de provedor e pertence ao Dispatch.
 4. **A migração da F2-5 não fechava a exigência que ela mesma carregava.** Com o avanço de plano reivindicado só no handler, nenhuma coluna marcava pedido em voo, e a varredura reencontraria o mesmo attempt a cada ciclo. Entrou `notification_attempt.fallback_requested_at`, carimbada na transação da varredura e incorporada ao predicado parcial, com janela de reemissão em vez de bandeira permanente, para que a perda de uma mensagem se cure sozinha. Medição: um attempt vencido drenado por duas réplicas gerava 43 linhas de outbox e passou a gerar uma.
-5. **Attempt de notificação já encerrada permanece no índice de varredura.** `SettleTerminalAsync` encerra em `expired` ou `failed` sem reivindicar o avanço, então o attempt guarda prazo e avanço nulo indefinidamente. A varredura da F2-5 filtra por `notification.status = 'dispatched'`, o que impede o pedido eterno, mas não remove a linha do índice; a limpeza desse passivo pertence à F2-9.
+5. **O Messaging Service por aplicação não cabe no contrato publicado.** O design pede sender pool por `application`, mas `DispatchRequest` não carrega a aplicação, e a F2-7 tinha autorização para exatamente um membro novo. O adaptador ficou com Messaging Service por deployment, com queda para número de origem. Fechar a promessa do design exige mais um membro opcional na requisição, o que a F2-8 executa no mesmo idioma aditivo já usado por `Correlation` e `Validity`.
+6. **A recusa de segurança do SMS de autenticação se perde no caminho de fallback.** `FallbackRequestHandler` mapeia qualquer falha de renderização para um motivo genérico de template, então uma recusa por link em SMS de autenticação chegaria ao registro como defeito de template e não como bloqueio de segurança. Corrigido na F2-8.
+7. **Attempt de notificação já encerrada permanece no índice de varredura.** `SettleTerminalAsync` encerra em `expired` ou `failed` sem reivindicar o avanço, então o attempt guarda prazo e avanço nulo indefinidamente. A varredura da F2-5 filtra por `notification.status = 'dispatched'`, o que impede o pedido eterno, mas não remove a linha do índice; a limpeza desse passivo pertence à F2-9.
 
 A ordem respeita a ativação do documento da fase: tracker e scheduler primeiro (F2-1 a F2-5), adapter SMS depois (F2-7 e F2-8), ativações por política no fim (F2-11 e F2-12). Cada fatia compila e passa a suíte sozinha.
 

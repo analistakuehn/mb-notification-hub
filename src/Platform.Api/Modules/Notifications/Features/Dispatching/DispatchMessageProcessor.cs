@@ -50,6 +50,7 @@ internal sealed class DispatchMessageProcessor(
     IRecipientDirectory recipientDirectory,
     IDeviceTokenLifecycle deviceTokenLifecycle,
     IEnvelopeCipher cipher,
+    TimeProvider timeProvider,
     ILogger<DispatchMessageProcessor> logger) : ISqsMessageProcessor
 {
     internal const int SupportedSchemaVersion = DispatchMessages.SchemaVersion;
@@ -64,6 +65,14 @@ internal sealed class DispatchMessageProcessor(
 
     /// <summary>Stable code of a send whose device token was invalidated between claim and send.</summary>
     internal const string ErrorDeviceTokenInactive = "device-token-inactive";
+
+    /// <summary>
+    /// Stable code of an attempt whose notification ran out of validity before
+    /// the send. It names the notification and not the attempt on purpose: the
+    /// attempt is healthy, and what ended is the window in which delivering it
+    /// still meant something.
+    /// </summary>
+    internal const string ErrorNotificationExpired = "notification-expired";
 
     /// <summary>Adapter code of an open circuit: the only transient error that proves no call was taken.</summary>
     internal const string CircuitOpenErrorCode = "circuit-open";
@@ -176,6 +185,21 @@ internal sealed class DispatchMessageProcessor(
             }
         }
 
+        // The validity that is left decides whether this send is worth making
+        // at all. It is measured after the claim, so the answer describes the
+        // instant of the call and not the instant the message was written, and
+        // before the destination is revealed, because a message nobody will
+        // read anymore is not worth a plaintext contact in memory.
+        TimeSpan remainingValidity = notification.ExpiresAt - timeProvider.GetUtcNow();
+        if (remainingValidity <= TimeSpan.Zero)
+        {
+            var expired = await writer.RecordFailureAsync(
+                attempt, notification, ErrorNotificationExpired, envelope.MessageId, cancellationToken);
+            if (expired) logger.DispatchAttemptExpired(attempt.Id, notification.Id, attempt.Channel);
+
+            return expired ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
+        }
+
         Result<DeliveryTarget> target = await ResolveTargetAsync(
             notification, attempt, isPush, isSms, deviceTokenId, cancellationToken);
         if (target.IsFailure)
@@ -193,7 +217,8 @@ internal sealed class DispatchMessageProcessor(
         var request = new DispatchRequest(
             target.Value!,
             content.ToRenderedMessage(),
-            new DispatchCorrelation(notification.Id, attempt.Id));
+            new DispatchCorrelation(notification.Id, attempt.Id),
+            remainingValidity);
 
         stopped = await channelKillSwitchGate.EvaluateAsync(
             notification, attempt, envelope, claimed: true, cancellationToken);

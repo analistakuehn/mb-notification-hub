@@ -21,6 +21,7 @@ public static class ValidationCheckNames
     public const string VariablesRequired = "variables-required";
     public const string VariablesTypes = "variables-types";
     public const string UrlAllowlist = "url-allowlist";
+    public const string AuthenticationSmsLinks = "authentication-sms-links";
     public const string SensitiveVariables = "sensitive-variables";
     public const string ChannelLimits = "channel-limits";
     public const string DefaultLocale = "default-locale";
@@ -52,6 +53,32 @@ public static partial class TemplateValidation
     public const int PushMaxSubjectChars = 200;
     public const int PushMaxBodyChars = 4000;
 
+    /// <summary>
+    /// Purpose that makes a template carry authentication material. It is the
+    /// same word the notification lifecycle routes by, declared here because
+    /// this catalog has to recognize it without reaching into another context.
+    /// </summary>
+    public const string AuthenticationPurpose = "authentication";
+
+    /// <summary>
+    /// Stable code of the refusal that a link inside an authentication SMS
+    /// earns, at publication and at render alike. A false positive costs one
+    /// authentication code; a false negative hands an attacker the one message
+    /// people are trained to trust and act on immediately, so the answer is to
+    /// refuse.
+    /// </summary>
+    public const string AuthenticationSmsLinkCode = "authentication-sms-link";
+
+    /// <summary>
+    /// Whether a piece of text offers something to click. Wider than the link
+    /// check of the allowlist on purpose, and used only where a link is banned
+    /// outright: SMS phishing rarely writes a scheme, it writes a shortener or
+    /// a bare host with a path, and matching only <c>https://</c> would call
+    /// that clean.
+    /// </summary>
+    public static bool ContainsLinkLikeText(string? text)
+        => !string.IsNullOrEmpty(text) && LinkLike().IsMatch(text);
+
     public static ValidationReport Validate(
         Template template,
         TemplateVersion version,
@@ -81,6 +108,7 @@ public static partial class TemplateValidation
         }
 
         AddUrlChecks(checks, template, version, declarations, analyses);
+        AddAuthenticationSmsChecks(checks, template, version, declarations, analyses);
         AddSensitiveVariableChecks(checks, template, version);
         AddChannelLimitChecks(checks, version);
         AddDefaultLocaleChecks(checks, template, version);
@@ -274,6 +302,74 @@ public static partial class TemplateValidation
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Bans anything clickable from the SMS content of an authentication
+    /// template. The check exists only where the ban applies, like the layout
+    /// reference check: a template of another purpose, or a version with no
+    /// SMS content, has nothing here to answer for.
+    /// <para>
+    /// Both shapes of a link fail: one written into the content, and one
+    /// arriving through a variable declared as a URL. The second would leave
+    /// the source clean and still put an address in front of the person.
+    /// </para>
+    /// </summary>
+    private static void AddAuthenticationSmsChecks(
+        List<ValidationCheck> checks,
+        Template template,
+        TemplateVersion version,
+        IReadOnlyList<VariableDeclaration> declarations,
+        IReadOnlyList<ContentAnalysis> analyses)
+    {
+        if (!string.Equals(template.Purpose, AuthenticationPurpose, StringComparison.Ordinal)) return;
+
+        List<TemplateContent> smsContents = version.Contents
+            .Where(content => content.Channel == Channel.Sms)
+            .ToList();
+        if (smsContents.Count == 0) return;
+
+        var before = checks.Count;
+        foreach (TemplateContent content in smsContents)
+        {
+            foreach ((var field, var text) in Fields(content))
+            {
+                if (ContainsLinkLikeText(text))
+                {
+                    checks.Add(Failed(
+                        ValidationCheckNames.AuthenticationSmsLinks,
+                        "An authentication SMS must carry no link.",
+                        At(content.Channel, content.Locale, field)));
+                }
+            }
+        }
+
+        HashSet<string> urlVariables = new(
+            declarations.Where(declaration => declaration.IsUrl).Select(declaration => declaration.Name),
+            StringComparer.Ordinal);
+        if (urlVariables.Count > 0)
+        {
+            foreach (ContentAnalysis analysis in analyses.Where(analysis => analysis.Channel == Channel.Sms))
+            {
+                foreach (ContentFieldAnalysis field in analysis.Fields)
+                {
+                    foreach (var variable in field.UsedVariables.Where(urlVariables.Contains))
+                    {
+                        checks.Add(Failed(
+                            ValidationCheckNames.AuthenticationSmsLinks,
+                            $"Variable '{variable}' carries a URL and an authentication SMS must carry no link.",
+                            At(analysis.Channel, analysis.Locale, field.Field)));
+                    }
+                }
+            }
+        }
+
+        if (checks.Count == before)
+        {
+            checks.Add(Passed(
+                ValidationCheckNames.AuthenticationSmsLinks,
+                "The authentication SMS content offers nothing to click."));
         }
     }
 
@@ -481,4 +577,13 @@ public static partial class TemplateValidation
 
     [GeneratedRegex(@"https?://([^\s/:?#<>""']+)")]
     private static partial Regex LiteralLink();
+
+    // Three shapes, in the order an attacker reaches for them: the full
+    // address, the host that only announces itself with www, and the bare host
+    // followed by a path, which is what every link shortener produces.
+    [GeneratedRegex(
+        @"https?://\S|\bwww\.[a-z0-9-]+\.[a-z]{2,}|\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+/",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+        matchTimeoutMilliseconds: 1000)]
+    private static partial Regex LinkLike();
 }

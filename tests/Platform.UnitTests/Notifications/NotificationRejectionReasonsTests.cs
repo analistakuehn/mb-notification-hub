@@ -3,6 +3,7 @@ using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Templates;
 using NotificationHub.Api.Modules.Notifications.Integration.V1;
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.UnitTests.Notifications;
@@ -40,6 +41,28 @@ public sealed class NotificationRejectionReasonsTests
         NotificationRejectionReasons.IsCanonical(ChannelSelectionRule.ReasonNoValidContact).ShouldBeTrue();
         NotificationRejectionReasons.IsCanonical(ResolveStage.ReasonNoValidContact).ShouldBeTrue();
         NotificationRejectionReasons.IsCanonical(RenderStage.ReasonRenderFailed).ShouldBeTrue();
+        NotificationRejectionReasons.IsCanonical(RenderStage.ReasonAuthenticationSmsLink).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void The_security_refusal_of_the_render_keeps_its_own_reason()
+    {
+        // Collapsing it into the render failure would tell the producer its
+        // template is broken, when what happened is that a security rule
+        // refused content the template rendered correctly.
+        NotificationRejectionReasons.AuthenticationSmsLink
+            .ShouldNotBe(NotificationRejectionReasons.TemplateRenderFailed);
+    }
+
+    [Fact]
+    public void The_reason_of_the_stage_is_the_word_the_renderer_refuses_with()
+    {
+        // The two live on opposite sides of a module boundary and neither may
+        // reference the other's internals, so the word travelling between them
+        // is pinned here: a rename on one side without the other would leave
+        // the stage silently mapping a security refusal to a render failure.
+        RenderStage.ReasonAuthenticationSmsLink
+            .ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
     }
 
     [Fact]

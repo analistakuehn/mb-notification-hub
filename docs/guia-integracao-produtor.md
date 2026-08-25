@@ -367,6 +367,33 @@ a janela de silêncio depende.
 Consequência direta: **não use o hub para agendar**. Peça a notificação no
 instante em que ela deve sair.
 
+### 4.1 O que o SMS faz com o seu texto
+
+Três comportamentos do canal SMS mudam o que chega ao aparelho, e nenhum deles
+é configurável por solicitação.
+
+- **O texto é normalizado na renderização.** Acentos vão para a forma composta,
+  caracteres de controle são removidos e quebras de linha viram um espaço.
+  Motivo: a forma decomposta gasta mais caracteres no ar e muda a codificação
+  que a operadora escolhe; caractere de controle invisível dentro de mensagem
+  de autenticação é recurso de falsificação, não conteúdo; e quebra de linha é
+  reembrulhada pela operadora, o que torna a contagem de segmentos
+  imprevisível. O valor que você envia em uma variável passa pela mesma regra,
+  então não conte com espaçamento exato nem com quebras de linha em SMS.
+- **SMS de autenticação não carrega link.** Um template de finalidade
+  `authentication` com link no conteúdo não publica, e uma renderização que
+  produza um endereço (inclusive vindo de valor de variável, e inclusive
+  encurtado, sem `https://`) é recusada com o motivo `authentication-sms-link`.
+  A decisão é assumida: o falso positivo custa um código de autenticação, e o
+  falso negativo entrega um vetor de phishing dentro da mensagem que as pessoas
+  são treinadas a obedecer na hora.
+- **O `ttlSeconds` chega até a operadora.** O tempo que resta de validade viaja
+  na chamada ao provedor como prazo máximo de permanência na fila dele, e uma
+  notificação cuja validade venceu antes do envio não vira mensagem alguma: o
+  hub encerra a tentativa sem gastar SMS. Um `ttlSeconds` curto demais para um
+  código de autenticação transforma atraso de fila em notificação perdida, e um
+  longo demais entrega um código depois de ele deixar de valer.
+
 ## 5. Como saber o que aconteceu
 
 Existem dois caminhos, e eles respondem perguntas diferentes: os eventos de
@@ -641,6 +668,7 @@ protocolo, listados no fim desta seção.
 | `template-class-mismatch` | O template pertence a outra classe | Corrija a `class` da solicitação para a classe do template |
 | `template-variables-invalid` | As variáveis não passam no esquema publicado | Corrija o payload usando os `checks` da resposta. Não retente o mesmo corpo |
 | `template-render-failed` | A renderização do conteúdo publicado falhou | Não é corrigível pelo produtor. Acione o time dono do template |
+| `authentication-sms-link` | O SMS renderizado de um template de autenticação contém um link | Corrija o valor da variável que produziu o endereço. Um código de autenticação por SMS não carrega link nesta plataforma, e a recusa vale também quando o link chega por valor de variável |
 | `producer-not-authorized` | A identidade do produtor está fora do registro, ou pede classe que o registro não concede | Peça o registro ou o ajuste de concessão. Só ocorre no caminho Kafka |
 | `class-not-allowed-for-principal` | O token não carrega o papel da classe pedida, ou não carrega identidade estável | Peça a atribuição do papel ao seu principal. Só ocorre no caminho REST |
 | `sensitive-variables-on-bus` | O template declara variáveis sensíveis e a solicitação veio pelo barramento | Migre a solicitação desse template para REST |
@@ -682,8 +710,9 @@ dela.
 
 Alguns motivos do catálogo **não** aparecem como status HTTP, porque são
 decididos depois do aceite, no pipeline: `no-valid-contact`, `no-consent`,
-`channel-suppressed`, `duplicate-window`, além de `template-render-failed` e
-`expired`. Eles chegam pelo evento `rejected` e pela consulta.
+`channel-suppressed`, `duplicate-window`, `authentication-sms-link`, além de
+`template-render-failed` e `expired`. Eles chegam pelo evento `rejected` e pela
+consulta.
 
 **O erro de forma no REST usa o catálogo, e mantém o relatório por campo.** Um
 corpo que falha na validação recebe `payload-invalid` no `type` e a mesma lista

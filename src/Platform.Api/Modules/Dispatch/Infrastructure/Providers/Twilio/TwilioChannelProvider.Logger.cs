@@ -16,4 +16,7 @@ internal static partial class TwilioChannelProviderLogger
 
     [LoggerMessage(EventId = 6304, Level = LogLevel.Warning, Message = "Falha de rede ao chamar o Twilio para SMS.")]
     internal static partial void TwilioNetworkFault(this ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 6305, Level = LogLevel.Debug, Message = "Nenhum Messaging Service configurado para o Twilio; o envio SMS usa o número remetente único.")]
+    internal static partial void TwilioSenderPoolAbsent(this ILogger logger);
 }

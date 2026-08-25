@@ -15,7 +15,8 @@ public sealed class TwilioWebhookOptions
 
     private static readonly string[] DefaultHardBounceCodes = ["21610"];
 
-    private static readonly string[] DefaultInvalidDestinationCodes = ["21211", "21614", "30005"];
+    private static readonly string[] DefaultInvalidDestinationCodes =
+        ["21211", "21614", "30003", "30005", "30006"];
 
     /// <summary>
     /// Account auth token, the key of the callback signature. Supplied by the
@@ -56,8 +57,17 @@ public sealed class TwilioWebhookOptions
 
     /// <summary>
     /// Provider error codes that mean the number does not exist or cannot
-    /// receive messages. Unset keeps the shipped list; a configured list
-    /// replaces it whole.
+    /// receive messages: a malformed destination, a number that is not mobile,
+    /// an unknown or unreachable handset, and a landline or unreachable
+    /// carrier. Unset keeps the shipped list; a configured list replaces it
+    /// whole.
+    /// <para>
+    /// The list names codes an operator could read as temporary, and that is
+    /// deliberate: on this channel a signal alone suppresses nothing, because
+    /// the ledger asks for two refusals inside a week. A handset that is
+    /// unreachable once is an outage and produces no suppression; the same
+    /// number refusing twice in seven days is the destination, not the day.
+    /// </para>
     /// </summary>
     public string[]? InvalidDestinationCodes { get; init; }
 

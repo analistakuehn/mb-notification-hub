@@ -25,4 +25,7 @@ internal static partial class DispatchMessageProcessorLogger
 
     [LoggerMessage(EventId = 7137, Level = LogLevel.Warning, Message = "Invalidação do token de dispositivo {DeviceTokenId} lançou exceção; a reconciliação de fase posterior cobre a lacuna.")]
     internal static partial void DispatchTokenInvalidationThrew(this ILogger logger, Guid deviceTokenId, Exception exception);
+
+    [LoggerMessage(EventId = 7138, Level = LogLevel.Information, Message = "Attempt {AttemptId} da notificação {NotificationId} no canal {Channel} encerrado sem chamada ao provedor: a validade restante venceu antes do envio.")]
+    internal static partial void DispatchAttemptExpired(this ILogger logger, Guid attemptId, Guid notificationId, string channel);
 }

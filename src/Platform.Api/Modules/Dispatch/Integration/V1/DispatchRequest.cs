@@ -16,7 +16,19 @@ public sealed record DispatchCorrelation(Guid NotificationId, Guid AttemptId);
 /// Target and message must describe the same channel; a mismatch is a caller
 /// defect and adapters reject it with an exception, not a result.
 /// </summary>
+/// <param name="Target">Destination of this single send.</param>
+/// <param name="Message">Rendered content, final: an adapter never rewrites it.</param>
+/// <param name="Correlation">Attempt identifiers for later webhook reconciliation.</param>
+/// <param name="Validity">
+/// How long the message is still worth delivering, counted from now. It is the
+/// remaining validity of the notification, computed by the caller that owns
+/// that state, and providers able to expire a queued message receive it as
+/// their own validity knob. Null means the caller states nothing, and an
+/// adapter then lets the provider apply its own default; deciding not to call
+/// a provider at all belongs to the caller, never here.
+/// </param>
 public sealed record DispatchRequest(
     DeliveryTarget Target,
     RenderedMessage Message,
-    DispatchCorrelation? Correlation = null);
+    DispatchCorrelation? Correlation = null,
+    TimeSpan? Validity = null);

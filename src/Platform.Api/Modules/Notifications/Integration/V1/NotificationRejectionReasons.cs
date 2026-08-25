@@ -31,6 +31,16 @@ public static class NotificationRejectionReasons
     /// <summary>Rendering the published content failed.</summary>
     public const string TemplateRenderFailed = "template-render-failed";
 
+    /// <summary>
+    /// The SMS render of an authentication template produced a link. The
+    /// notification never reaches a provider: an authentication message is the
+    /// one people are trained to act on immediately, so a link inside it is a
+    /// phishing vector even when the content that produced it was innocent.
+    /// Separate from <see cref="TemplateRenderFailed"/> because the render
+    /// worked and what refused it was a security rule.
+    /// </summary>
+    public const string AuthenticationSmsLink = "authentication-sms-link";
+
     /// <summary>The producer principal is outside the registry, or the class is not allowed for it.</summary>
     public const string ProducerNotAuthorized = "producer-not-authorized";
 
@@ -87,6 +97,7 @@ public static class NotificationRejectionReasons
         TemplateClassMismatch,
         TemplateVariablesInvalid,
         TemplateRenderFailed,
+        AuthenticationSmsLink,
         ProducerNotAuthorized,
         ProducerDisabled,
         ClassNotAllowedForPrincipal,

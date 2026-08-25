@@ -1,5 +1,6 @@
 using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
@@ -19,6 +20,18 @@ internal sealed class RenderStage(
     IEnvelopeCipher cipher) : INotificationStage
 {
     internal const string ReasonRenderFailed = "template-render-failed";
+
+    /// <summary>
+    /// Refusal the published renderer answers with when the SMS render of an
+    /// authentication template produces a link. The word travels as the whole
+    /// error text of the failed render, and this stage recognizes it to keep
+    /// the producer's diagnosis: collapsing it into a render failure would say
+    /// the template is broken when what happened is that a security rule
+    /// refused the content.
+    /// </summary>
+    internal const string ReasonAuthenticationSmsLink =
+        NotificationRejectionReasons.AuthenticationSmsLink;
+
     internal const string FallbackLocale = "pt-BR";
 
     public string Name => "Render";
@@ -50,7 +63,12 @@ internal sealed class RenderStage(
             // A render failure with validated variables is a governance drift
             // (content changed between ingestion and processing): a business
             // rejection with a stable reason, auditable, never a retry loop.
-            context.LastReason = ReasonRenderFailed;
+            // The security refusal keeps its own reason, because the two ask
+            // different things of whoever reads the rejection.
+            context.LastReason = string.Equals(
+                render.Error, ReasonAuthenticationSmsLink, StringComparison.Ordinal)
+                ? ReasonAuthenticationSmsLink
+                : ReasonRenderFailed;
             return StageOutcome.Reject;
         }
 

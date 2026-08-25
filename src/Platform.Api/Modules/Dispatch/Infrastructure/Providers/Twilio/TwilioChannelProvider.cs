@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
@@ -18,13 +17,19 @@ namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Twilio;
 /// calling flow. The adapter never retries a send because the provider call is
 /// not idempotent.
 /// </summary>
-internal sealed partial class TwilioChannelProvider(
+internal sealed class TwilioChannelProvider(
     IHttpClientFactory httpClientFactory,
     IOptions<TwilioOptions> options,
     ILogger<TwilioChannelProvider> logger) : IChannelProvider
 {
     internal const string Key = "twilio";
     internal const string HttpClientName = "dispatch-twilio";
+
+    /// <summary>Query parameter carrying the notification identifier back on the callback.</summary>
+    internal const string NotificationIdParameter = "notificationId";
+
+    /// <summary>Query parameter carrying the attempt identifier back on the callback.</summary>
+    internal const string AttemptIdParameter = "attemptId";
 
     public Channel Channel => Channel.Sms;
 
@@ -38,8 +43,14 @@ internal sealed partial class TwilioChannelProvider(
         (SmsDeliveryTarget target, SmsMessage message) = Discriminate(request);
         TwilioOptions config = options.Value;
         EnsureConfigured(config, target.PhoneNumber, message.Body);
+        if (config.Product == TwilioSmsProduct.ProgrammableMessaging
+            && string.IsNullOrWhiteSpace(config.MessagingServiceSid))
+        {
+            logger.TwilioSenderPoolAbsent();
+        }
 
-        using HttpRequestMessage httpRequest = BuildRequest(target, message, config);
+        using HttpRequestMessage httpRequest = BuildRequest(
+            target, message, config, request.Correlation, request.Validity);
         var username = config.AuthenticationMode switch
         {
             TwilioAuthenticationMode.ApiKey => config.ApiKeySid,
@@ -77,7 +88,9 @@ internal sealed partial class TwilioChannelProvider(
     internal static HttpRequestMessage BuildRequest(
         SmsDeliveryTarget target,
         SmsMessage message,
-        TwilioOptions config)
+        TwilioOptions config,
+        DispatchCorrelation? correlation = null,
+        TimeSpan? validity = null)
     {
         var destination = target.PhoneNumber;
         return config.Product switch
@@ -87,12 +100,7 @@ internal sealed partial class TwilioChannelProvider(
                 $"2010-04-01/Accounts/{Uri.EscapeDataString(config.AccountSid)}/Messages.json")
             {
                 Content = new FormUrlEncodedContent(
-                    new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["To"] = destination,
-                        ["From"] = config.FromNumber,
-                        ["Body"] = message.Body,
-                    }),
+                    BuildMessageForm(destination, message, config, correlation, validity)),
             },
             TwilioSmsProduct.Verify => new HttpRequestMessage(
                 HttpMethod.Post,
@@ -108,6 +116,84 @@ internal sealed partial class TwilioChannelProvider(
             },
             _ => throw new InvalidOperationException("Twilio product must be configured before sending."),
         };
+    }
+
+    /// <summary>
+    /// The Programmable Messaging form. The sender is the Messaging Service
+    /// when one is configured, so the provider picks from the sender pool and
+    /// keeps the sticky sender per destination; without one the adapter falls
+    /// back to the single verified number, which is what a local environment
+    /// has. The callback address and the validity period join only when the
+    /// caller supplied what they are made of.
+    /// </summary>
+    private static Dictionary<string, string> BuildMessageForm(
+        string destination,
+        SmsMessage message,
+        TwilioOptions config,
+        DispatchCorrelation? correlation,
+        TimeSpan? validity)
+    {
+        var form = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["To"] = destination,
+        };
+
+        if (string.IsNullOrWhiteSpace(config.MessagingServiceSid))
+        {
+            form["From"] = config.FromNumber;
+        }
+        else
+        {
+            form["MessagingServiceSid"] = config.MessagingServiceSid;
+        }
+
+        form["Body"] = message.Body;
+        if (StatusCallbackFor(config, correlation) is { } callback)
+        {
+            form["StatusCallback"] = callback;
+        }
+
+        if (ValidityPeriodFor(config, validity) is { } seconds)
+        {
+            form["ValidityPeriod"] = seconds.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return form;
+    }
+
+    /// <summary>
+    /// The address this hub asks the provider to report delivery to. The
+    /// correlation identifiers ride in its query string because this provider
+    /// echoes nothing back in the callback body; the parameter names are the
+    /// members of <see cref="DispatchCorrelation"/> and the route that reads
+    /// them binds by exactly those names. Without a configured address, or
+    /// without correlation to carry, the send asks for no callback at all: a
+    /// callback the hub cannot tie to an attempt is feedback nobody can apply.
+    /// </summary>
+    private static string? StatusCallbackFor(TwilioOptions config, DispatchCorrelation? correlation)
+    {
+        if (string.IsNullOrWhiteSpace(config.StatusCallbackUrl) || correlation is null) return null;
+
+        var configured = config.StatusCallbackUrl;
+        var separator = configured.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+        return $"{configured}{separator}{NotificationIdParameter}="
+            + $"{Uri.EscapeDataString(correlation.NotificationId.ToString())}"
+            + $"&{AttemptIdParameter}={Uri.EscapeDataString(correlation.AttemptId.ToString())}";
+    }
+
+    /// <summary>
+    /// The remaining validity translated into the provider's own knob, in
+    /// whole seconds. A fraction of a second rounds up to one, because the
+    /// caller already decided this send is worth making and a floor of zero
+    /// would ask the provider for an impossible validity. Anything above the
+    /// configured ceiling is sent as the ceiling.
+    /// </summary>
+    private static int? ValidityPeriodFor(TwilioOptions config, TimeSpan? validity)
+    {
+        if (validity is not { } remaining) return null;
+
+        var seconds = (int)Math.Ceiling(remaining.TotalSeconds);
+        return Math.Clamp(seconds, 1, config.MaxValidityPeriodSeconds);
     }
 
     private async Task<ProviderResult> MapAsync(
@@ -151,12 +237,27 @@ internal sealed partial class TwilioChannelProvider(
         return (target, message);
     }
 
+    /// <summary>
+    /// Fires at send time on purpose, like every configuration guard of this
+    /// module: an environment without the SMS channel still boots. The
+    /// destination guards are two distinct claims and stay separate: the
+    /// pattern says the number is well formed, the prefix list says this
+    /// deployment is allowed to address that market at all.
+    /// </summary>
     private static void EnsureConfigured(TwilioOptions config, string destination, string body)
     {
-        if (!BrazilNumber().IsMatch(destination))
+        if (!config.DestinationExpression.IsMatch(destination))
         {
             throw new InvalidOperationException(
-                $"The SMS destination must be a Brazilian E.164 number under '{TwilioOptions.SectionName}:AllowedCountryPrefixes'.");
+                $"The SMS destination does not match '{TwilioOptions.SectionName}:DestinationPattern'.");
+        }
+
+        IReadOnlyList<string> prefixes = config.EffectiveAllowedCountryPrefixes;
+        if (prefixes.Count > 0
+            && !prefixes.Any(prefix => destination.StartsWith(prefix, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                $"The SMS destination is outside '{TwilioOptions.SectionName}:AllowedCountryPrefixes'.");
         }
 
         if (string.IsNullOrWhiteSpace(config.AccountSid)
@@ -177,9 +278,12 @@ internal sealed partial class TwilioChannelProvider(
         }
 
         if (config.Product == TwilioSmsProduct.ProgrammableMessaging
+            && string.IsNullOrWhiteSpace(config.MessagingServiceSid)
             && string.IsNullOrWhiteSpace(config.FromNumber))
         {
-            throw new InvalidOperationException($"Missing configuration '{TwilioOptions.SectionName}:FromNumber'.");
+            throw new InvalidOperationException(
+                $"Programmable Messaging requires '{TwilioOptions.SectionName}:MessagingServiceSid' "
+                + $"or '{TwilioOptions.SectionName}:FromNumber'.");
         }
 
         if (config.Product == TwilioSmsProduct.Verify
@@ -190,11 +294,6 @@ internal sealed partial class TwilioChannelProvider(
                 $"'{TwilioOptions.SectionName}:ServiceSid' and an SMS body between 4 and 10 characters are required for Verify.");
         }
 
-        if (!config.AllowedCountryPrefixes.Contains("+55", StringComparer.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"'{TwilioOptions.SectionName}:AllowedCountryPrefixes' must allow +55 for this local test.");
-        }
     }
 
     private static TwilioMessageResponse? Deserialize(string body)
@@ -213,7 +312,4 @@ internal sealed partial class TwilioChannelProvider(
             return null;
         }
     }
-
-    [GeneratedRegex(@"^\+55\d{10,11}$", RegexOptions.CultureInvariant)]
-    private static partial Regex BrazilNumber();
 }
