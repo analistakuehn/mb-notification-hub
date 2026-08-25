@@ -172,9 +172,9 @@ A decomposição em fatias prometida no fim da seção de implantação foi prod
 | Adapter SMS (Twilio) | Concluída (fatias F2-7 e F2-8, commits `b2a885e` e `8132cbf`), incluindo rate limit por provedor, kill switch automático de canal e pool de sender por aplicação |
 | Supressão automática, reversível e auditada | Concluída (fatia F2-6, commit `47ab335`) |
 | Reconciliação por canal | Concluída (fatia F2-9, commit `6850637`) |
-| Classe `operational` com janela de silêncio | Concluída (fatia F2-12) |
+| Classe `operational` com janela de silêncio | Concluída (fatia F2-12, commit `26f72df`) |
 | Relatório mensal de evidências | Concluída (fatia F2-10, commit `e74fdfa`) |
-| Cenário de ponta a ponta do §5.1 (push aceito sem evento, prazo vencido, SMS, webhook encerrando) | Concluída (fatia F2-11) |
+| Cenário de ponta a ponta do §5.1 (push aceito sem evento, prazo vencido, SMS, webhook encerrando) | Concluída (fatia F2-11, commit `26f72df`) |
 
 Duas correções que a implementação obrigou e que este design não previa, ambas registradas na decomposição e a segunda também em [ADR-0014](../ADR-0014-confirmacao-de-entrega-e-gatilhos-de-fallback.md):
 
@@ -188,6 +188,19 @@ Conforme a linha da fase 2 do roadmap (§15):
 1. 100 % das notificações `critical` com fallback.
 2. Zero envio após o TTL.
 3. Primeiro relatório mensal de evidências entregue a Compliance.
+
+### Estado em 2026-08-25, separando o que o código prova do que depende de ato humano
+
+**1. Fallback em `critical`: o caminho está provado, a cobertura de 100 % não é afirmável por código.**
+O código prova duas coisas. O caminho existe de ponta a ponta, num único teste com banco, cache, filas e provedor falso: push aceito sem evento de entrega, prazo de trinta segundos vencido, varredura reivindicando exatamente uma tentativa, TTL reavaliado, SMS enviado com a URL de retorno que o próprio hub montou, e webhook assinado encerrando a notificação. E o portão executável reprova enquanto existir política `critical` publicada cujo plano não tenha passo posterior. Limite honesto do portão: ele mede plano publicado, não alcance em tempo de execução, então um plano de dois passos cujo segundo canal não tenha conteúdo publicado ou destinatário alcançável passa no portão sem entregar fallback. A publicação da política de ativação com quatro olhos é ato humano, a execução do portão com recibo em ambiente real é ato de SRE, e o SMS só sai em produção com o sender BR e o Messaging Service da unidade I2.
+
+**2. Zero envio após o TTL: provado no ponto de decisão, não como propriedade global.**
+Validade vencida no instante do pedido de fallback termina a notificação em `expired` sem consumir SMS, provado pela contagem de requisições no provedor falso, sem tentativa nova e sem trilha de enfileiramento. O ponto de decisão do dispatcher já era coberto, e o `ValidityPeriod` enviado à Twilio atua como segunda barreira, que é comportamento de provedor e não de teste. Não estão provados: o comportamento sob carga, e a corrida entre o vencimento e uma chamada de provedor já em voo.
+
+**3. Primeiro relatório mensal entregue: depende inteiramente de ato humano e de infraestrutura.**
+O job de composição e o arquivamento imutável estão implementados e verdes. A entrega a Compliance é rito com janela mensal real, bucket WORM e chaves reais, e nada em código pode alegá-la. Além disso, as seções de fila morta e de falhas de provedor permanecem ausentes do relatório até existir a fonte de métricas operacionais, que pertence à unidade I2.
+
+Conclusão: **as doze fatias de código da fase estão concluídas e validadas**; os três critérios de saída dependem, nesta ordem, da publicação de política com quatro olhos, da entrega declarativa da unidade I2 e do primeiro ciclo mensal real.
 
 ## Riscos
 
