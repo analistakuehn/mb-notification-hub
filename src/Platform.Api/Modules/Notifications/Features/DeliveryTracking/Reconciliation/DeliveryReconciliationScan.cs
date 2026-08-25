@@ -87,8 +87,9 @@ internal sealed class DeliveryReconciliationScan(
         DateTimeOffset now = timeProvider.GetUtcNow();
 
         var retired = await liabilitySweep.RunAsync(cancellationToken);
+        IReadOnlyCollection<string> answerable = lookupResolver.AnswerableProviderKeys;
         IReadOnlyList<ReconciliationCandidate> candidates = await CandidatesAsync(
-            now - settings.StaleAfter, settings.BatchSize, cancellationToken);
+            now - settings.StaleAfter, answerable, settings.BatchSize, cancellationToken);
 
         var queried = 0;
         var corrected = 0;
@@ -98,14 +99,14 @@ internal sealed class DeliveryReconciliationScan(
             Result<IProviderDeliveryLookup> lookup = lookupResolver.Resolve(candidate.ProviderKey);
             if (lookup.IsFailure)
             {
-                // A provider with no lookup is a statement, not an outage: the
-                // attempt stays exactly as it is, with this record, and only a
-                // fallback or the validity will ever settle it. The record is a
-                // log line and not a trail entry on purpose: the same rows come
-                // back every round for the life of the partition, and a trail
-                // append takes the chain lock of its monthly partition, so one
-                // append per unanswerable row per day would tax the ingestion
-                // of the whole hub to restate a fact that never changes.
+                // Belt and braces: the selection already left these out, and
+                // it is the selection that has to, because a provider with no
+                // lookup is never settled by asking and its rows would fill the
+                // batch for the life of the partition. Reaching here means the
+                // hosted lookups changed under a running round, which is worth
+                // a line rather than a trail entry: the same rows would come
+                // back every round, and a trail append takes the chain lock of
+                // its monthly partition.
                 withoutLookup++;
                 logger.ReconciliationWithoutLookup(
                     candidate.AttemptId, candidate.ProviderKey, candidate.Status);
@@ -143,29 +144,84 @@ internal sealed class DeliveryReconciliationScan(
     /// was never given.
     /// </para>
     /// <para>
+    /// The answerable providers are part of the predicate, and that is what
+    /// makes the batch mean anything. An attempt whose provider offers no later
+    /// lookup can never be settled by asking, so it stays eligible for the life
+    /// of its partition; selected oldest first, those rows take every seat of
+    /// every round and the channels this job exists to correct are never
+    /// reached. Filtering them out in the statement is the difference between a
+    /// bounded batch of work and a bounded batch of the same refusal.
+    /// </para>
+    /// <para>
+    /// A notification that already concluded is left out for the same reason
+    /// and not for a different one. Its attempts stay parked on a non-terminal
+    /// status and stay eligible forever, and an answer about them changes
+    /// nothing: the state machine refuses a transition on a notification that
+    /// ended, so every round would ask, pay the provider read and record that
+    /// the answer was ignored.
+    /// </para>
+    /// <para>
+    /// The creation window on the join is what lets the planner discard the
+    /// partitions a notification cannot have attempts in, exactly as the
+    /// scheduler statements do. Without it the join reads every partition of
+    /// both tables, on a job whose whole point is to be cheap.
+    /// </para>
+    /// <para>
     /// The age falls back to the creation instant when the status stamp is
     /// empty, which is what every row written before that column existed
     /// carries. The scheduler cannot make that substitution, because acting
     /// early there costs a second message to a person; here the same mistake
     /// costs one provider read, and refusing to make it would leave exactly the
-    /// rows this job was created to resolve permanently unreachable.
+    /// rows this job was created to resolve permanently unreachable. The
+    /// substitution is spelled the same way in the predicate and in the
+    /// ordering, and the partial index behind them is built on that same
+    /// expression, so both are a seek and not a sort of the table.
     /// </para>
     /// </summary>
     private async Task<IReadOnlyList<ReconciliationCandidate>> CandidatesAsync(
         DateTimeOffset threshold,
+        IReadOnlyCollection<string> answerableProviders,
         int batchSize,
         CancellationToken cancellationToken)
-        => await db.NotificationAttempts
+    {
+        if (answerableProviders.Count == 0) return [];
+
+        return await CandidateQuery(db, threshold, [.. answerableProviders], batchSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The selection itself, composed and not executed, so a plan assertion can
+    /// read the statement this code sends instead of a transcription of it.
+    /// <para>
+    /// The whole value of this job depends on the planner answering with the
+    /// partial index, and nothing about that failure is visible from the
+    /// outside: the round keeps returning the same rows and quietly becomes a
+    /// walk of every partition with an external sort on top. Only a plan read
+    /// against the real statement sees it.
+    /// </para>
+    /// </summary>
+    internal static IQueryable<ReconciliationCandidate> CandidateQuery(
+        NotificationsDbContext db,
+        DateTimeOffset threshold,
+        string[] providerKeys,
+        int batchSize)
+        => db.NotificationAttempts
             .AsNoTracking()
             .Where(attempt => (attempt.Status == NotificationAttemptStatuses.Sent
                     || attempt.Status == NotificationAttemptStatuses.Unknown)
                 && attempt.ProviderKey != null
+                && providerKeys.Contains(attempt.ProviderKey)
                 && (attempt.StatusChangedAt ?? attempt.CreatedAt) < threshold)
             .Join(
                 db.Notifications.AsNoTracking(),
                 attempt => attempt.NotificationId,
                 notification => notification.Id,
                 (attempt, notification) => new { attempt, notification })
+            .Where(pair => pair.notification.Status == NotificationStatuses.Dispatched
+                && pair.notification.CreatedAt
+                    > pair.attempt.CreatedAt - NotificationPlanOutcome.AttemptWindow
+                && pair.notification.CreatedAt <= pair.attempt.CreatedAt)
 
             // Ordered before the projection, and by the columns themselves:
             // the oldest silence goes first, and an ordering written over the
@@ -182,8 +238,7 @@ internal sealed class DeliveryReconciliationScan(
                 pair.attempt.ProviderMessageId,
                 pair.attempt.ContactPointId,
                 pair.attempt.SentAt ?? pair.attempt.StatusChangedAt ?? pair.attempt.CreatedAt,
-                pair.attempt.StatusChangedAt ?? pair.attempt.CreatedAt))
-            .ToListAsync(cancellationToken);
+                pair.attempt.StatusChangedAt ?? pair.attempt.CreatedAt));
 
     /// <summary>
     /// Asks one provider about one attempt and records whatever it answers.

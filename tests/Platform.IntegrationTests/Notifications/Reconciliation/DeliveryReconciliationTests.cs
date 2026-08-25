@@ -118,11 +118,19 @@ public sealed class DeliveryReconciliationTests(ReconciliationFixture fixture)
 
     /// <summary>
     /// A provider that cannot be asked is not a provider that answered
-    /// nothing. The attempt stays exactly where it is, with a record, and the
-    /// hub never spends a call learning what it already knows.
+    /// nothing. The attempt stays exactly where it is and the hub never spends
+    /// a call learning what it already knows.
+    /// <para>
+    /// It is left out of the batch and not merely skipped inside it, and the
+    /// difference is the whole point. Such an attempt is never settled by
+    /// asking, so it stays eligible for the life of its partition; selected
+    /// oldest first, those rows took every seat of every round and the channels
+    /// this job exists to correct were never reached. The round therefore
+    /// reports no unanswerable attempt at all: there is none in the batch.
+    /// </para>
     /// </summary>
     [RequiresDockerFact]
-    public async Task A_provider_without_a_later_lookup_is_never_called_and_the_attempt_stays_parked()
+    public async Task A_provider_without_a_later_lookup_is_left_out_of_the_batch_and_stays_parked()
     {
         SeededReconciliationAttempt seeded = await fixture.SeedAttemptAsync(new ReconciliationSeed
         {
@@ -137,16 +145,15 @@ public sealed class DeliveryReconciliationTests(ReconciliationFixture fixture)
 
         ReconciliationRoundView round = await RunWithLogAsync(capturing);
 
-        round.WithoutLookup.ShouldBeGreaterThanOrEqualTo(1);
+        round.WithoutLookup.ShouldBe(
+            0,
+            "a exclusão acontece na seleção; um zero aqui significa que a linha nem entrou no "
+            + "lote, que é o que impede o lote de encher com o mesmo conjunto todo dia.");
         RequestsAbout(seeded.AttemptId).ShouldBeEmpty(
             "o provedor de push não oferece consulta posterior; perguntar a ele seria uma chamada "
             + "que nenhuma resposta pode responder.");
         (await fixture.AttemptStateAsync(seeded.AttemptId)).Status
             .ShouldBe(NotificationAttemptStatuses.Unknown);
-        capturing.Lines.ShouldContain(
-            line => line.Contains(seeded.AttemptId.ToString(), StringComparison.Ordinal)
-                && line.Contains("não oferece consulta posterior", StringComparison.Ordinal),
-            "permanecer sem desfecho precisa deixar registro, ou a tentativa some em silêncio.");
         (await fixture.CountTrailAsync(seeded.NotificationId, DeliveredAction)).ShouldBe(0);
     }
 
@@ -428,8 +435,7 @@ public sealed class DeliveryReconciliationTests(ReconciliationFixture fixture)
     private static string Delivered(string messageId, DateTimeOffset? occurredAt = null)
         => $$"""
             {"messages":[{"msg_id":"{{messageId}}","status":"delivered",
-              "last_event_time":"{{(occurredAt ?? new DateTimeOffset(2026, 8, 25, 6, 0, 0, TimeSpan.Zero))
-                :yyyy-MM-ddTHH:mm:ssZ}}"}]}
+              "last_event_time":"{{(occurredAt ?? new DateTimeOffset(2026, 8, 25, 6, 0, 0, TimeSpan.Zero)):yyyy-MM-ddTHH:mm:ssZ}}"}]}
             """;
 
     /// <summary>

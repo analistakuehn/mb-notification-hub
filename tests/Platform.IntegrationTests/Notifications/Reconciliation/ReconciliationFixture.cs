@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NotificationHub.Api.Infrastructure.Messaging;
@@ -141,7 +142,11 @@ public sealed class ReconciliationFixture : IAsyncLifetime
                 TtlSeconds = 86_400,
                 AcceptedAt = seed.CreatedAt,
             });
-            notification.MarkDispatched(policyVersion: 1);
+            notification.MarkDispatched(policyVersion: 1, AdmittedDeliveryPlan.Serialize(
+                [
+                    new DeliveryPlanStep(Channel.Create("push").Value!, TimeSpan.FromSeconds(30)),
+                    new DeliveryPlanStep(Channel.Create("email").Value!, null),
+                ]));
             if (seed.NotificationStatus == NotificationStatuses.Failed) notification.MarkFailedAfterDispatch();
             if (seed.NotificationStatus == NotificationStatuses.Expired) notification.MarkExpiredAfterDispatch();
 

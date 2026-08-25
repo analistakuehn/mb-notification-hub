@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NotificationHub.Api.Modules.ContactConsent.Domain;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Events;
 using NotificationHub.IntegrationTests.Dispatching;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using NotificationHub.SharedKernel;
@@ -220,7 +221,7 @@ public sealed class SuppressionLedgerTests(DeliveryTrackingFixture fixture)
         using WebApplicationFactory<Program> pinned = fixture.WithWebHostBuilder(builder =>
         {
             builder.ConfigureLogging(logging => logging.AddProvider(capturing));
-            builder.UseSetting("Modules:Dispatch:Webhooks:SendGrid:AllowedIpPrefixes:0", "198.51.100.");
+            builder.UseSetting("Modules:Dispatch:Webhooks:SendGrid:AllowedNetworks:0", "198.51.100.0/24");
         });
 
         HttpResponseMessage response = await pinned.CreateClient().SendAsync(
@@ -238,6 +239,124 @@ public sealed class SuppressionLedgerTests(DeliveryTrackingFixture fixture)
             line => line.Contains("forjação", StringComparison.Ordinal),
             "origem fora da allowlist precisa gerar alarme de segurança próprio.");
     }
+
+    /// <summary>
+    /// The report the ledger never received is not lost.
+    /// <para>
+    /// It cannot join the transaction that applies the event: the ledger reads
+    /// its own history to decide, and reporting before the transition commits
+    /// would stop addressing a person over a callback that ended up applying
+    /// nothing. Outside the transaction a transient failure of the contact
+    /// module used to end the story, because the event is already applied and
+    /// already deduplicated and no redelivery revisits it.
+    /// </para>
+    /// <para>
+    /// The debt is a stamp on the evidence row, só this test clears the stamp
+    /// and the whole ledger state to stand where that failure leaves the
+    /// database, and then asks the drain to finish the job.
+    /// </para>
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_suppression_the_ledger_never_received_is_reported_by_the_drain()
+    {
+        SeededAttempt seeded = await DeliveryTrackingApi.SeedAttemptAsync(
+            fixture, "email", DeliveryTrackingApi.SendGridProvider, NewMessageId());
+        var recipientId = await RecipientAsync(seeded.NotificationId);
+        Guid contactPointId = await SeedContactPointAsync(recipientId, ContactChannels.Email);
+        await StampContactPointAsync(seeded.AttemptId, contactPointId);
+        var eventId = NewEventId();
+
+        await CallbackAsync(DeliveryEventBatch.Bounce(eventId, NewMessageId(), seeded, "bounce"));
+        await ApplyAsync();
+
+        EvidenceRow evidence = await DeliveryTrackingApi.ReadEvidenceAsync(fixture, eventId);
+        (await SuppressionReportedAtOfAsync(evidence.Id)).ShouldNotBeNull(
+            "o caminho normal precisa carimbar o relato; sem o carimbo a varredura relataria de "
+            + "novo toda rodada.");
+
+        // The state a transient failure of the contact module leaves behind:
+        // the event applied, the signal stored, and nothing on the other side.
+        await ClearLedgerAsync(contactPointId);
+        await ClearSuppressionReportAsync(evidence.Id);
+        (await CountSignalsAsync(contactPointId)).ShouldBe(0);
+
+        var settled = await DrainAsync();
+
+        settled.ShouldBe(1);
+        (await CountSignalsAsync(contactPointId)).ShouldBe(1);
+        (await CountSuppressionsAsync(contactPointId)).ShouldBe(1);
+        (await SuppressionReportedAtOfAsync(evidence.Id)).ShouldNotBeNull();
+
+        // And nothing is owed anymore, só a second round is free.
+        (await DrainAsync()).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// A retry that races the original settles as already applied, never as a
+    /// second refusal. It matters on the channel whose rule suppresses at the
+    /// second one, where a doubled signal takes an address away from somebody
+    /// who was refused once.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_drained_report_of_an_already_reported_event_counts_no_second_refusal()
+    {
+        SeededAttempt seeded = await DeliveryTrackingApi.SeedAttemptAsync(
+            fixture, "email", DeliveryTrackingApi.SendGridProvider, NewMessageId());
+        var recipientId = await RecipientAsync(seeded.NotificationId);
+        Guid contactPointId = await SeedContactPointAsync(recipientId, ContactChannels.Email);
+        await StampContactPointAsync(seeded.AttemptId, contactPointId);
+        var eventId = NewEventId();
+
+        await CallbackAsync(DeliveryEventBatch.Bounce(eventId, NewMessageId(), seeded, "bounce"));
+        await ApplyAsync();
+        EvidenceRow evidence = await DeliveryTrackingApi.ReadEvidenceAsync(fixture, eventId);
+
+        // Only the stamp is cleared: the ledger already holds the report, which
+        // is the state a lost stamp leaves behind.
+        await ClearSuppressionReportAsync(evidence.Id);
+
+        await DrainAsync();
+
+        (await CountSignalsAsync(contactPointId)).ShouldBe(
+            1,
+            "o relato repetido carrega o mesmo evento de origem e não pode contar uma segunda "
+            + "recusa que nunca aconteceu.");
+        (await CountSuppressionsAsync(contactPointId)).ShouldBe(1);
+        (await SuppressionReportedAtOfAsync(evidence.Id)).ShouldNotBeNull();
+    }
+
+    private async Task<int> DrainAsync()
+    {
+        using ServiceProvider tracker = fixture.BuildDeliveryTrackerProvider();
+        using IServiceScope scope = tracker.CreateScope();
+        return await scope.ServiceProvider
+            .GetRequiredService<PendingSuppressionDrain>()
+            .RunAsync(CancellationToken.None);
+    }
+
+    private async Task<DateTimeOffset?> SuppressionReportedAtOfAsync(Guid deliveryEventId)
+        => await fixture.QueryNotificationsDbAsync(db => db.DeliveryEvents
+            .AsNoTracking()
+            .Where(evidence => evidence.Id == deliveryEventId)
+            .Select(evidence => evidence.SuppressionReportedAt)
+            .SingleAsync());
+
+    private async Task ClearSuppressionReportAsync(Guid deliveryEventId)
+        => await fixture.ExecuteNotificationsDbAsync(db => db.DeliveryEvents
+            .Where(evidence => evidence.Id == deliveryEventId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(
+                evidence => evidence.SuppressionReportedAt, (DateTimeOffset?)null)));
+
+    private async Task ClearLedgerAsync(Guid contactPointId)
+        => await fixture.ExecuteContactConsentDbAsync(async db =>
+        {
+            await db.SuppressionSignals
+                .Where(signal => signal.ContactPointId == contactPointId)
+                .ExecuteDeleteAsync();
+            await db.Suppressions
+                .Where(suppression => suppression.ContactPointId == contactPointId)
+                .ExecuteDeleteAsync();
+        });
 
     private async Task<Result<SuppressionOutcome>> ReportAsync(
         string recipientId,

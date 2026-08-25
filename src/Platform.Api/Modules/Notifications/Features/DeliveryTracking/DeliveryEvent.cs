@@ -165,6 +165,29 @@ internal sealed class DeliveryEvent
     /// <summary>When the state machine consumed this event; null while it stays stored and unapplied.</summary>
     public DateTimeOffset? AppliedAt { get; private set; }
 
+    /// <summary>
+    /// When the suppression signal this row carries reached the contact
+    /// ledger, or null while it still owes that report.
+    /// <para>
+    /// The report cannot join the transaction that applies the event: the
+    /// ledger belongs to another context and decides on its own history, and
+    /// reporting before the transition commits would suppress a destination on
+    /// the strength of a callback that ended up applying nothing. So the report
+    /// happens after the commit, and this stamp is what keeps it from being
+    /// best effort: an applied row with a signal and no stamp is a report this
+    /// hub still owes, and a drain retries it. The ledger keys its idempotency
+    /// on the identity of this row, so a retry that races the original settles
+    /// as already applied rather than as a second refusal.
+    /// </para>
+    /// <para>
+    /// A signal nothing can be done with is stamped too, for the same reason a
+    /// dedupe mark commits for feedback that moved nothing: leaving it empty
+    /// would make the drain read the same unreportable rows for the life of the
+    /// partition.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? SuppressionReportedAt { get; private set; }
+
     public static DeliveryEvent Record(DeliveryEventDraft draft)
     {
         ArgumentNullException.ThrowIfNull(draft);
@@ -193,6 +216,7 @@ internal sealed class DeliveryEvent
             SuppressionSignal = draft.SuppressionSignal,
             PayloadEncrypted = draft.PayloadEncrypted,
             AppliedAt = null,
+            SuppressionReportedAt = null,
         };
     }
 }

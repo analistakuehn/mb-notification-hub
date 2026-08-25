@@ -93,6 +93,10 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         // and the use case behind the provider webhook route. The application
         // of what the feedback means lives in the delivery-tracker role, never
         // in this host.
+        services.AddOptions<ProviderWebhookIngestionOptions>()
+            .Bind(configuration.GetSection(ProviderWebhookIngestionOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
         services.AddScoped<DeliveryEventWriter>();
         services.AddScoped<ReceiveProviderWebhook.Handler>();
     }

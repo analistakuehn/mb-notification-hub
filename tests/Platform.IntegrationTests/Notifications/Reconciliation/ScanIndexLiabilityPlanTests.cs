@@ -27,6 +27,7 @@ namespace NotificationHub.IntegrationTests.Notifications.Reconciliation;
 /// grades the size of the table.
 /// </para>
 /// </summary>
+[Collection(QueryPlanCollectionDefinition.Name)]
 public sealed partial class ScanIndexLiabilityPlanTests : IAsyncLifetime
 {
     private const int SeededAttempts = 40_000;

@@ -84,6 +84,7 @@ public sealed class DeliveryTrackerWorkerRole : IWorkerRoleModule
         services.AddSingleton<SchedulerScanHeartbeat>();
         services.AddScoped<OverdueFallbackScan>();
         services.AddScoped<DeferredReleaseScan>();
+        services.AddScoped<PendingSuppressionDrain>();
         services.AddHostedService<SchedulerScanService>();
         services.AddHealthChecks().Add(new HealthCheckRegistration(
             SchedulerScanHealthCheck.Name,
