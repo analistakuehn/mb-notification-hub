@@ -575,11 +575,34 @@ curta própria.
 ## Scheduler do papel `delivery-tracker`
 
 - `Features/DeliveryTracking/Scheduling/` varre o banco a cada
-  `Modules:Notifications:SchedulerScan:Interval` (cinco segundos por padrão) e
-  grava a próxima ação na outbox. Três varreduras: prazo de fallback vencido,
-  veredito inconclusivo prolongado e `release_at` vencido. O intervalo, o
-  tamanho do lote, a tolerância do veredito inconclusivo e a janela de
-  reemissão são configuração; nenhum deles é contrato.
+  `Modules:Notifications:SchedulerScan:Interval` (dois segundos por padrão) e
+  grava a próxima ação na outbox. A rodada faz cinco perguntas: prazo de
+  fallback vencido sobre tentativa em `queued` ou `sent`, prazo vencido sobre
+  tentativa em `unknown`, veredito inconclusivo prolongado, `release_at`
+  vencido e sinal de supressão que o aplicador não conseguiu entregar ao ledger
+  de contatos. O tamanho do lote, a tolerância do veredito inconclusivo e a
+  janela de reemissão são configuração; nenhum deles é contrato.
+- **O intervalo não é livre.** Ele soma o próprio tamanho ao tempo até o SMS de
+  fallback, junto do prazo do passo, dos dois saltos de fila, do estágio Core e
+  do timeout do provedor. O padrão é derivado do aceite dessa soma, e uma
+  asserção de orçamento em teste unitário reprova quando o intervalo ou o
+  timeout do provedor de SMS sobe sozinho.
+- **`queued` entra na varredura de prazo.** Circuito aberto, throttle e canal
+  pausado devolvem a tentativa à fila com o prazo intacto, e ler apenas `sent`
+  deixava essa tentativa invisível para toda varredura: uma indisponibilidade
+  mais longa que a validade encerrava a notificação sem tentar o segundo canal.
+  Nem `queued` nem `sent` carregam a dúvida que mantém `unknown` num lote
+  separado, porque uma nunca chegou a provedor algum e a outra foi aceita.
+  Reivindicar `queued` é o que torna condicional o claim do despacho:
+  `AttemptDispatchWriter` passou a exigir `plan_advanced_at` e
+  `fallback_requested_at` nulos, senão a tentativa devolvida e o próximo passo
+  sairiam os dois.
+- **O `unknown` tem dois instantes e dois statements.** O prazo do passo e a
+  idade governam as mesmas linhas, e não cabem no mesmo comando: um `OR` entre
+  os dois não é buscável em coluna alguma e degrada a rodada em leitura de todas
+  as partições, o que as asserções de plano medem. O statement de prazo roda
+  antes do de idade, para que uma tentativa vencida nos dois seja pedida uma vez
+  só.
 - **O scheduler não reivindica o avanço do plano.** Ele só pede. O ponto de
   encontro de todos os gatilhos de um passo continua sendo
   `FallbackRequestHandler`, e uma varredura que carimbasse `plan_advanced_at`
@@ -589,7 +612,7 @@ curta própria.
   momento em que roda, então o papel roda com mais de uma réplica e uma
   réplica pode morrer no meio de uma rodada sem levar consigo trabalho que só
   ela conhecia.
-- As duas varreduras de fallback reivindicam por `FOR UPDATE SKIP LOCKED`:
+- Os três statements de fallback reivindicam por `FOR UPDATE SKIP LOCKED`:
   elas precisam ler os candidatos e juntar as notificações antes de escrever
   qualquer coisa, e um lote de pedidos não acrescenta trilha, então segurar o
   lote inteiro em uma transação não faz ninguém esperar. A varredura de
@@ -627,8 +650,8 @@ curta própria.
   código, para que a tentativa inelegível nunca ocupe vaga do lote. Ele exige
   prazo gravado, que é a prova de que existe passo posterior: um último passo
   sem resposta fica para a reconciliação em vez de virar notificação falha.
-- **Predicado literal.** As três varreduras escrevem o predicado do índice
-  parcial que as atende palavra por palavra na própria consulta. Índice
+- **Predicado literal.** Toda varredura escreve o predicado do índice
+  parcial que a atende palavra por palavra na própria consulta. Índice
   parcial só atende consulta cujas cláusulas o planejador consegue provar que
   implicam o predicado dele, e predicado escrito como parâmetro não se prova.
   Trocar qualquer um deles por bind transforma a rodada em varredura
