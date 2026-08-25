@@ -104,7 +104,7 @@ internal sealed class RenderedContentBackfill(
         StoredNotification owner = candidate.Notification;
         SealedRenderedContent stored = await RenderedContentEnvelope.ReadAsync(
             cipher, owner.Application, candidate.SealedContent, cancellationToken);
-        using JsonDocument variables = JsonDocument.Parse(owner.VariablesMaskedJson);
+        using var variables = JsonDocument.Parse(owner.VariablesMaskedJson);
         Result<PublishedTemplateRender> render = await renderer.RenderAsync(
             new PublishedRenderRequest
             {

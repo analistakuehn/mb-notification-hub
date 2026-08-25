@@ -77,7 +77,7 @@ internal static partial class ListTemplates
                 .ToListAsync(cancellationToken);
 
             var hasMore = page.Count > pageSize;
-            List<Item> items = page
+            var items = page
                 .Take(pageSize)
                 .Select(Item.From)
                 .ToList();

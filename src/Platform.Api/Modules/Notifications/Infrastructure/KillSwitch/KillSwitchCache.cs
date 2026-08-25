@@ -76,7 +76,7 @@ internal sealed class KillSwitchCache(
                             loadStartedTimestamp,
                             loadCompletedTimestamp) >= SnapshotTtl)
                     {
-                        CacheSnapshot unavailable = CacheSnapshot.Unavailable(
+                        var unavailable = CacheSnapshot.Unavailable(
                             loadCompletedTimestamp,
                             timeProvider.GetUtcNow().Add(RefreshFailureBackoff));
                         Interlocked.Exchange(ref _snapshot, unavailable);

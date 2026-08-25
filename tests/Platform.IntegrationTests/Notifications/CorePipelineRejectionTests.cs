@@ -100,7 +100,7 @@ public sealed class CorePipelineRejectionTests(CorePipelineFixture fixture)
             fixture, application, "transactional", "order-updates");
 
         // A window that certainly covers this instant in the recipient's zone.
-        TimeZoneInfo saoPaulo = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
+        var saoPaulo = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
         DateTimeOffset localNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, saoPaulo);
         var from = localNow.AddHours(-1).ToString("HH:mm", CultureInfo.InvariantCulture);
         var to = localNow.AddHours(1).ToString("HH:mm", CultureInfo.InvariantCulture);

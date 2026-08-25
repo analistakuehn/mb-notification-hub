@@ -82,7 +82,7 @@ public sealed class ApplicationKillSwitchCoreTests(CorePipelineFixture fixture)
         state.Hold.Destination.ShouldBe(acceptedMessage.Destination);
         state.Hold.ExpiresAt.ShouldBe(state.Notification.ExpiresAt);
         state.Hold.ReleasedAt.ShouldBeNull();
-        using JsonDocument claimCheck = JsonDocument.Parse(state.Hold.PayloadJson);
+        using var claimCheck = JsonDocument.Parse(state.Hold.PayloadJson);
         claimCheck.RootElement.EnumerateObject()
             .Select(property => property.Name)
             .ShouldBe(["notificationId"]);

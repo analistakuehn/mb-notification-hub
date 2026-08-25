@@ -58,7 +58,7 @@ internal sealed class PartitionClosingCycle(
         }
 
         var outcomes = new List<PartitionClosingOutcome>();
-        DateOnly today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
         if (settings.EnableRevokeOnClosedPartitions)
         {
             foreach (MonthlyPartitionWindow window in attached.Where(window => window.ToExclusive > today))

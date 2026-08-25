@@ -32,7 +32,7 @@ public sealed class DeclareContactPointsEndpointTests(ContactConsentApiFixture f
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var responseBody = await response.Content.ReadAsStringAsync();
         responseBody.ShouldNotContain(EmailValue);
-        JsonDocument body = JsonDocument.Parse(responseBody);
+        var body = JsonDocument.Parse(responseBody);
         body.RootElement.GetProperty("timezone").GetString().ShouldBe("America/Manaus");
         Guid contactPointId = body.RootElement.GetProperty("contactPoints")[0]
             .GetProperty("contactPointId").GetGuid();
@@ -71,7 +71,7 @@ public sealed class DeclareContactPointsEndpointTests(ContactConsentApiFixture f
         outbox.Destination.ShouldBe("contacts-changed");
         outbox.EventType.ShouldBe("contact.changed");
         outbox.PayloadJson.ShouldNotContain(EmailValue);
-        JsonDocument payload = JsonDocument.Parse(outbox.PayloadJson);
+        var payload = JsonDocument.Parse(outbox.PayloadJson);
         payload.RootElement.GetProperty("type").GetString().ShouldBe("contact.changed");
         payload.RootElement.GetProperty("schemaVersion").GetInt32().ShouldBe(1);
         payload.RootElement.GetProperty("priorityClass").GetString().ShouldBe("transactional");

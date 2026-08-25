@@ -67,7 +67,7 @@ public sealed class KafkaIngressAcceptanceTests(KafkaIngressFixture fixture)
                 && entry.EntityId == notification.Id.ToString())
             .Select(entry => entry.DetailsJson)
             .SingleAsync());
-        using JsonDocument audit = JsonDocument.Parse(details);
+        using var audit = JsonDocument.Parse(details);
         audit.RootElement.GetProperty("source").GetString().ShouldBe("kafka");
         audit.RootElement.GetProperty("idempotencyKey").GetString().ShouldBe(idempotencyKey);
 

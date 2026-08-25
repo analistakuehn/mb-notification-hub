@@ -21,7 +21,7 @@ internal static class CanonicalJson
     /// <summary>Canonical text of an arbitrary JSON document.</summary>
     internal static string Canonicalize(string json)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
         {

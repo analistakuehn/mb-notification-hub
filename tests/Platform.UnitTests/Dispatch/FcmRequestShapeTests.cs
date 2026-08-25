@@ -32,7 +32,7 @@ public sealed class FcmRequestShapeTests
             new PushDeliveryTarget("device-token-2"), message);
 
         request.Message.Data.ShouldBeNull();
-        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(request));
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(request));
         document.RootElement.GetProperty("message").TryGetProperty("data", out _).ShouldBeFalse();
     }
 
@@ -45,7 +45,7 @@ public sealed class FcmRequestShapeTests
         FcmSendRequest request = FcmChannelProvider.BuildRequest(
             new PushDeliveryTarget("device-token-3"), message);
 
-        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(request));
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(request));
         JsonElement root = document.RootElement.GetProperty("message");
         root.GetProperty("token").GetString().ShouldBe("device-token-3");
         root.GetProperty("notification").GetProperty("title").GetString().ShouldBe("Título");

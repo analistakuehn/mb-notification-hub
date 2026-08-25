@@ -200,7 +200,7 @@ internal sealed class AuditExporter(
                 + "a evidência exportada não corresponde mais à trilha.");
         }
 
-        AuditExportManifest manifest = AuditExportManifest.Parse(storedManifest);
+        var manifest = AuditExportManifest.Parse(storedManifest);
         if (await store.HeadAsync(attestationKey, cancellationToken) is null)
         {
             await AttestAsync(attestationKey, storedManifest, cancellationToken);

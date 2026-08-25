@@ -95,7 +95,7 @@ internal sealed class TransactionalAuditTrail : IAuditTrail
     public async Task AppendAsync(DbTransaction transaction, AuditEntry entry, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        AuditEvent auditEvent = AuditEvent.Record(entry);
+        var auditEvent = AuditEvent.Record(entry);
         DbConnection connection = OpenConnectionOf(transaction);
         RefuseStrongerDeclaredIsolation(transaction);
 
@@ -117,7 +117,7 @@ internal sealed class TransactionalAuditTrail : IAuditTrail
     public async Task RecordApprovalAsync(DbTransaction transaction, ApprovalGrant grant, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(grant);
-        Approval approval = Approval.Grant(grant);
+        var approval = Approval.Grant(grant);
         DbConnection connection = OpenConnectionOf(transaction);
 
         await using DbCommand command = connection.CreateCommand();

@@ -179,7 +179,7 @@ public sealed class KillSwitchReleaserTests(CorePipelineFixture fixture)
             .SingleAsync(message => message.MessageKey == seeded.RecipientId));
         resume.Destination.ShouldBe("core-transactional");
         resume.EventType.ShouldBe("notification.accepted");
-        using (JsonDocument payload = JsonDocument.Parse(resume.PayloadJson))
+        using (var payload = JsonDocument.Parse(resume.PayloadJson))
         {
             payload.RootElement.GetProperty("payload")
                 .GetProperty("notificationId")

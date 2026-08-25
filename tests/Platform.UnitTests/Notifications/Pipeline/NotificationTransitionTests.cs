@@ -80,7 +80,7 @@ public sealed class NotificationTransitionTests
     {
         var queuedAt = new DateTimeOffset(2026, 8, 23, 12, 0, 0, TimeSpan.Zero);
 
-        NotificationAttempt attempt = NotificationAttempt.Queue(Draft(queuedAt, TimeSpan.FromSeconds(30)));
+        var attempt = NotificationAttempt.Queue(Draft(queuedAt, TimeSpan.FromSeconds(30)));
 
         attempt.Status.ShouldBe(NotificationAttemptStatuses.Queued);
         attempt.FallbackDeadline.ShouldBe(queuedAt.AddSeconds(30));
@@ -100,7 +100,7 @@ public sealed class NotificationTransitionTests
         DateTimeOffset siblingQueuedAt = stepDeadline.AddSeconds(-10);
         var tokenId = Guid.NewGuid();
 
-        NotificationAttempt sibling = NotificationAttempt.Queue(new NotificationAttemptDraft
+        var sibling = NotificationAttempt.Queue(new NotificationAttemptDraft
         {
             NotificationId = Guid.NewGuid(),
             Sequence = 2,

@@ -341,7 +341,7 @@ public sealed class ChannelKillSwitchDispatchTests(CorePipelineFixture fixture)
         hold.Key.ShouldBe(expectedKey);
         hold.Destination.ShouldBe(scenario.Envelope.SourceQueue);
         hold.ReleasedAt.ShouldBeNull();
-        using JsonDocument claimCheck = JsonDocument.Parse(hold.PayloadJson);
+        using var claimCheck = JsonDocument.Parse(hold.PayloadJson);
         claimCheck.RootElement.EnumerateObject()
             .Select(property => property.Name)
             .Order()

@@ -85,7 +85,7 @@ public sealed class KafkaIngressSensitiveVariablesTests(KafkaIngressFixture fixt
         body.ShouldNotContain(secret);
         IngressRecords.Header(record, "redacted").ShouldBe("true");
 
-        using JsonDocument published = JsonDocument.Parse(body);
+        using var published = JsonDocument.Parse(body);
         JsonElement variables = published.RootElement.GetProperty("data").GetProperty("variables");
         variables.ValueKind.ShouldBe(JsonValueKind.Array);
         variables.EnumerateArray().Select(item => item.GetString()).ShouldBe(["code"]);

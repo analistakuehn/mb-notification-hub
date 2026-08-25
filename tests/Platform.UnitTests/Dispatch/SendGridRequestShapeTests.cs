@@ -56,7 +56,7 @@ public sealed class SendGridRequestShapeTests
         SendGridMailRequest request = SendGridChannelProvider.BuildRequest(
             new EmailDeliveryTarget("person@example.com"), Message, Options());
 
-        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(request));
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(request));
         JsonElement root = document.RootElement;
 
         root.GetProperty("personalizations")[0].GetProperty("to")[0]
@@ -89,7 +89,7 @@ public sealed class SendGridRequestShapeTests
         SendGridMailRequest request = SendGridChannelProvider.BuildRequest(
             new EmailDeliveryTarget("person@example.com"), Message, Options());
 
-        using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(request));
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(request));
         document.RootElement.GetProperty("personalizations")[0]
             .TryGetProperty("custom_args", out _).ShouldBeFalse();
     }

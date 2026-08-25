@@ -87,7 +87,7 @@ public sealed class IngressDeadLetterRedactionTests
     {
         var redacted = IngressDeadLetterWriter.RedactVariables(Body, ["code"]);
 
-        using JsonDocument document = JsonDocument.Parse(redacted);
+        using var document = JsonDocument.Parse(redacted);
         JsonElement variables = document.RootElement.GetProperty("data").GetProperty("variables");
         variables.ValueKind.ShouldBe(JsonValueKind.Array);
         variables.EnumerateArray().Select(item => item.GetString()).ShouldBe(["code"]);
@@ -109,7 +109,7 @@ public sealed class IngressDeadLetterRedactionTests
     {
         var redacted = IngressDeadLetterWriter.RedactVariables(Body, ["code"]);
 
-        using JsonDocument document = JsonDocument.Parse(redacted);
+        using var document = JsonDocument.Parse(redacted);
         JsonElement data = document.RootElement.GetProperty("data");
         data.GetProperty("templateKey").GetString().ShouldBe("auth.otp");
         data.GetProperty("idempotencyKey").GetString().ShouldBe("key-1");
@@ -122,7 +122,7 @@ public sealed class IngressDeadLetterRedactionTests
         var redacted = IngressDeadLetterWriter.RedactVariables("{ not json at all", ["code"]);
 
         redacted.ShouldNotContain("not json at all");
-        using JsonDocument document = JsonDocument.Parse(redacted);
+        using var document = JsonDocument.Parse(redacted);
         document.RootElement.GetProperty("redactedVariables")
             .EnumerateArray().Select(item => item.GetString()).ShouldBe(["code"]);
     }
@@ -199,7 +199,7 @@ public sealed class IngressDeadLetterRedactionTests
         IEnumerable<string> actualHeaders = record.Headers.Keys.OrderBy(name => name, StringComparer.Ordinal);
         actualHeaders.ShouldBe(expectedHeaders.OrderBy(name => name, StringComparer.Ordinal));
 
-        using JsonDocument document = JsonDocument.Parse(record.Body);
+        using var document = JsonDocument.Parse(record.Body);
         string[] expectedBodyProperties =
         [
             DeadLetterHeaders.Reason,

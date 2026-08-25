@@ -84,7 +84,7 @@ public sealed class KafkaIngressPayloadBindingTests(KafkaIngressFixture fixture)
             data["scheduledAt"] = null;
         }
 
-        using JsonDocument document = JsonDocument.Parse(data.ToJsonString());
+        using var document = JsonDocument.Parse(data.ToJsonString());
 
         IngressRequest? request = IngressRequestBinder.Bind(document.RootElement);
 
@@ -102,7 +102,7 @@ public sealed class KafkaIngressPayloadBindingTests(KafkaIngressFixture fixture)
     {
         var idempotencyKey = new string('k', 200);
         JsonObject data = ValidData(idempotencyKey);
-        using JsonDocument document = JsonDocument.Parse(data.ToJsonString());
+        using var document = JsonDocument.Parse(data.ToJsonString());
 
         IngressRequest? request = IngressRequestBinder.Bind(document.RootElement);
 

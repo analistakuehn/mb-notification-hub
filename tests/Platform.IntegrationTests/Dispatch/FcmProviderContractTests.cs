@@ -46,7 +46,7 @@ public sealed class FcmProviderContractTests
 
         FakeProviderRequest sendRequest = server.Requests.Single(request => request.Path == SendPath);
         sendRequest.Authorization.ShouldBe("Bearer fake-access-token");
-        using JsonDocument payload = JsonDocument.Parse(sendRequest.Body);
+        using var payload = JsonDocument.Parse(sendRequest.Body);
         JsonElement message = payload.RootElement.GetProperty("message");
         message.GetProperty("token").GetString().ShouldBe("device-token-1");
         message.GetProperty("notification").GetProperty("title").GetString().ShouldBe("Código de acesso");

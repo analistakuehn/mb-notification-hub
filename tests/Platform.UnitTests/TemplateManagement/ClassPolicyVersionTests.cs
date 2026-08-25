@@ -154,7 +154,7 @@ public sealed class ClassPolicyVersionTests
     public void Integrity_verification_detects_a_definition_that_no_longer_matches_its_hash()
     {
         ClassPolicyVersion intact = Draft();
-        ClassPolicyVersion tampered = ClassPolicyVersion.Rehydrate(new ClassPolicyVersionState
+        var tampered = ClassPolicyVersion.Rehydrate(new ClassPolicyVersionState
         {
             Application = "araia-cambio",
             Class = NotificationClass.Critical,

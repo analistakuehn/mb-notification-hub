@@ -15,7 +15,7 @@ internal sealed class NotificationsRedisConnection(IOptions<NotificationsRedisOp
 {
     private readonly Lazy<ConnectionMultiplexer> _connection = new(() =>
     {
-        ConfigurationOptions configuration = ConfigurationOptions.Parse(options.Value.ConnectionString);
+        var configuration = ConfigurationOptions.Parse(options.Value.ConnectionString);
         configuration.AbortOnConnectFail = false;
         return ConnectionMultiplexer.Connect(configuration);
     });

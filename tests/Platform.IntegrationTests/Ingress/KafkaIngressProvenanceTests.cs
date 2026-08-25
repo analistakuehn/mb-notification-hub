@@ -160,13 +160,13 @@ public sealed class KafkaIngressProvenanceTests(KafkaIngressFixture fixture)
             .Where(candidate => candidate.Action == action && candidate.EntityId == entityId)
             .Select(candidate => new { candidate.ActorId, candidate.DetailsJson })
             .SingleAsync());
-        using JsonDocument document = JsonDocument.Parse(entry.DetailsJson);
+        using var document = JsonDocument.Parse(entry.DetailsJson);
         return (entry.ActorId, document.RootElement.Clone());
     }
 
     private static string EnvelopeIdOf(string body)
     {
-        using JsonDocument document = JsonDocument.Parse(body);
+        using var document = JsonDocument.Parse(body);
         return document.RootElement.GetProperty("id").GetString()!;
     }
 }

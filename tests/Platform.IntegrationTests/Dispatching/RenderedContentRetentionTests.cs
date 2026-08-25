@@ -386,7 +386,7 @@ public sealed class RenderedContentRetentionTests(CorePipelineFixture fixture)
         var plaintext = await fixture.Services
             .GetRequiredService<IEnvelopeCipher>()
             .DecryptAsync(application, sealedContent, CancellationToken.None);
-        using JsonDocument document = JsonDocument.Parse(plaintext);
+        using var document = JsonDocument.Parse(plaintext);
         JsonElement root = document.RootElement;
         return new SealedContentView(
             root.GetProperty("channel").GetString()!,

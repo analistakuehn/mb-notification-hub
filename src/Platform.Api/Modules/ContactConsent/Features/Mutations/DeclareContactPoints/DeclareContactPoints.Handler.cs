@@ -139,7 +139,7 @@ internal static partial class DeclareContactPoints
                 return Result.Success<Outcome>(new Outcome.Declared(BuildResponse(profile, storedPoints)));
             }
 
-            List<OutboxAppend> messages = affectedPointIds
+            var messages = affectedPointIds
                 .Select(pointId => ContactConsentEvents.Build(
                     ContactConsentEvents.ContactChanged, recipientId, pointId, now))
                 .ToList();

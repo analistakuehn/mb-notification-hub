@@ -33,7 +33,7 @@ internal sealed class ChannelSelectionRule : IPolicyRule<NotificationContext>
         PublishedTemplate template = context.Template
             ?? throw new InvalidOperationException("A seleção de canal requer o template resolvido.");
 
-        HashSet<string> contentChannels = template.ChannelsWithContent
+        var contentChannels = template.ChannelsWithContent
             .Select(channel => channel.Value)
             .ToHashSet(StringComparer.Ordinal);
         HashSet<string> reachableChannels = ReachableChannels(recipient);
@@ -69,7 +69,7 @@ internal sealed class ChannelSelectionRule : IPolicyRule<NotificationContext>
 
     private static HashSet<string> ReachableChannels(RecipientSnapshot recipient)
     {
-        HashSet<string> reachable = recipient.ContactPoints
+        var reachable = recipient.ContactPoints
             .Select(point => point.Channel)
             .ToHashSet(StringComparer.Ordinal);
         if (recipient.Devices.Count > 0)

@@ -58,7 +58,7 @@ public sealed class DedupeWindowRuleTests
             PipelineTestData.Context(), PipelineTestData.Policy(), CancellationToken.None);
 
         PolicyRuleResult.Allow allow = result.ShouldBeOfType<PolicyRuleResult.Allow>();
-        using JsonDocument evidence = JsonDocument.Parse(allow.EvidenceJson);
+        using var evidence = JsonDocument.Parse(allow.EvidenceJson);
         evidence.RootElement.GetProperty("heldByThisNotification").GetBoolean().ShouldBeTrue();
     }
 
@@ -71,7 +71,7 @@ public sealed class DedupeWindowRuleTests
             PipelineTestData.Context(), PipelineTestData.Policy(), CancellationToken.None);
 
         PolicyRuleResult.Allow allow = result.ShouldBeOfType<PolicyRuleResult.Allow>();
-        using JsonDocument evidence = JsonDocument.Parse(allow.EvidenceJson);
+        using var evidence = JsonDocument.Parse(allow.EvidenceJson);
         evidence.RootElement.GetProperty("failOpen").GetBoolean().ShouldBeTrue();
         evidence.RootElement.GetProperty("risk").GetString().ShouldBe("duplicate-possible");
     }

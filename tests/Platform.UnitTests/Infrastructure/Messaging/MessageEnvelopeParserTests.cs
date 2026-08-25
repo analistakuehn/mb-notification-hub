@@ -51,7 +51,7 @@ public sealed class MessageEnvelopeParserTests
     [InlineData("payload", MessageEnvelopeParser.ReasonMissingPayload)]
     public void A_missing_required_field_is_permanently_invalid(string field, string expectedReason)
     {
-        using JsonDocument document = JsonDocument.Parse(ValidBody());
+        using var document = JsonDocument.Parse(ValidBody());
         var stripped = new Dictionary<string, JsonElement>();
         foreach (JsonProperty property in document.RootElement.EnumerateObject())
         {

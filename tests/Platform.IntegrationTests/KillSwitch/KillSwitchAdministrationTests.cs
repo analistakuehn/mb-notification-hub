@@ -48,7 +48,7 @@ public sealed class KillSwitchAdministrationTests(NotificationsApiFixture fixtur
             .SingleAsync(candidate => candidate.Action == "kill_switch.changed"
                 && candidate.EntityId == $"producer:{key}"));
         audit.ActorId.ShouldBe(objectId);
-        using JsonDocument details = JsonDocument.Parse(audit.DetailsJson);
+        using var details = JsonDocument.Parse(audit.DetailsJson);
         details.RootElement.GetProperty("before").GetString().ShouldBe("inactive");
         details.RootElement.GetProperty("after").GetString().ShouldBe("active");
         details.RootElement.GetProperty("scope").GetString().ShouldBe("producer");

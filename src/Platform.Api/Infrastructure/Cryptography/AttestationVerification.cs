@@ -31,7 +31,7 @@ public static class AttestationVerification
 
         try
         {
-            using ECDsa ecdsa = ECDsa.Create();
+            using var ecdsa = ECDsa.Create();
             ecdsa.ImportSubjectPublicKeyInfo(publicKey.SubjectPublicKeyInfo, out _);
             return ecdsa.VerifyHash(digest, signature, DSASignatureFormat.Rfc3279DerSequence);
         }

@@ -57,7 +57,7 @@ public sealed class AuditWormExportTests(AuditMaintenanceFixture fixture)
         // both sides had been normalized.
         exported.ShouldContain(line => line.StartsWith("{ \"action\"", StringComparison.Ordinal));
 
-        AuditExportManifest manifest = AuditExportManifest.Parse(
+        var manifest = AuditExportManifest.Parse(
             await ReadObjectAsync(folder + AuditExportKeys.ManifestObject));
         manifest.ChainedCount.ShouldBe(3);
         manifest.Type.ShouldBe("daily");
@@ -158,7 +158,7 @@ public sealed class AuditWormExportTests(AuditMaintenanceFixture fixture)
 
         var folder = DailyFolder(window.PartitionName, DateOnly.FromDateTime(day.UtcDateTime));
         var manifestKey = folder + AuditExportKeys.ManifestObject;
-        AuditExportManifest manifest = AuditExportManifest.Parse(await ReadObjectAsync(manifestKey));
+        var manifest = AuditExportManifest.Parse(await ReadObjectAsync(manifestKey));
         AuditExportManifest forged = manifest with { ChainedCount = manifest.ChainedCount + 1 };
         await OverwriteObjectAsync(manifestKey, forged.CanonicalBytes());
 
@@ -192,8 +192,8 @@ public sealed class AuditWormExportTests(AuditMaintenanceFixture fixture)
 
         // Each manifest continues the chain of the day before it: the head of
         // one slice is the tail of the previous.
-        AuditExportManifest last = AuditExportManifest.Parse(await ReadObjectAsync(lastKey));
-        AuditExportManifest middle = AuditExportManifest.Parse(await ReadObjectAsync(middleKey));
+        var last = AuditExportManifest.Parse(await ReadObjectAsync(lastKey));
+        var middle = AuditExportManifest.Parse(await ReadObjectAsync(middleKey));
         last.Previous!.Key.ShouldBe(middleKey);
         last.Previous.TailHash.ShouldBe(middle.TailHash);
         last.HeadPrevHash.ShouldBe(middle.TailHash);

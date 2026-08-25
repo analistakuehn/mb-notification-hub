@@ -176,7 +176,7 @@ public sealed class KafkaIngressCheckOrderTests(KafkaIngressFixture fixture)
             .Where(entry => entry.EntityId == $"{application}:{idempotencyKey}")
             .Select(entry => entry.DetailsJson)
             .SingleAsync());
-        using JsonDocument audit = JsonDocument.Parse(details);
+        using var audit = JsonDocument.Parse(details);
         audit.RootElement.GetProperty("reason").GetString().ShouldBe("payload-invalid");
     }
 }

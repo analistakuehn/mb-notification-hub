@@ -41,7 +41,7 @@ public sealed class CloudEventOutboxTests
     {
         OutboxAppend append = CloudEventOutbox.Build(Request() with { Traceparent = "00-abc-def-01" });
 
-        using JsonDocument headers = JsonDocument.Parse(append.HeadersJson);
+        using var headers = JsonDocument.Parse(append.HeadersJson);
         headers.RootElement.GetProperty("traceparent").GetString().ShouldBe("00-abc-def-01");
         CloudEventParser.Parse(append.PayloadJson).Event!.Traceparent.ShouldBe("00-abc-def-01");
     }
@@ -66,7 +66,7 @@ public sealed class CloudEventOutboxTests
 
     private static string EnvelopeId(OutboxAppend append)
     {
-        using JsonDocument document = JsonDocument.Parse(append.PayloadJson);
+        using var document = JsonDocument.Parse(append.PayloadJson);
         return document.RootElement.GetProperty("id").GetString()!;
     }
 

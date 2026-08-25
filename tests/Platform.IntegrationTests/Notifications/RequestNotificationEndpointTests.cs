@@ -65,7 +65,7 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
         outboxMessage.EventType.ShouldBe("notification.accepted");
         outboxMessage.PriorityClass.ShouldBe("transactional");
         outboxMessage.SentAt.ShouldBeNull();
-        using JsonDocument envelope = JsonDocument.Parse(outboxMessage.PayloadJson);
+        using var envelope = JsonDocument.Parse(outboxMessage.PayloadJson);
         envelope.RootElement.GetProperty("type").GetString().ShouldBe("notification.accepted");
         envelope.RootElement.GetProperty("schemaVersion").GetInt32().ShouldBe(1);
         envelope.RootElement.GetProperty("priorityClass").GetString().ShouldBe("transactional");
@@ -121,7 +121,7 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
         trails.Count.ShouldBe(1);
         trails[0].Action.ShouldBe("notification.rejected_at_ingress");
         trails[0].ActorId.ShouldBe(producerId);
-        using (JsonDocument details = JsonDocument.Parse(trails[0].DetailsJson))
+        using (var details = JsonDocument.Parse(trails[0].DetailsJson))
         {
             details.RootElement.GetProperty("reason").GetString().ShouldBe("producer-disabled");
             details.RootElement.GetProperty("source").GetString().ShouldBe("rest");
@@ -165,7 +165,7 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
             .SingleAsync(candidate => candidate.Id == storedId));
         // jsonb re-serializes on read, so the projection is compared as JSON
         // values, never as raw text.
-        using JsonDocument maskedProjection = JsonDocument.Parse(notification.VariablesMaskedJson);
+        using var maskedProjection = JsonDocument.Parse(notification.VariablesMaskedJson);
         maskedProjection.RootElement.GetProperty("code").GetString().ShouldBe("***");
         maskedProjection.RootElement.GetProperty("orderId").GetString().ShouldBe("ord-1");
         maskedProjection.RootElement.EnumerateObject().Count().ShouldBe(2);

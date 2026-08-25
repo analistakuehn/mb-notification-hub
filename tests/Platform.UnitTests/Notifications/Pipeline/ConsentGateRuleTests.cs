@@ -20,7 +20,7 @@ public sealed class ConsentGateRuleTests
             context, PipelineTestData.Policy(consentPurpose: null), CancellationToken.None);
 
         PolicyRuleResult.Allow allow = result.ShouldBeOfType<PolicyRuleResult.Allow>();
-        using JsonDocument evidence = JsonDocument.Parse(allow.EvidenceJson);
+        using var evidence = JsonDocument.Parse(allow.EvidenceJson);
         evidence.RootElement.GetProperty("basis").GetString().ShouldBe("contractual-or-legal");
     }
 

@@ -76,7 +76,7 @@ public sealed class KafkaIngressProducerKillSwitchTests(KafkaIngressFixture fixt
             .Select(entry => new { entry.ActorId, entry.DetailsJson })
             .SingleAsync());
         trail.ActorId.ShouldBe(KafkaIngressFixture.RequestedProducer);
-        using JsonDocument details = JsonDocument.Parse(trail.DetailsJson);
+        using var details = JsonDocument.Parse(trail.DetailsJson);
         details.RootElement.GetProperty("reason").GetString().ShouldBe("producer-disabled");
     }
 

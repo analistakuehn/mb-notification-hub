@@ -148,7 +148,7 @@ internal sealed class KillSwitchHoldReleaser(
         notificationId = default;
         try
         {
-            using JsonDocument document = JsonDocument.Parse(payloadJson);
+            using var document = JsonDocument.Parse(payloadJson);
             JsonElement payload = document.RootElement;
             return payload.ValueKind == JsonValueKind.Object
                 && payload.TryGetProperty("notificationId", out JsonElement value)

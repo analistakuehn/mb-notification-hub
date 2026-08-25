@@ -23,7 +23,7 @@ public sealed class QuietHoursRuleTests
             context, PipelineTestData.Policy(quietHours: null), CancellationToken.None);
 
         PolicyRuleResult.Allow allow = result.ShouldBeOfType<PolicyRuleResult.Allow>();
-        using JsonDocument evidence = JsonDocument.Parse(allow.EvidenceJson);
+        using var evidence = JsonDocument.Parse(allow.EvidenceJson);
         evidence.RootElement.GetProperty("window").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 

@@ -30,7 +30,7 @@ public sealed class SendGridProviderContractTests
         captured.Method.ShouldBe("POST");
         captured.Path.ShouldBe("/v3/mail/send");
         captured.Authorization.ShouldBe("Bearer sg-test-key");
-        using JsonDocument payload = JsonDocument.Parse(captured.Body);
+        using var payload = JsonDocument.Parse(captured.Body);
         JsonElement root = payload.RootElement;
         root.GetProperty("personalizations")[0].GetProperty("to")[0]
             .GetProperty("email").GetString().ShouldBe("person@example.com");

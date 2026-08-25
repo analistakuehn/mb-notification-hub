@@ -114,7 +114,7 @@ internal sealed class WormExportVerifier(IWormObjectStore store, IOptions<WormEx
                 return new WormChainWalkResult(false, "manifest-missing", visited, currentKey);
             }
 
-            AuditExportManifest manifest = AuditExportManifest.Parse(content);
+            var manifest = AuditExportManifest.Parse(content);
             visited++;
             if (manifest.Previous is null)
             {
@@ -128,7 +128,7 @@ internal sealed class WormExportVerifier(IWormObjectStore store, IOptions<WormEx
                     false, "previous-manifest-missing", visited, manifest.Previous.Key);
             }
 
-            AuditExportManifest previousManifest = AuditExportManifest.Parse(previous);
+            var previousManifest = AuditExportManifest.Parse(previous);
             if (!string.Equals(previousManifest.TailHash, manifest.Previous.TailHash, StringComparison.Ordinal))
             {
                 return new WormChainWalkResult(
@@ -153,7 +153,7 @@ internal sealed class WormExportVerifier(IWormObjectStore store, IOptions<WormEx
             return "attestation-missing";
         }
 
-        AuditAttestationDocument attestation = AuditAttestationDocument.Parse(attestationBytes);
+        var attestation = AuditAttestationDocument.Parse(attestationBytes);
         var digest = AuditDigest.Compute(manifestBytes);
         if (!string.Equals(AuditHex.ToHex(digest), attestation.ManifestDigest, StringComparison.Ordinal))
         {
@@ -167,7 +167,7 @@ internal sealed class WormExportVerifier(IWormObjectStore store, IOptions<WormEx
             return "public-key-missing";
         }
 
-        AuditAttestationKeyDocument archived = AuditAttestationKeyDocument.Parse(keyBytes);
+        var archived = AuditAttestationKeyDocument.Parse(keyBytes);
         return AttestationVerification.VerifyDigest(archived.ToPublicKey(), digest, attestation.Signature)
             ? null
             : "signature-invalid";
@@ -240,7 +240,7 @@ internal sealed class WormExportVerifier(IWormObjectStore store, IOptions<WormEx
             long seq;
             try
             {
-                using JsonDocument document = JsonDocument.Parse(line);
+                using var document = JsonDocument.Parse(line);
                 seq = document.RootElement.GetProperty("seq").GetInt64();
             }
             catch (Exception exception) when (exception is JsonException or KeyNotFoundException)

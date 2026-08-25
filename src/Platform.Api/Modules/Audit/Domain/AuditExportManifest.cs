@@ -137,7 +137,7 @@ internal sealed record AuditExportManifest
     public static AuditExportManifest Parse(byte[] content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        using JsonDocument document = JsonDocument.Parse(content);
+        using var document = JsonDocument.Parse(content);
         JsonElement root = document.RootElement;
         JsonElement previous = root.GetProperty("previous");
 

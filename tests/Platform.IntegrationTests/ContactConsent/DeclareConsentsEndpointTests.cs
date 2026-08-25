@@ -20,7 +20,7 @@ public sealed class DeclareConsentsEndpointTests(ContactConsentApiFixture fixtur
             ContactConsentApi.ConsentEntry("marketing", "email", granted: true, source: "app", termsVersion: "v3"));
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         JsonElement consent = body.RootElement.GetProperty("consents")[0];
         consent.GetProperty("purpose").GetString().ShouldBe("marketing");
         consent.GetProperty("channel").GetString().ShouldBe("email");
@@ -55,7 +55,7 @@ public sealed class DeclareConsentsEndpointTests(ContactConsentApiFixture fixtur
         HttpResponseMessage replay = await ContactConsentApi.PutConsentsAsync(writer, recipientId, entry);
 
         replay.StatusCode.ShouldBe(HttpStatusCode.OK);
-        JsonDocument body = JsonDocument.Parse(await replay.Content.ReadAsStringAsync());
+        var body = JsonDocument.Parse(await replay.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("consents").GetArrayLength().ShouldBe(1);
         body.RootElement.GetProperty("consents")[0].GetProperty("granted").GetBoolean().ShouldBeTrue();
 
@@ -82,7 +82,7 @@ public sealed class DeclareConsentsEndpointTests(ContactConsentApiFixture fixtur
                 "marketing", "email", granted: false, source: "atendimento", termsVersion: "v2"));
 
         revocation.StatusCode.ShouldBe(HttpStatusCode.OK);
-        JsonDocument body = JsonDocument.Parse(await revocation.Content.ReadAsStringAsync());
+        var body = JsonDocument.Parse(await revocation.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("consents")[0].GetProperty("granted").GetBoolean().ShouldBeFalse();
 
         List<LedgerRecord> ledger = await LedgerAsync(recipientId);
@@ -102,7 +102,7 @@ public sealed class DeclareConsentsEndpointTests(ContactConsentApiFixture fixtur
             ContactConsentApi.ConsentEntry("marketing", "whatsapp", granted: true));
 
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        JsonDocument problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         problem.RootElement.GetProperty("type").GetString().ShouldBe("no-contact-point-for-channel");
         (await LedgerAsync(recipientId)).ShouldBeEmpty();
     }
@@ -117,7 +117,7 @@ public sealed class DeclareConsentsEndpointTests(ContactConsentApiFixture fixtur
             ContactConsentApi.ConsentEntry("marketing", "email", granted: true));
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        JsonDocument problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         problem.RootElement.GetProperty("type").GetString().ShouldBe("recipient-not-found");
     }
 

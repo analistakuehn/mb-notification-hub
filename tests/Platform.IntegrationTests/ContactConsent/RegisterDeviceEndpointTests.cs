@@ -21,7 +21,7 @@ public sealed class RegisterDeviceEndpointTests(ContactConsentApiFixture fixture
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var responseBody = await response.Content.ReadAsStringAsync();
         responseBody.ShouldNotContain(token);
-        JsonDocument body = JsonDocument.Parse(responseBody);
+        var body = JsonDocument.Parse(responseBody);
         Guid deviceTokenId = body.RootElement.GetProperty("deviceTokenId").GetGuid();
 
         var stored = await fixture.QueryContactConsentDbAsync(db => db.DeviceTokens
@@ -67,7 +67,7 @@ public sealed class RegisterDeviceEndpointTests(ContactConsentApiFixture fixture
         HttpResponseMessage first = await ContactConsentApi.PostDeviceAsync(
             writer, recipientId, token, appVersion: "3.1.0");
         first.StatusCode.ShouldBe(HttpStatusCode.OK);
-        JsonDocument firstBody = JsonDocument.Parse(await first.Content.ReadAsStringAsync());
+        var firstBody = JsonDocument.Parse(await first.Content.ReadAsStringAsync());
         Guid deviceTokenId = firstBody.RootElement.GetProperty("deviceTokenId").GetGuid();
         DateTimeOffset firstSeen = await fixture.QueryContactConsentDbAsync(db => db.DeviceTokens
             .AsNoTracking()
@@ -79,7 +79,7 @@ public sealed class RegisterDeviceEndpointTests(ContactConsentApiFixture fixture
             writer, recipientId, token, appVersion: "3.2.0");
 
         second.StatusCode.ShouldBe(HttpStatusCode.OK);
-        JsonDocument secondBody = JsonDocument.Parse(await second.Content.ReadAsStringAsync());
+        var secondBody = JsonDocument.Parse(await second.Content.ReadAsStringAsync());
         secondBody.RootElement.GetProperty("deviceTokenId").GetGuid().ShouldBe(deviceTokenId);
 
         var rows = await fixture.QueryContactConsentDbAsync(db => db.DeviceTokens

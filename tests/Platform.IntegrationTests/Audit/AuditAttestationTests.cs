@@ -49,12 +49,12 @@ public sealed class AuditAttestationTests(AuditMaintenanceFixture fixture)
 
         // The artifact says which key signed it and how, which is what lets a
         // verifier check it without knowing who produced it.
-        AuditAttestationDocument attestation = AuditAttestationDocument.Parse(
+        var attestation = AuditAttestationDocument.Parse(
             await ReadObjectAsync(folder + AuditExportKeys.AttestationObject));
         attestation.KeyId.ShouldBe(fixture.KmsKeyId);
         attestation.Algorithm.ShouldBe(AttestationAlgorithms.EcdsaSha256);
 
-        AuditAttestationKeyDocument archived = AuditAttestationKeyDocument.Parse(
+        var archived = AuditAttestationKeyDocument.Parse(
             await ReadObjectAsync(AuditExportKeys.PublicKeyObject("audit-export/v1", fixture.KmsKeyId)));
         archived.KeyId.ShouldBe(fixture.KmsKeyId);
         AttestationVerification

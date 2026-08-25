@@ -126,7 +126,7 @@ internal sealed class SqsOutboxPublisher(
             [EventTypeAttribute] = StringAttribute(message.EventType),
         };
 
-        using JsonDocument headers = JsonDocument.Parse(message.HeadersJson);
+        using var headers = JsonDocument.Parse(message.HeadersJson);
         if (headers.RootElement.ValueKind is JsonValueKind.Object)
         {
             foreach (JsonProperty header in headers.RootElement.EnumerateObject())

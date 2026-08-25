@@ -77,7 +77,7 @@ public sealed class PublishedReadMemoizationTests
 
     private static JsonElement Variables(string json)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
         return document.RootElement.Clone();
     }
 }

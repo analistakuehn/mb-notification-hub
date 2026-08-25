@@ -48,7 +48,7 @@ public sealed class ContactConsentAuthorizationTests(ContactConsentApiFixture fi
 
         badChannel.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         badChannel.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
-        JsonDocument problem = JsonDocument.Parse(await badChannel.Content.ReadAsStringAsync());
+        var problem = JsonDocument.Parse(await badChannel.Content.ReadAsStringAsync());
         problem.RootElement.GetProperty("errors").EnumerateObject().Any().ShouldBeTrue();
 
         HttpResponseMessage badTimezone = await ContactConsentApi.PutContactPointsAsync(

@@ -31,7 +31,7 @@ internal static class Program
 
     internal static async Task<int> Main(string[] args)
     {
-        ProbeSettings settings = ProbeSettings.Parse(args);
+        var settings = ProbeSettings.Parse(args);
         if (settings.ConnectionString is not null && !settings.AllowTrailWrites)
         {
             Console.Error.WriteLine(
@@ -88,7 +88,7 @@ internal static class Program
             return await RunRelayAsync(database, settings, cancellationToken);
         }
 
-        PartitionMonth current = PartitionMonth.Of(DateTimeOffset.UtcNow);
+        var current = PartitionMonth.Of(DateTimeOffset.UtcNow);
         IReadOnlyList<PartitionMonth> distinct =
         [
             .. Enumerable.Range(1, settings.Appenders)
@@ -386,13 +386,13 @@ internal static class Program
         ProbeSettings settings,
         CancellationToken cancellationToken)
     {
-        GateMeasurement measurement = GateMeasurement.From(
+        var measurement = GateMeasurement.From(
             outcome.Arms, settings.GateArm, outcome.RoundTrip
                 ?? throw new InvalidOperationException("A rodada de guarda não mediu a ida trivial ao banco."));
 
         if (settings.UpdateBaseline)
         {
-            ContentionBaseline recorded = ContentionBaseline.From(
+            var recorded = ContentionBaseline.From(
                 measurement, settings.Appenders, $"{outcome.Environment.Host} / {outcome.Environment.Target}");
             await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
             Report($"Linha de base gravada em {settings.BaselinePath}.");

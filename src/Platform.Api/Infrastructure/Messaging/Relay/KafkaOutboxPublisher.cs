@@ -189,7 +189,7 @@ internal sealed class KafkaOutboxPublisher : IOutboxPublisher, IDisposable
             { EventTypeHeader, Encoding.UTF8.GetBytes(message.EventType) },
         };
 
-        using JsonDocument stored = JsonDocument.Parse(message.HeadersJson);
+        using var stored = JsonDocument.Parse(message.HeadersJson);
         if (stored.RootElement.ValueKind is JsonValueKind.Object)
         {
             foreach (JsonProperty header in stored.RootElement.EnumerateObject())

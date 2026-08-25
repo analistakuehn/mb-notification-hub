@@ -30,7 +30,7 @@ public sealed class AuditExportManifestTests
     [Fact]
     public void Every_field_survives_the_round_trip()
     {
-        AuditExportManifest parsed = AuditExportManifest.Parse(Sample().CanonicalBytes());
+        var parsed = AuditExportManifest.Parse(Sample().CanonicalBytes());
 
         parsed.ShouldBe(Sample());
     }

@@ -94,7 +94,7 @@ public sealed class KafkaIngressWorkerRole : IWorkerRoleModule
         KafkaIngressOptions ingress = configuration
             .GetSection(KafkaIngressOptions.SectionName)
             .Get<KafkaIngressOptions>() ?? new KafkaIngressOptions();
-        KafkaIngressTopicMap topicMap = KafkaIngressTopicMap.Create(ingress);
+        var topicMap = KafkaIngressTopicMap.Create(ingress);
         services.AddSingleton(topicMap);
         services.AddKafkaTopicConsumer<KafkaIngressProcessor>(
             topicMap.ConsumerGroup, topicMap.Topics);

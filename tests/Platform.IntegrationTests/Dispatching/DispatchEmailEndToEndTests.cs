@@ -59,7 +59,7 @@ public sealed class DispatchEmailEndToEndTests(CorePipelineFixture fixture)
             .Where(candidate => candidate.Body.Contains(email, StringComparison.Ordinal))
             .ShouldHaveSingleItem();
         request.Authorization.ShouldBe("Bearer test-key");
-        using JsonDocument payload = JsonDocument.Parse(request.Body);
+        using var payload = JsonDocument.Parse(request.Body);
         JsonElement personalization = payload.RootElement.GetProperty("personalizations")[0];
         personalization.GetProperty("to")[0].GetProperty("email").GetString().ShouldBe(email);
         JsonElement customArgs = personalization.GetProperty("custom_args");

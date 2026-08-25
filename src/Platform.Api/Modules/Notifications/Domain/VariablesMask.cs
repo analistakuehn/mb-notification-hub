@@ -37,7 +37,7 @@ internal static class VariablesMask
             }
         }
 
-        using JsonDocument masked = JsonDocument.Parse(root.ToJsonString());
+        using var masked = JsonDocument.Parse(root.ToJsonString());
         return Encoding.UTF8.GetString(CanonicalJson.CanonicalBytes(masked.RootElement));
     }
 

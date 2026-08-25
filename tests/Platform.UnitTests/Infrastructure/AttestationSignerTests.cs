@@ -79,7 +79,7 @@ public sealed class AttestationSignerTests
     [Fact]
     public void The_local_provider_refuses_a_key_that_is_not_the_declared_curve()
     {
-        using ECDsa other = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        using var other = ECDsa.Create(ECCurve.NamedCurves.nistP384);
         var pkcs8 = Convert.ToBase64String(other.ExportPkcs8PrivateKey());
 
         Should.Throw<InvalidOperationException>(() => new LocalKeyAttestationSigner(

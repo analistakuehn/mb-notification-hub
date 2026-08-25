@@ -62,7 +62,7 @@ internal sealed class ValidateStage(
 
         var plaintext = await cipher.DecryptAsync(
             context.Notification.Application, sealedVariables, cancellationToken);
-        using JsonDocument document = JsonDocument.Parse(plaintext);
+        using var document = JsonDocument.Parse(plaintext);
         return document.RootElement.Clone();
     }
 }

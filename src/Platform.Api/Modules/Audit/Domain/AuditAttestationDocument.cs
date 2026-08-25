@@ -34,7 +34,7 @@ internal sealed record AuditAttestationDocument(
     public static AuditAttestationDocument Parse(byte[] content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        using JsonDocument document = JsonDocument.Parse(content);
+        using var document = JsonDocument.Parse(content);
         JsonElement root = document.RootElement;
         return new AuditAttestationDocument(
             root.GetProperty("algorithm").GetString()!,
@@ -70,7 +70,7 @@ internal sealed record AuditAttestationKeyDocument(string Algorithm, string KeyI
     public static AuditAttestationKeyDocument Parse(byte[] content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        using JsonDocument document = JsonDocument.Parse(content);
+        using var document = JsonDocument.Parse(content);
         JsonElement root = document.RootElement;
         return new AuditAttestationKeyDocument(
             root.GetProperty("algorithm").GetString()!,

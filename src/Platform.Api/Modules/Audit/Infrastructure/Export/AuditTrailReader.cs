@@ -52,7 +52,7 @@ internal sealed record AuditTrailRow(
             return null;
         }
 
-        using JsonDocument document = JsonDocument.Parse(Canonical);
+        using var document = JsonDocument.Parse(Canonical);
         JsonElement root = document.RootElement;
         (string Field, bool Agrees)[] comparisons =
         [

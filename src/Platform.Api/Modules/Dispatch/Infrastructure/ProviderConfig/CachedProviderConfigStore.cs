@@ -98,7 +98,7 @@ internal sealed class CachedProviderConfigStore(
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
-        Dictionary<string, string> providerKeyByChannel = rows
+        var providerKeyByChannel = rows
             .GroupBy(row => row.ChannelValue, StringComparer.Ordinal)
             .ToDictionary(
                 group => group.Key,

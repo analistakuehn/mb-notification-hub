@@ -47,7 +47,7 @@ internal sealed class QuietHoursRule(TimeProvider timeProvider) : IPolicyRule<No
 
         RecipientSnapshot recipient = context.Recipient
             ?? throw new InvalidOperationException("A regra de janela de silêncio requer o destinatário resolvido.");
-        TimeZoneInfo timezone = TimeZoneInfo.FindSystemTimeZoneById(recipient.Timezone);
+        var timezone = TimeZoneInfo.FindSystemTimeZoneById(recipient.Timezone);
         DateTimeOffset nowUtc = timeProvider.GetUtcNow();
         DateTimeOffset localNow = TimeZoneInfo.ConvertTime(nowUtc, timezone);
         if (NextReleaseInstant(localNow, window, timezone) is not { } releaseAt)
@@ -105,7 +105,7 @@ internal sealed class QuietHoursRule(TimeProvider timeProvider) : IPolicyRule<No
             return null;
         }
 
-        DateTime releaseLocal = releaseDate.ToDateTime(window.To, DateTimeKind.Unspecified);
+        var releaseLocal = releaseDate.ToDateTime(window.To, DateTimeKind.Unspecified);
         return new DateTimeOffset(releaseLocal, timezone.GetUtcOffset(releaseLocal)).ToUniversalTime();
     }
 

@@ -55,7 +55,7 @@ internal static class InterferenceScenario
 
         var purgeSeconds = 0.0;
         var purged = 0;
-        Task purge = Task.Run(
+        var purge = Task.Run(
             async () =>
             {
                 var started = Stopwatch.GetTimestamp();

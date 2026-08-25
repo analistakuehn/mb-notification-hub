@@ -93,7 +93,7 @@ internal sealed class OutboxRelay(
         IReadOnlyList<PendingOutboxMessage> messages,
         IReadOnlyList<OutboxPublishFailure> failures)
     {
-        Dictionary<Guid, PendingOutboxMessage> byId = messages.ToDictionary(message => message.Id);
+        var byId = messages.ToDictionary(message => message.Id);
         DateTimeOffset now = timeProvider.GetUtcNow();
         foreach (IGrouping<string, OutboxPublishFailure> group in
             failures.GroupBy(failure => failure.Destination, StringComparer.Ordinal))

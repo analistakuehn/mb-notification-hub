@@ -181,7 +181,7 @@ public sealed class KafkaIngressAuthorizationTests(KafkaIngressFixture fixture)
                 && entry.EntityId == $"{application}:{idempotencyKey}")
             .Select(entry => entry.DetailsJson)
             .SingleAsync());
-        using JsonDocument audit = JsonDocument.Parse(details);
+        using var audit = JsonDocument.Parse(details);
         audit.RootElement.GetProperty("source").GetString().ShouldBe("kafka");
         return audit.RootElement.GetProperty("reason").GetString();
     }

@@ -129,7 +129,7 @@ internal sealed class AuditEvidenceReader(AuditDbContext db) : IAuditEvidence
     {
         try
         {
-            using JsonDocument parsed = JsonDocument.Parse(row.Canonical!);
+            using var parsed = JsonDocument.Parse(row.Canonical!);
             return parsed.RootElement.Clone();
         }
         catch (JsonException exception)
