@@ -247,7 +247,7 @@ internal sealed class NotificationEvidenceReader(
     /// </summary>
     private static JsonElement ParseDocument(string json)
     {
-        using JsonDocument parsed = JsonDocument.Parse(json);
+        using var parsed = JsonDocument.Parse(json);
         return parsed.RootElement.Clone();
     }
 

@@ -111,7 +111,7 @@ public sealed class AuditReconstructionTests(CorePipelineFixture fixture)
         Reconstructed sent = await SendAndReconstructAsync();
 
         JsonElement accepted = AuditApi.LinkOf(sent.Body.GetProperty("trail"), "notification.accepted");
-        using JsonDocument canonical = JsonDocument.Parse(accepted.GetProperty("canonical").GetString()!);
+        using var canonical = JsonDocument.Parse(accepted.GetProperty("canonical").GetString()!);
         JsonElement inside = canonical.RootElement;
 
         // Each scalar of the link equals the value inside the text the hash

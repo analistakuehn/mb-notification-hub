@@ -47,7 +47,7 @@ public sealed class EvidenceAttemptProjectionTests
         projected.DeliveryEvents.ShouldBeEmpty();
         projected.DeliveredAt.ShouldBeNull();
 
-        using JsonDocument written = JsonDocument.Parse(JsonSerializer.Serialize(projected, Options));
+        using var written = JsonDocument.Parse(JsonSerializer.Serialize(projected, Options));
         written.RootElement.GetProperty("deliveryEvents").GetArrayLength().ShouldBe(0);
         written.RootElement.TryGetProperty("deliveredAt", out _).ShouldBeFalse();
     }
@@ -60,7 +60,7 @@ public sealed class EvidenceAttemptProjectionTests
                 deliveredAt: null,
                 Feedback("sg-3", "bounced", Anchor, errorCode: "hard-bounce")));
 
-        using JsonDocument written = JsonDocument.Parse(JsonSerializer.Serialize(projected, Options));
+        using var written = JsonDocument.Parse(JsonSerializer.Serialize(projected, Options));
         JsonElement feedback = written.RootElement.GetProperty("deliveryEvents")[0];
 
         feedback.GetProperty("errorCode").GetString().ShouldBe("hard-bounce");
@@ -83,7 +83,7 @@ public sealed class EvidenceAttemptProjectionTests
         GetNotificationEvidence.AttemptView projected = GetNotificationEvidence.ToAttempt(
             Attempt(deliveredAt: null, Feedback("sg-4", "delivered", Anchor, errorCode: "code")));
 
-        using JsonDocument written = JsonDocument.Parse(JsonSerializer.Serialize(projected, Options));
+        using var written = JsonDocument.Parse(JsonSerializer.Serialize(projected, Options));
         var members = written.RootElement.GetProperty("deliveryEvents")[0]
             .EnumerateObject()
             .Select(member => member.Name)
