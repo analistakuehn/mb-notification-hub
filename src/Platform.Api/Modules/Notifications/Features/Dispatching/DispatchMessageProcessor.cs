@@ -6,6 +6,7 @@ using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
@@ -47,6 +48,7 @@ internal sealed class DispatchMessageProcessor(
     NotificationsDbContext db,
     AttemptDispatchWriter writer,
     ChannelKillSwitchGate channelKillSwitchGate,
+    AutomaticChannelKillSwitch automaticChannelKillSwitch,
     IRecipientDirectory recipientDirectory,
     IDeviceTokenLifecycle deviceTokenLifecycle,
     IEnvelopeCipher cipher,
@@ -59,6 +61,14 @@ internal sealed class DispatchMessageProcessor(
     internal const string ReasonNotificationNotFound = "notification-not-found";
     internal const string ReasonProviderThrottled = "provider-throttled";
     internal const string ReasonCircuitOpen = "circuit-open";
+
+    /// <summary>
+    /// Stable reason of a send this hub held back to stay inside the
+    /// provider's contracted rate. It is separate from the provider's own
+    /// throttle because the two read differently on a queue: this one is
+    /// congestion of our own making and says nothing about the provider.
+    /// </summary>
+    internal const string ReasonRateLimited = "rate-limited";
 
     /// <summary>Stable code of a send whose contact point vanished between routing and send.</summary>
     internal const string ErrorContactPointUnavailable = "contact-point-unavailable";
@@ -76,6 +86,14 @@ internal sealed class DispatchMessageProcessor(
 
     /// <summary>Adapter code of an open circuit: the only transient error that proves no call was taken.</summary>
     internal const string CircuitOpenErrorCode = "circuit-open";
+
+    /// <summary>
+    /// Code the provider surface returns when this hub's own rate limit held
+    /// the send back. Mirrored here as a string, like the open-circuit code
+    /// above: the code is part of what the send contract answers, and the
+    /// types behind it belong to another context.
+    /// </summary>
+    internal const string RateLimitedErrorCode = "rate-limited";
 
     /// <summary>Provider codes that invalidate the device token after the verdict commits.</summary>
     private static readonly string[] TokenInvalidationCodes = ["UNREGISTERED", "INVALID_ARGUMENT"];
@@ -218,12 +236,17 @@ internal sealed class DispatchMessageProcessor(
             target.Value!,
             content.ToRenderedMessage(),
             new DispatchCorrelation(notification.Id, attempt.Id),
-            remainingValidity);
+            remainingValidity,
+            notification.Application);
 
         stopped = await channelKillSwitchGate.EvaluateAsync(
             notification, attempt, envelope, claimed: true, cancellationToken);
         if (stopped is not null) return stopped;
 
+        // The provider surface spends this send's share of the contracted rate
+        // before it calls, which is why the send happens here and not earlier:
+        // budget is only worth spending on a message that is still valid and
+        // still allowed to leave.
         ProviderResult result = await provider.Value!.SendAsync(request, cancellationToken);
         var settlement = new DispatchSettlementContext(
             notification,
@@ -231,7 +254,14 @@ internal sealed class DispatchMessageProcessor(
             provider.Value!.ProviderKey,
             deviceTokenId,
             envelope.MessageId);
-        return await SettleVerdictAsync(settlement, result, cancellationToken);
+        MessageDisposition disposition = await SettleVerdictAsync(settlement, result, cancellationToken);
+
+        // After the settlement, and never inside it: what one verdict says
+        // about the provider's circuit is a channel-wide matter, and it must
+        // not be able to undo the transition of this attempt.
+        await automaticChannelKillSwitch.ObserveAsync(
+            attempt.Channel, CircuitSignalOf(result), cancellationToken);
+        return disposition;
     }
 
     /// <summary>
@@ -263,6 +293,40 @@ internal sealed class DispatchMessageProcessor(
             ProviderOutcome.TransientError => DispatchVerdict.Unknown,
             _ => throw new InvalidOperationException($"Desfecho de provedor não suportado: {result.Outcome}."),
         };
+
+    /// <summary>
+    /// What one verdict says about the provider circuit of this channel. Only
+    /// the open circuit counts as a circuit signal, because it is the only
+    /// answer the pipeline gives without calling: every other verdict, an
+    /// acceptance, a rejection, a timeout, a throttle by the provider, proves
+    /// the breaker let the call through and therefore that the circuit is
+    /// closed. A send this hub held back on its own rate says nothing at all
+    /// about the provider, so it neither opens nor closes a window.
+    /// </summary>
+    internal static ChannelCircuitSignal CircuitSignalOf(ProviderResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return result.Outcome switch
+        {
+            ProviderOutcome.TransientError when string.Equals(
+                result.ErrorCode, CircuitOpenErrorCode, StringComparison.Ordinal) =>
+                ChannelCircuitSignal.CircuitOpen,
+            ProviderOutcome.Throttled when string.Equals(
+                result.ErrorCode, RateLimitedErrorCode, StringComparison.Ordinal) =>
+                ChannelCircuitSignal.None,
+            _ => ChannelCircuitSignal.ProviderAnswered,
+        };
+    }
+
+    /// <summary>Why a send that never reached the provider goes back to the queue.</summary>
+    private static string RequeueReason(ProviderResult result)
+    {
+        if (result.Outcome != ProviderOutcome.Throttled) return ReasonCircuitOpen;
+
+        return string.Equals(result.ErrorCode, RateLimitedErrorCode, StringComparison.Ordinal)
+            ? ReasonRateLimited
+            : ReasonProviderThrottled;
+    }
 
     private async Task<MessageDisposition> SettleVerdictAsync(
         DispatchSettlementContext context,
@@ -308,9 +372,7 @@ internal sealed class DispatchMessageProcessor(
                 return failed ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
             case DispatchVerdict.Requeue:
                 await writer.RevertToQueuedAsync(context.Attempt, cancellationToken);
-                var reason = result.Outcome == ProviderOutcome.Throttled
-                    ? ReasonProviderThrottled
-                    : ReasonCircuitOpen;
+                var reason = RequeueReason(result);
                 logger.DispatchAttemptRequeued(context.Attempt.Id, context.Notification.Id, reason);
                 return new MessageDisposition.Postponed(result.RetryAfter, reason);
             case DispatchVerdict.Unknown:

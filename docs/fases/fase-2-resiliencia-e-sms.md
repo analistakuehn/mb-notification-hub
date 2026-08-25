@@ -168,7 +168,7 @@ A decomposição em fatias prometida no fim da seção de implantação foi prod
 | Delivery Tracker com webhooks assinados e replay protection | Concluída (fatias F2-1 e F2-2, commit `7af6e32`) |
 | Fallback declarativo, unicidade do avanço de plano | Concluída (fatia F2-4, commit `7af6e32`) |
 | Scheduler DB-backed | Concluída (fatia F2-5, commit `7af6e32`) |
-| Adapter SMS (Twilio) | Concluída na fatia F2-7; rate limit, kill switch automático e pool de sender por aplicação pendentes na F2-8 |
+| Adapter SMS (Twilio) | Concluída (fatias F2-7 e F2-8), incluindo rate limit por provedor, kill switch automático de canal e pool de sender por aplicação |
 | Supressão automática, reversível e auditada | Concluída (fatia F2-6, commit `47ab335`) |
 | Reconciliação por canal | Pendente (fatia F2-9) |
 | Classe `operational` com janela de silêncio | Pendente (fatia F2-12) |

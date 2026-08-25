@@ -28,11 +28,17 @@ public sealed class TwilioOptions
 
     private readonly Lazy<Regex> _destinationExpression;
 
+    private readonly Lazy<IReadOnlyDictionary<string, string>> _messagingServiceSidsByApplication;
+
     public TwilioOptions()
-        => _destinationExpression = new Lazy<Regex>(() => new Regex(
+    {
+        _destinationExpression = new Lazy<Regex>(() => new Regex(
             DestinationPattern,
             RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture,
             TimeSpan.FromSeconds(1)));
+        _messagingServiceSidsByApplication = new Lazy<IReadOnlyDictionary<string, string>>(
+            () => new Dictionary<string, string>(MessagingServiceSids, StringComparer.OrdinalIgnoreCase));
+    }
 
     [Required]
     [Url]
@@ -64,6 +70,18 @@ public sealed class TwilioOptions
     /// with one verified test number still sends.
     /// </summary>
     public string MessagingServiceSid { get; init; } = "";
+
+    /// <summary>
+    /// Messaging Service per calling application, keyed as the hub names the
+    /// application. A pool carries the brand a recipient sees and the
+    /// compliance registration behind it, so a deployment that serves more
+    /// than one brand allocates one pool per application and this map is where
+    /// the allocation lands. An application without an entry falls back to the
+    /// deployment-wide service, and then to the single verified number, which
+    /// is what keeps a local environment and a single-brand deployment
+    /// unchanged.
+    /// </summary>
+    public Dictionary<string, string> MessagingServiceSids { get; init; } = [];
 
     /// <summary>
     /// Absolute public address of this hub's callback route for this provider,
@@ -119,6 +137,24 @@ public sealed class TwilioOptions
 
     internal IReadOnlyList<string> EffectiveAllowedCountryPrefixes
         => AllowedCountryPrefixes ?? DefaultAllowedCountryPrefixes;
+
+    /// <summary>
+    /// The Messaging Service that owns the sender of one send: the pool of the
+    /// calling application when it has one, the pool of the deployment
+    /// otherwise, and none at all when neither is configured, which leaves the
+    /// single verified number as the sender.
+    /// </summary>
+    internal string? MessagingServiceSidFor(string? application)
+    {
+        if (!string.IsNullOrWhiteSpace(application)
+            && _messagingServiceSidsByApplication.Value.TryGetValue(application, out var perApplication)
+            && !string.IsNullOrWhiteSpace(perApplication))
+        {
+            return perApplication;
+        }
+
+        return string.IsNullOrWhiteSpace(MessagingServiceSid) ? null : MessagingServiceSid;
+    }
 
     internal Regex DestinationExpression => _destinationExpression.Value;
 }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Fcm;
@@ -26,6 +27,15 @@ public static class DispatchProviderSetup
         services.AddOptions<TwilioOptions>()
             .Bind(configuration.GetSection(TwilioOptions.SectionName))
             .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<ProviderRateLimitOptions>()
+            .Bind(configuration.GetSection(ProviderRateLimitOptions.SectionName))
+            .ValidateDataAnnotations()
+            .Validate(
+                options => options.PerProvider.Count == 0
+                    || !string.IsNullOrWhiteSpace(options.RedisConnectionString),
+                $"Há limites de taxa por provedor sem '{ProviderRateLimitOptions.SectionName}:RedisConnectionString'; "
+                + "um limite sem armazenamento seria um controle que nunca mede nada.")
             .ValidateOnStart();
 
         services.AddHttpClient(SendGridChannelProvider.HttpClientName, (serviceProvider, client) =>
@@ -86,21 +96,36 @@ public static class DispatchProviderSetup
         services.AddSingleton<SendGridChannelProvider>();
         services.AddSingleton<FcmChannelProvider>();
         services.AddSingleton<TwilioChannelProvider>();
-        services.AddSingleton<IChannelProvider>(serviceProvider =>
-            new ConcurrencyLimitedChannelProvider(
-                serviceProvider.GetRequiredService<SendGridChannelProvider>(),
-                serviceProvider.GetRequiredService<IOptions<SendGridOptions>>().Value.MaxConcurrency));
-        services.AddSingleton<IChannelProvider>(serviceProvider =>
-            new ConcurrencyLimitedChannelProvider(
-                serviceProvider.GetRequiredService<FcmChannelProvider>(),
-                serviceProvider.GetRequiredService<IOptions<FcmOptions>>().Value.MaxConcurrency));
-        services.AddSingleton<IChannelProvider>(serviceProvider =>
-            new ConcurrencyLimitedChannelProvider(
-                serviceProvider.GetRequiredService<TwilioChannelProvider>(),
-                serviceProvider.GetRequiredService<IOptions<TwilioOptions>>().Value.MaxConcurrency));
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<ProviderRateLimitConnection>();
+        services.AddSingleton<ProviderRateLimiter>();
+        services.AddSingleton<IChannelProvider>(serviceProvider => Limited(
+            serviceProvider,
+            serviceProvider.GetRequiredService<SendGridChannelProvider>(),
+            serviceProvider.GetRequiredService<IOptions<SendGridOptions>>().Value.MaxConcurrency));
+        services.AddSingleton<IChannelProvider>(serviceProvider => Limited(
+            serviceProvider,
+            serviceProvider.GetRequiredService<FcmChannelProvider>(),
+            serviceProvider.GetRequiredService<IOptions<FcmOptions>>().Value.MaxConcurrency));
+        services.AddSingleton<IChannelProvider>(serviceProvider => Limited(
+            serviceProvider,
+            serviceProvider.GetRequiredService<TwilioChannelProvider>(),
+            serviceProvider.GetRequiredService<IOptions<TwilioOptions>>().Value.MaxConcurrency));
 
         return services;
     }
+
+    /// <summary>
+    /// One adapter behind both local controls, rate first: a send with no
+    /// budget left returns without ever occupying a concurrency slot.
+    /// </summary>
+    private static RateLimitedChannelProvider Limited(
+        IServiceProvider serviceProvider,
+        IChannelProvider adapter,
+        int maxConcurrency)
+        => new RateLimitedChannelProvider(
+            new ConcurrencyLimitedChannelProvider(adapter, maxConcurrency),
+            serviceProvider.GetRequiredService<ProviderRateLimiter>());
 
     // Circuit breaker outside, timeout inside, so every timed-out attempt
     // feeds the breaker. No retry on purpose: a provider send is not

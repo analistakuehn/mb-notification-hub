@@ -130,6 +130,8 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
             ["Modules:ContactConsent:Redis:ConnectionString"] = RedisConnectionString,
             ["Modules:ContactConsent:Redis:KeyPrefix"] = RedisKeyPrefix,
             ["Modules:Dispatch:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
+            ["Modules:Dispatch:RateLimits:RedisConnectionString"] = RedisConnectionString,
+            ["Modules:Dispatch:RateLimits:KeyPrefix"] = RedisKeyPrefix,
             ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
         };
         if (overrides is not null)

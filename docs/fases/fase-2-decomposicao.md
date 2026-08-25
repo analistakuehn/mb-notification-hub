@@ -276,8 +276,8 @@ Status observado no repositório na revisão de 2026-08-24:
 | F2-4 | Convivência dos dois gatilhos de fallback | F2-2 | Concluída (commit `7af6e32`) |
 | F2-5 | Scheduler DB-backed no papel `delivery-tracker` | F2-4 | Concluída (commit `7af6e32`) |
 | F2-6 | Supressão automática, reversível e auditada | F2-2 | Concluída (commit `47ab335`) |
-| F2-7 | Adapter SMS completo | F2-1, F2-2 | Concluída, com o pool de sender por aplicação transferido para a F2-8 |
-| F2-8 | Rate limit por provedor e kill switch automático de canal | F2-7 | Pendente |
+| F2-7 | Adapter SMS completo | F2-1, F2-2 | Concluída (commit `b2a885e`), com o pool de sender por aplicação transferido para a F2-8 |
+| F2-8 | Rate limit por provedor e kill switch automático de canal | F2-7 | Concluída, ampliada com o pool de sender por aplicação e o motivo de segurança no fallback |
 | F2-9 | Reconciliação por canal | F2-2, F2-5, F2-7 | Pendente |
 | F2-10 | Relatório mensal de evidências | F2-2 | Pendente |
 | F2-11 | Ativação do fallback push para SMS | F2-5, F2-7 | Pendente |
@@ -459,7 +459,7 @@ Coluna anulável e coluna com default constante são operação de catálogo no 
 **Conjunto de escrita permitido.**
 `src/Platform.Api/Modules/Dispatch/Infrastructure/Resilience/`, `src/Platform.Api/Modules/Dispatch/AGENTS.md`, `src/Platform.Api/Modules/Notifications/Features/Dispatching/`, `src/Platform.Api/Modules/Notifications/Features/KillSwitch/`, `tests/`.
 
-**Contratos.** Nenhum novo: o dispatcher já observa o circuito aberto pelo resultado `circuit-open` do adaptador (`Infrastructure/Providers/Twilio/TwilioChannelProvider.cs:60-63`), e o kill switch já pertence ao módulo Notifications.
+**Contratos.** Um membro opcional novo em `DispatchRequest`, para a aplicação, absorvido da F2-7 junto com o pool de sender por aplicação. O dispatcher já observa o circuito aberto pelo resultado `circuit-open` do adaptador (`Infrastructure/Providers/Twilio/TwilioChannelProvider.cs:60-63`), e o kill switch já pertence ao módulo Notifications.
 
 **Migração de banco.** Nenhuma.
 

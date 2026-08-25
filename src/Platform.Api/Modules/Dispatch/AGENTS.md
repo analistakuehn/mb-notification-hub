@@ -31,7 +31,7 @@
 | `src/Platform.Api/Modules/Dispatch/Infrastructure/ProviderConfig/` | cached read of `provider_config`, channel-to-adapter resolution |
 | `src/Platform.Api/Modules/Dispatch/Infrastructure/Providers/` | SendGrid, FCM and Twilio adapters, their webhook interpreters, error sanitization |
 | `src/Platform.Api/Modules/Dispatch/Infrastructure/Webhooks/` | interpreter resolution, shared verification guards, suppression classification, registration |
-| `src/Platform.Api/Modules/Dispatch/Infrastructure/Resilience/` | per-provider concurrency limiter, circuit-breaker options |
+| `src/Platform.Api/Modules/Dispatch/Infrastructure/Resilience/` | per-provider concurrency limiter, per-provider rate limit and its Redis, circuit-breaker options |
 
 ## Adapter contract
 
@@ -44,6 +44,13 @@
   `custom_args`, the Twilio adapter appends them to the callback address it
   gives the provider, the FCM adapter ignores the member, and the identifiers
   never enter the rendered content nor its audited hashes.
+- `DispatchRequest.Application` names the calling application of the send. It
+  exists for providers whose sending identity is allocated per application, a
+  sender pool bound to one brand being the case in hand, and it is the same kind
+  of pass-through the correlation is: it never enters the rendered content nor
+  its audited hashes, and an adapter whose provider has no such notion ignores
+  it. Null means the caller states nothing and the adapter uses the sending
+  identity of the deployment.
 - `DispatchRequest.Validity` states how long the message is still worth
   delivering, counted from the call. It is the remaining validity of the
   notification, computed by the caller that owns that state, and it reaches
@@ -77,17 +84,20 @@
 
 ## SMS specifics
 
-- The sender is a Messaging Service when one is configured
-  (`Modules:Dispatch:Providers:Twilio:MessagingServiceSid`), so the provider
+- The sender is a Messaging Service when one is configured, so the provider
   picks from the sender pool and keeps the sticky sender per destination.
   Without one the adapter keeps the single verified number, because that is
   what a local environment has; Programmable Messaging still requires one of
   the two.
-- The sender pool is a property of the deployment, not of the calling
-  application. Per-application pools need the application on the request, and
-  the published send contract does not carry it: the correlation member is
-  identifiers only, on purpose. Adding it is an architecture decision, not an
-  adapter change.
+- The pool is chosen per calling application and falls back twice:
+  `MessagingServiceSids` maps an application to its own service, an application
+  with no entry gets `MessagingServiceSid` of the deployment, and with neither
+  the send keeps `FromNumber`. A pool carries the brand a recipient reads and
+  the registration behind it, so a deployment serving more than one brand
+  allocates one pool per application; a single-brand deployment configures none
+  of the map and behaves exactly as before. The configuration guard follows the
+  same resolution: what it demands is a sender for this send, not a specific
+  one of the three.
 - `StatusCallback` is built from a configured absolute address
   (`StatusCallbackUrl`) plus the correlation identifiers as query parameters
   named after the members of `DispatchCorrelation`. The provider echoes
@@ -179,6 +189,22 @@
   configuration.
 - Concurrency per provider is a local semaphore
   (`ConcurrencyLimitedChannelProvider`) wrapping each adapter registration.
+- Rate per provider is a token bucket in Redis
+  (`RateLimitedChannelProvider` over `ProviderRateLimiter`), shared by every
+  instance, sized by the contracted rate with one second of burst. It wraps the
+  concurrency limiter and not the other way round: a send with no budget must
+  not first wait for a slot it is about to give back. A refusal comes back as
+  `Throttled` with the code `rate-limited`, never as a rejection, because this
+  hub decided not to call and the provider said nothing; the caller settles it
+  like any throttle, and the code is what lets it tell our own congestion from
+  the provider's.
+- The bucket fails open with an alarm on any Redis failure, the same posture the
+  ingestion limits hold: a control that blocks sends when its store is
+  unreachable stops a channel for a reason the provider never gave, and the kill
+  switch is the compensation that is meant to stop channels. A provider with no
+  configured rate is not measured at all, and a section with rates but no store
+  refuses to boot, because a limit that never measures anything is worse than a
+  declared absence of limits.
 
 ## Provider configuration
 

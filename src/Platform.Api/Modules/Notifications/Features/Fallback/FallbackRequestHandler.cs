@@ -56,6 +56,17 @@ internal sealed class FallbackRequestHandler(
     /// <summary>Stable reason of a next step whose content no longer renders.</summary>
     internal const string ReasonRenderFailed = "template-render-failed";
 
+    /// <summary>
+    /// Refusal the published renderer answers with when the SMS render of an
+    /// authentication template produces a link. It arrives here as the whole
+    /// error text of a failed render, exactly as it does on the ingestion path,
+    /// and it keeps its own reason for the same motive: the fallback step of an
+    /// authentication plan is precisely where an SMS is reached, so folding it
+    /// into a render failure would file a security refusal as a broken
+    /// template and hide the only case the rule exists for.
+    /// </summary>
+    internal const string ReasonAuthenticationSmsLink = RenderStage.ReasonAuthenticationSmsLink;
+
     public async Task<MessageDisposition> ProcessAsync(
         MessageEnvelope envelope,
         CancellationToken cancellationToken)
@@ -169,13 +180,26 @@ internal sealed class FallbackRequestHandler(
         {
             return await SettleTerminalAsync(
                 envelope, notification, failedAttempt,
-                terminal: PipelineResult.Failed, reason: ReasonRenderFailed, now, cancellationToken);
+                terminal: PipelineResult.Failed, reason: RenderFailureReason(render.Error),
+                now, cancellationToken);
         }
 
         return await QueueNextAttemptAsync(
             envelope, notification, failedAttempt, nextStep, template, contactPointId,
             render.Value!, now, cancellationToken);
     }
+
+    /// <summary>
+    /// Why the content of the next step never rendered. The security refusal
+    /// keeps its own reason and everything else is a render failure, the same
+    /// distinction the ingestion path draws, because the two ask different
+    /// things of whoever reads the ended notification: one is a template to
+    /// fix, the other is a rule that worked.
+    /// </summary>
+    internal static string RenderFailureReason(string? error)
+        => string.Equals(error, ReasonAuthenticationSmsLink, StringComparison.Ordinal)
+            ? ReasonAuthenticationSmsLink
+            : ReasonRenderFailed;
 
     /// <summary>The step after the failed channel in the published plan; null when none follows.</summary>
     internal static DeliveryPlanStep? NextStep(IReadOnlyList<DeliveryPlanStep> plan, string failedChannel)

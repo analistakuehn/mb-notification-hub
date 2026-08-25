@@ -219,6 +219,17 @@ curta própria.
   na outbox deixa o hold sem liberação. Holds expirados de Core e Fallback
   alcançam o estado terminal antes de qualquer novo gate; um hold expirado de
   dispatch retoma pelo caminho de fallback e nunca chama o provider bloqueado.
+- **A parada automática de canal nasce desligada.** Com
+  `Modules:Notifications:AutomaticChannelKillSwitch:Enabled`, o papel
+  `dispatcher` transforma um circuito de provedor aberto por mais de dez
+  minutos seguidos na ativação do kill switch de canal, com ator de sistema e a
+  mesma trilha `kill_switch.changed` da transição humana, mais o motivo
+  `provider-circuit-open` nos detalhes. O gate existe porque a observação do
+  circuito é por processo e a parada é global: uma única instância degradada
+  pararia o canal para toda a frota. Com SMS como último passo do plano, parar o
+  canal deixa código de autenticação esperando até vencer. A volta é sempre
+  humana, pela rota administrativa; nada aqui reativa canal, porque a condição
+  que disparou a parada não diz nada sobre ser seguro voltar.
 - O gate operacional de rollout permanece externo: em um ambiente
   representativo com várias instâncias, a ativação de cada escopo deve resultar
   em zero novos efeitos protegidos após `t0 + 10 s`. Uma ACL exclusiva de writer
@@ -389,7 +400,10 @@ curta própria.
   a etapa posterior ao canal que falhou, renderiza o próximo canal e coloca a
   próxima tentativa na queue com a invariante transacional do pipeline. Uma
   próxima etapa sem conteúdo, contato ou entrada no plano falha a notificação
-  com um motivo estável.
+  com um motivo estável. A recusa de segurança do SMS de autenticação preserva o
+  motivo `authentication-sms-link`, a mesma distinção que o estágio de render
+  faz na ingestão: dobrá-la em falha de template registraria como defeito de
+  conteúdo exatamente o caso para o qual a regra existe.
 - **O avanço do plano é reivindicado no banco, e não deduplicado por mensagem.**
   Existem vários produtores do mesmo gatilho (veredito definitivo do dispatcher,
   liberação de hold de kill switch vencido e, adiante, varredura de prazo) e
@@ -415,6 +429,29 @@ curta própria.
   memória. Na última etapa do plano esse encerramento chega como `failed` com
   esse motivo, e não como `expired`: quem escreve `expired` depois do dispatch é
   o handler de fallback, que é o único a ver o plano inteiro.
+- **O limite de taxa por provedor vem depois da guarda de validade.** A
+  superfície de providers gasta o orçamento contratado do provedor dentro da
+  chamada de envio, ou seja, depois do claim, depois da guarda de validade e
+  depois da segunda avaliação do kill switch. A ordem é a economia do
+  orçamento: orçamento gasto com uma mensagem que a validade já descartou é
+  orçamento que faltou para a próxima que ainda valia. Uma mensagem barrada
+  volta a `queued` e é adiada pelo mesmo caminho do `Throttled` do provedor,
+  com o motivo `rate-limited` em vez de `provider-throttled`, porque o
+  congestionamento é nosso e não do provedor. Barrada nunca vira falha
+  definitiva: o plano avançaria por fila nossa, e não por recusa de quem
+  entrega.
+- **A aplicação viaja no envio.** `DispatchRequest.Application` carrega a
+  aplicação da notificação para providers cuja identidade de envio é alocada por
+  aplicação, como um pool de remetentes por marca. É repasse puro: não entra no
+  conteúdo renderizado nem nos hashes auditados.
+- **O circuito aberto é observado depois da liquidação do veredito.** Cada
+  veredito alimenta a observação do circuito daquele canal, e apenas o circuito
+  aberto conta: qualquer outro desfecho prova que o breaker deixou a chamada
+  passar. Uma tentativa encerrada por validade vencida não chega a essa
+  observação, porque ela termina antes do envio; contá-la pararia o canal pelo
+  prazo do cliente e não pela degradação do provedor. A observação roda depois
+  da liquidação, e nunca dentro dela, para que uma decisão de canal não desfaça
+  a transição da tentativa.
 - PII somente no momento do envio: a renderização selada é aberta em memória, o
   endereço de e-mail vem de `RevealContactValueAsync`, e o token de push vem de
   `RevealDeviceTokenAsync`, ambos transitórios. Os resultados FCM `UNREGISTERED`

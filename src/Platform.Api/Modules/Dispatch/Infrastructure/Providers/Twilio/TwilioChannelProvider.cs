@@ -42,15 +42,15 @@ internal sealed class TwilioChannelProvider(
         ArgumentNullException.ThrowIfNull(request);
         (SmsDeliveryTarget target, SmsMessage message) = Discriminate(request);
         TwilioOptions config = options.Value;
-        EnsureConfigured(config, target.PhoneNumber, message.Body);
+        EnsureConfigured(config, target.PhoneNumber, message.Body, request.Application);
         if (config.Product == TwilioSmsProduct.ProgrammableMessaging
-            && string.IsNullOrWhiteSpace(config.MessagingServiceSid))
+            && config.MessagingServiceSidFor(request.Application) is null)
         {
             logger.TwilioSenderPoolAbsent();
         }
 
         using HttpRequestMessage httpRequest = BuildRequest(
-            target, message, config, request.Correlation, request.Validity);
+            target, message, config, request.Correlation, request.Validity, request.Application);
         var username = config.AuthenticationMode switch
         {
             TwilioAuthenticationMode.ApiKey => config.ApiKeySid,
@@ -90,7 +90,8 @@ internal sealed class TwilioChannelProvider(
         SmsMessage message,
         TwilioOptions config,
         DispatchCorrelation? correlation = null,
-        TimeSpan? validity = null)
+        TimeSpan? validity = null,
+        string? application = null)
     {
         var destination = target.PhoneNumber;
         return config.Product switch
@@ -100,7 +101,7 @@ internal sealed class TwilioChannelProvider(
                 $"2010-04-01/Accounts/{Uri.EscapeDataString(config.AccountSid)}/Messages.json")
             {
                 Content = new FormUrlEncodedContent(
-                    BuildMessageForm(destination, message, config, correlation, validity)),
+                    BuildMessageForm(destination, message, config, correlation, validity, application)),
             },
             TwilioSmsProduct.Verify => new HttpRequestMessage(
                 HttpMethod.Post,
@@ -119,9 +120,10 @@ internal sealed class TwilioChannelProvider(
     }
 
     /// <summary>
-    /// The Programmable Messaging form. The sender is the Messaging Service
-    /// when one is configured, so the provider picks from the sender pool and
-    /// keeps the sticky sender per destination; without one the adapter falls
+    /// The Programmable Messaging form. The sender is the Messaging Service of
+    /// the calling application when one is allocated to it, the deployment's
+    /// service otherwise, so the provider picks from the right sender pool and
+    /// keeps the sticky sender per destination; with neither, the adapter falls
     /// back to the single verified number, which is what a local environment
     /// has. The callback address and the validity period join only when the
     /// caller supplied what they are made of.
@@ -131,20 +133,21 @@ internal sealed class TwilioChannelProvider(
         SmsMessage message,
         TwilioOptions config,
         DispatchCorrelation? correlation,
-        TimeSpan? validity)
+        TimeSpan? validity,
+        string? application)
     {
         var form = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["To"] = destination,
         };
 
-        if (string.IsNullOrWhiteSpace(config.MessagingServiceSid))
+        if (config.MessagingServiceSidFor(application) is { } messagingServiceSid)
         {
-            form["From"] = config.FromNumber;
+            form["MessagingServiceSid"] = messagingServiceSid;
         }
         else
         {
-            form["MessagingServiceSid"] = config.MessagingServiceSid;
+            form["From"] = config.FromNumber;
         }
 
         form["Body"] = message.Body;
@@ -244,7 +247,11 @@ internal sealed class TwilioChannelProvider(
     /// pattern says the number is well formed, the prefix list says this
     /// deployment is allowed to address that market at all.
     /// </summary>
-    private static void EnsureConfigured(TwilioOptions config, string destination, string body)
+    private static void EnsureConfigured(
+        TwilioOptions config,
+        string destination,
+        string body,
+        string? application)
     {
         if (!config.DestinationExpression.IsMatch(destination))
         {
@@ -278,12 +285,14 @@ internal sealed class TwilioChannelProvider(
         }
 
         if (config.Product == TwilioSmsProduct.ProgrammableMessaging
-            && string.IsNullOrWhiteSpace(config.MessagingServiceSid)
+            && config.MessagingServiceSidFor(application) is null
             && string.IsNullOrWhiteSpace(config.FromNumber))
         {
             throw new InvalidOperationException(
-                $"Programmable Messaging requires '{TwilioOptions.SectionName}:MessagingServiceSid' "
-                + $"or '{TwilioOptions.SectionName}:FromNumber'.");
+                $"Programmable Messaging requires a Messaging Service for the calling application in "
+                + $"'{TwilioOptions.SectionName}:MessagingServiceSids', or "
+                + $"'{TwilioOptions.SectionName}:MessagingServiceSid', or "
+                + $"'{TwilioOptions.SectionName}:FromNumber'.");
         }
 
         if (config.Product == TwilioSmsProduct.Verify

@@ -79,6 +79,52 @@ public sealed class TwilioRequestShapeTests
     }
 
     [Fact]
+    public async Task The_pool_of_the_calling_application_wins_over_the_one_of_the_deployment()
+    {
+        Dictionary<string, string> form = await BuildFormAsync(
+            WithPools(messagingServiceSid: "MG-deployment", ("araia-cambio", "MG-cambio")),
+            application: "araia-cambio");
+
+        form["MessagingServiceSid"].ShouldBe("MG-cambio");
+        form.ShouldNotContainKey("From");
+    }
+
+    [Fact]
+    public async Task An_application_without_a_pool_falls_back_to_the_one_of_the_deployment()
+    {
+        // Falsification of the assertion above: what selects the pool is the
+        // application on the request, not the presence of the map.
+        Dictionary<string, string> form = await BuildFormAsync(
+            WithPools(messagingServiceSid: "MG-deployment", ("araia-cambio", "MG-cambio")),
+            application: "araia-cartoes");
+
+        form["MessagingServiceSid"].ShouldBe("MG-deployment");
+    }
+
+    [Fact]
+    public async Task A_send_without_an_application_keeps_the_pool_of_the_deployment()
+    {
+        Dictionary<string, string> form = await BuildFormAsync(
+            WithPools(messagingServiceSid: "MG-deployment", ("araia-cambio", "MG-cambio")));
+
+        form["MessagingServiceSid"].ShouldBe("MG-deployment");
+    }
+
+    [Fact]
+    public async Task With_a_pool_only_for_another_application_the_send_keeps_the_single_number()
+    {
+        // The last fallback of the three: no pool for this application and no
+        // pool for the deployment leaves the verified number, which is what a
+        // local environment has.
+        Dictionary<string, string> form = await BuildFormAsync(
+            WithPools(messagingServiceSid: "", ("araia-cambio", "MG-cambio")),
+            application: "araia-cartoes");
+
+        form["From"].ShouldBe("+5511999999999");
+        form.ShouldNotContainKey("MessagingServiceSid");
+    }
+
+    [Fact]
     public async Task The_callback_address_carries_the_identifiers_of_the_attempt()
     {
         TwilioOptions options = Messaging(
@@ -192,17 +238,32 @@ public sealed class TwilioRequestShapeTests
             StatusCallbackUrl = statusCallbackUrl,
         };
 
+    private static TwilioOptions WithPools(
+        string messagingServiceSid,
+        params (string Application, string MessagingServiceSid)[] pools)
+        => new()
+        {
+            Product = TwilioSmsProduct.ProgrammableMessaging,
+            AccountSid = "AC123",
+            FromNumber = "+5511999999999",
+            MessagingServiceSid = messagingServiceSid,
+            MessagingServiceSids = pools.ToDictionary(
+                pool => pool.Application, pool => pool.MessagingServiceSid, StringComparer.Ordinal),
+        };
+
     private static async Task<Dictionary<string, string>> BuildFormAsync(
         TwilioOptions options,
         bool correlated = true,
-        TimeSpan? validity = null)
+        TimeSpan? validity = null,
+        string? application = null)
     {
         using HttpRequestMessage request = TwilioChannelProvider.BuildRequest(
             new SmsDeliveryTarget("+5511888888888"),
             new SmsMessage("Código de acesso: 123456."),
             options,
             correlated ? new DispatchCorrelation(NotificationId, AttemptId) : null,
-            validity);
+            validity,
+            application);
         return await ParseFormAsync(request);
     }
 

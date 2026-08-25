@@ -27,8 +27,16 @@ public sealed record DispatchCorrelation(Guid NotificationId, Guid AttemptId);
 /// adapter then lets the provider apply its own default; deciding not to call
 /// a provider at all belongs to the caller, never here.
 /// </param>
+/// <param name="Application">
+/// The calling application this send belongs to, as the hub names it. It is
+/// here for providers whose sending identity is allocated per application, such
+/// as a sender pool bound to one brand, and it never enters the rendered
+/// content nor its audited hashes. Null means the caller states nothing, and an
+/// adapter then uses the sending identity of the deployment.
+/// </param>
 public sealed record DispatchRequest(
     DeliveryTarget Target,
     RenderedMessage Message,
     DispatchCorrelation? Correlation = null,
-    TimeSpan? Validity = null);
+    TimeSpan? Validity = null,
+    string? Application = null);

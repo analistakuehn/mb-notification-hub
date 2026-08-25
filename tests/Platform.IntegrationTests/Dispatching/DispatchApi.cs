@@ -162,7 +162,8 @@ internal static class DispatchApi
         string @class,
         string recipientId,
         string coreQueue,
-        int ttlSeconds = 300)
+        int ttlSeconds = 300,
+        object? variables = null)
     {
         var role = @class switch
         {
@@ -180,7 +181,7 @@ internal static class DispatchApi
                 @class,
                 templateKey,
                 locale = "pt-BR",
-                variables = new { code = "123456" },
+                variables = variables ?? new { code = "123456" },
                 ttlSeconds,
             },
             Guid.NewGuid().ToString("N"));
@@ -238,6 +239,55 @@ internal static class DispatchApi
     }
 
     /// <summary>
+    /// Publishes a template carrying e-mail and SMS content over the same
+    /// required <c>code</c> variable, which is the shape a plan that falls
+    /// back from e-mail to SMS needs.
+    /// </summary>
+    internal static async Task<(string Key, int Version)> CreatePublishedEmailAndSmsTemplateAsync(
+        CorePipelineFixture fixture,
+        string application,
+        string @class,
+        string purpose,
+        string smsBody = "Código de acesso: {{ code }}.")
+    {
+        HttpClient author = fixture.CreateAuthorClient("template-author");
+        HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
+        var key = TemplateApi.NewKey("dsms");
+
+        HttpResponseMessage created = await author.PostAsJsonAsync("/v1/templates", new
+        {
+            key,
+            application,
+            @class,
+            ownerTeam = "growth-squad",
+            purpose,
+            legalBasis = "execucao-de-contrato",
+            defaultLocale = "pt-BR",
+        });
+        created.EnsureSuccessStatusCode();
+
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
+        {
+            subject = "Seu código de acesso",
+            body = "<p>Use o código {{ code }} para entrar.</p>",
+            bodyText = "Use o código {{ code }} para entrar.",
+        }, etag);
+        etag = await TemplateApi.PutContentAsync(author, key, version, "sms/pt-BR", new
+        {
+            body = smsBody,
+        }, etag);
+        await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new { code = new { type = "string" } },
+            required = RequiredCode,
+        }, etag);
+        await TemplateApi.PublishAsync(publisher, key, version);
+        return (key, version);
+    }
+
+    /// <summary>
     /// Registers a recipient reachable by SMS on a number of its own. The
     /// number is unique per call on purpose: the dispatch tests share a
     /// collection, and a fixed number would make one test's provider request
@@ -255,6 +305,28 @@ internal static class DispatchApi
             ContactConsentApi.ContactPointsBody([ContactConsentApi.ContactPoint("sms", phoneNumber)]));
         declared.EnsureSuccessStatusCode();
         return (recipientId, phoneNumber);
+    }
+
+    /// <summary>
+    /// Registers a recipient reachable by e-mail and by SMS, both values of
+    /// its own, which is what a plan that falls back between the two needs.
+    /// </summary>
+    internal static async Task<(string RecipientId, string Email, string PhoneNumber)>
+        RegisterEmailAndSmsRecipientAsync(CorePipelineFixture fixture)
+    {
+        HttpClient contacts = fixture.CreateContactsClient("contacts-writer");
+        var recipientId = ContactConsentApi.NewRecipientId();
+        var email = $"pessoa-{Guid.NewGuid():N}@example.com";
+        var phoneNumber = NewPhoneNumber();
+        HttpResponseMessage declared = await ContactConsentApi.PutContactPointsAsync(
+            contacts,
+            recipientId,
+            ContactConsentApi.ContactPointsBody([
+                ContactConsentApi.ContactPoint("email", email),
+                ContactConsentApi.ContactPoint("sms", phoneNumber),
+            ]));
+        declared.EnsureSuccessStatusCode();
+        return (recipientId, email, phoneNumber);
     }
 
     /// <summary>A Brazilian mobile number in the shape the SMS adapter accepts.</summary>

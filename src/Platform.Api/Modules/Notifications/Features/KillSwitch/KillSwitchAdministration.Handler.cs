@@ -12,11 +12,22 @@ namespace NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
 
 internal static partial class KillSwitchAdministration
 {
+    /// <summary>
+    /// One transition of one switch. <paramref name="ActorType" /> and
+    /// <paramref name="Reason" /> exist because the hub itself can stop a
+    /// channel: the row, the transition and the audit action stay the same, so
+    /// an operator reading the trail sees one vocabulary, and these two members
+    /// are what tell them a person did not do it and what the hub saw. The
+    /// defaults describe the human path, which is the only one that ever turns
+    /// a switch back off.
+    /// </summary>
     internal sealed record ChangeCommand(
         KillSwitchScope Scope,
         string Key,
         bool Active,
-        string Actor);
+        string Actor,
+        string ActorType = AuditActorTypes.User,
+        string? Reason = null);
 
     internal sealed record ChangeResult(
         string State,
@@ -118,13 +129,38 @@ internal static partial class KillSwitchAdministration
             DateTimeOffset now)
             => new()
             {
-                ActorType = AuditActorTypes.User,
+                ActorType = command.ActorType,
                 ActorId = command.Actor,
                 Application = command.Scope == KillSwitchScope.Application ? command.Key : null,
                 Action = "kill_switch.changed",
                 EntityType = "kill_switch",
                 EntityId = $"{command.Scope.Canonical()}:{command.Key}",
-                DetailsJson = JsonSerializer.Serialize(new
+                DetailsJson = JsonSerializer.Serialize(Details(command, before, after, now)),
+                OccurredAt = now,
+            };
+
+        /// <summary>
+        /// The trail of one transition. The reason joins only when there is
+        /// one: a human transition carries its justification outside the hub,
+        /// and an empty field would read as a missing one.
+        /// </summary>
+        private static object Details(
+            ChangeCommand command,
+            string before,
+            string after,
+            DateTimeOffset now)
+            => command.Reason is { } reason
+                ? new
+                {
+                    before,
+                    after,
+                    scope = command.Scope.Canonical(),
+                    key = command.Key,
+                    actor = command.Actor,
+                    reason,
+                    instant = now,
+                }
+                : new
                 {
                     before,
                     after,
@@ -132,8 +168,6 @@ internal static partial class KillSwitchAdministration
                     key = command.Key,
                     actor = command.Actor,
                     instant = now,
-                }),
-                OccurredAt = now,
-            };
+                };
     }
 }

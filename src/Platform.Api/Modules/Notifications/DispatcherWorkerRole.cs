@@ -35,6 +35,8 @@ public sealed class DispatcherWorkerOptions
 /// transactional over operational, the optimistic claim over the attempt
 /// state, the provider surface of the Dispatch context and the read and
 /// lifecycle surfaces of ContactConsent, each behind its published contract.
+/// It is also the only role that observes provider circuits, so it is the only
+/// one composing the automatic channel stop.
 /// </summary>
 public sealed class DispatcherWorkerRole : IWorkerRoleModule
 {
@@ -71,6 +73,7 @@ public sealed class DispatcherWorkerRole : IWorkerRoleModule
         services.AddNotificationsPersistence(configuration);
         services.AddNotificationsKillSwitch();
         services.AddNotificationsKillSwitchHolds();
+        services.AddAutomaticChannelKillSwitch(configuration);
 
         services.AddScoped<AttemptDispatchWriter>();
         services.AddScoped<IPoisonMessageSink, DispatchPoisonMessageSink>();
