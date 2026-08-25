@@ -86,4 +86,13 @@ internal static partial class DeliveryStateApplierLogger
             + "evidência e um identificador cunhado na hora contaria a mesma recusa duas vezes.")]
     internal static partial void SuppressionWithoutEvidence(
         this ILogger logger, Guid attemptId, string signal);
+
+    [LoggerMessage(
+        EventId = 7202,
+        Level = LogLevel.Warning,
+        Message = "O relato de supressão da evidência {DeliveryEventId} foi concluído e a marca de "
+            + "relato não pôde ser gravada; a varredura vai relatar de novo e o ledger de contatos "
+            + "resolve a repetição como já aplicada.")]
+    internal static partial void SuppressionStampFailed(
+        this ILogger logger, Guid deliveryEventId, Exception exception);
 }

@@ -33,4 +33,20 @@ internal static partial class ReceiveProviderWebhookLogger
         Message = "Callback autenticado de '{ProviderKey}' recusado na tradução com o motivo '{Refusal}'.")]
     internal static partial void DeliveryWebhookUnreadable(
         this ILogger logger, string providerKey, string refusal);
+
+    [LoggerMessage(
+        EventId = 7194,
+        Level = LogLevel.Warning,
+        Message = "Callback de '{ProviderKey}' trouxe correlação na rota, que a assinatura "
+            + "deste provedor não cobre; a correlação foi descartada e só o corpo assinado vale.")]
+    internal static partial void DeliveryWebhookRouteCorrelationIgnored(
+        this ILogger logger, string providerKey);
+
+    [LoggerMessage(
+        EventId = 7195,
+        Level = LogLevel.Warning,
+        Message = "Callback de '{ProviderKey}' trouxe {Received} eventos rastreados, acima do teto de "
+            + "{Maximum} por chamada; o lote inteiro foi recusado.")]
+    internal static partial void DeliveryWebhookBatchTooLarge(
+        this ILogger logger, string providerKey, int received, int maximum);
 }

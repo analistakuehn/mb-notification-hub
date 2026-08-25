@@ -119,7 +119,8 @@ internal sealed class DeliveryStateApplier(
         ArgumentNullException.ThrowIfNull(request);
         ProviderDeliveryEvent providerEvent = request.Event;
 
-        NotificationAttempt? attempt = await ResolveAttemptAsync(providerEvent, cancellationToken);
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        NotificationAttempt? attempt = await ResolveAttemptAsync(providerEvent, now, cancellationToken);
         if (attempt is null)
         {
             logger.DeliveryAttemptUnresolved(providerEvent.ProviderKey);
@@ -148,7 +149,6 @@ internal sealed class DeliveryStateApplier(
             return await SettleWithoutTransitionAsync(request, cancellationToken);
         }
 
-        DateTimeOffset now = timeProvider.GetUtcNow();
         await using IDbContextTransaction transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
         if (!await TryMarkAsync(request, transaction, cancellationToken))
@@ -356,17 +356,53 @@ internal sealed class DeliveryStateApplier(
                 cancellationToken);
     }
 
+    /// <summary>
+    /// Finds the attempt a callback belongs to, by the correlation the provider
+    /// echoed back and, failing that, by the provider's own message identity.
+    /// <para>
+    /// Both lookups are bounded over the partition key of
+    /// <c>notification_attempt</c>. Without a bound each one probes every month
+    /// the table holds, and this is the path every delivery event walks, so the
+    /// cost grows with retention on the hottest read of the tracker.
+    /// </para>
+    /// <para>
+    /// The correlated lookup also pins the provider. A correlation names an
+    /// attempt, not who sent it, so without this a callback authentic to one
+    /// provider could settle an attempt dispatched through another: the
+    /// identifiers travel outside the signed payload for at least one provider,
+    /// and an attempt only ever belongs to the provider that took its message.
+    /// The two places that clear the provider key both mean the provider never
+    /// took the call, so an attempt without one has no callback to receive.
+    /// </para>
+    /// <para>
+    /// The bound is measured from this hub's clock and not from the instant the
+    /// provider reported, because the provider's clock is not ours to trust for
+    /// a query that decides whether evidence is applied at all. It is symmetric
+    /// for the same reason the width is generous: the attempt cannot be newer
+    /// than the callback that answers it, but the two instants are stamped by
+    /// different processes, and the failure of a bound that is too tight is not
+    /// a slow query, it is a delivery confirmation silently dropped, which is
+    /// the event that ends the notification and calls off its fallback.
+    /// </para>
+    /// </summary>
     private async Task<NotificationAttempt?> ResolveAttemptAsync(
         ProviderDeliveryEvent providerEvent,
+        DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        DateTimeOffset windowStart = now - NotificationPlanOutcome.AttemptWindow;
+        DateTimeOffset windowEnd = now + NotificationPlanOutcome.AttemptWindow;
+
         if (providerEvent.Correlation is { } correlation)
         {
             NotificationAttempt? correlated = await db.NotificationAttempts
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
                     candidate => candidate.Id == correlation.AttemptId
-                        && candidate.NotificationId == correlation.NotificationId,
+                        && candidate.NotificationId == correlation.NotificationId
+                        && candidate.ProviderKey == providerEvent.ProviderKey
+                        && candidate.CreatedAt >= windowStart
+                        && candidate.CreatedAt < windowEnd,
                     cancellationToken);
             if (correlated is not null) return correlated;
         }
@@ -380,7 +416,9 @@ internal sealed class DeliveryStateApplier(
         return await db.NotificationAttempts
             .AsNoTracking()
             .Where(candidate => candidate.ProviderMessageId == providerMessageId
-                && candidate.ProviderKey == providerEvent.ProviderKey)
+                && candidate.ProviderKey == providerEvent.ProviderKey
+                && candidate.CreatedAt >= windowStart
+                && candidate.CreatedAt < windowEnd)
             .OrderByDescending(candidate => candidate.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -396,11 +434,21 @@ internal sealed class DeliveryStateApplier(
     /// addressed and the recipient who owns it, so reporting from here costs no
     /// read at all.
     /// <para>
-    /// Best effort by design, in the same regime as the dead push token: the
-    /// transition already committed and a redelivery settles as a duplicate, so
-    /// a failure here cannot be retried by the queue. What to do about the
-    /// refusal is not decided here either: this side reports one observation
-    /// and the ledger owns the accumulation rule.
+    /// It runs after the commit and therefore outside it, but it is not best
+    /// effort: the queue cannot retry it, because the transition committed and
+    /// a redelivery settles as a duplicate, so the retry lives in the evidence
+    /// row instead. The stamp is written when the report is settled, and an
+    /// applied row with a real signal and no stamp is a report this hub still
+    /// owes, which the drain picks up. What to do about the refusal is not
+    /// decided here either: this side reports one observation and the ledger
+    /// owns the accumulation rule.
+    /// </para>
+    /// <para>
+    /// A refusal the ledger states is stamped as settled, and only a fault is
+    /// left for the drain. The two are different answers: an unknown contact
+    /// point and a channel that disagrees with it are decisions no retry
+    /// changes, while an exception is the module being unreachable, which is
+    /// exactly the transient failure that used to lose a hard bounce for good.
     /// </para>
     /// <para>
     /// Feedback with no stored evidence reports nothing. The ledger keys its
@@ -430,8 +478,11 @@ internal sealed class DeliveryStateApplier(
         {
             // A push attempt carries a device registration and no contact
             // point: a token the provider refuses travels the token lifecycle
-            // contract, which the dispatch side already reports on.
+            // contract, which the dispatch side already reports on. Stamped
+            // all the same, so the drain stops reading a row nothing can be
+            // done with for the life of its partition.
             logger.SuppressionTargetUnresolved(sourceEventId, reason);
+            await StampSuppressionReportedAsync(sourceEventId, now, cancellationToken);
             return;
         }
 
@@ -454,15 +505,48 @@ internal sealed class DeliveryStateApplier(
             if (reported.IsFailure)
             {
                 logger.SuppressionReportFailed(sourceEventId, reported.Error ?? reason);
+                await StampSuppressionReportedAsync(sourceEventId, now, cancellationToken);
                 return;
             }
 
             var settled = reported.Value.ToString();
             logger.SuppressionReported(sourceEventId, contactPointId, settled);
+            await StampSuppressionReportedAsync(sourceEventId, now, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // Deliberately unstamped: this is the module being unreachable, and
+            // the row stays owed so the drain reports it when it comes back.
             logger.SuppressionReportThrew(sourceEventId, exception);
+        }
+    }
+
+    /// <summary>
+    /// Records that the signal of one evidence row no longer owes a report.
+    /// <para>
+    /// Its own failure is swallowed for the same reason the report's is: the
+    /// transition is committed and nothing here may undo it. The cost of losing
+    /// the stamp is one repeated report, which the ledger settles as already
+    /// applied, and that is the cheap direction of the two.
+    /// </para>
+    /// </summary>
+    private async Task StampSuppressionReportedAsync(
+        Guid deliveryEventId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await db.DeliveryEvents
+                .Where(candidate => candidate.Id == deliveryEventId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(
+                        candidate => candidate.SuppressionReportedAt, now),
+                    cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.SuppressionStampFailed(deliveryEventId, exception);
         }
     }
 

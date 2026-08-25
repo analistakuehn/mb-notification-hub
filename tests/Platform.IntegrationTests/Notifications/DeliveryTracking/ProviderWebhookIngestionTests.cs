@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Webhooks;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authentication;
 using NotificationHub.IntegrationTests.Dispatching;
 using NotificationHub.IntegrationTests.TemplateManagement;
@@ -50,7 +51,7 @@ public sealed class ProviderWebhookIngestionTests(DeliveryTrackingFixture fixtur
         using WebApplicationFactory<Program> pinned = fixture.WithWebHostBuilder(builder =>
         {
             builder.ConfigureLogging(logging => logging.AddProvider(capturing));
-            builder.UseSetting("Modules:Dispatch:Webhooks:SendGrid:AllowedIpPrefixes:0", "198.51.100.");
+            builder.UseSetting("Modules:Dispatch:Webhooks:SendGrid:AllowedNetworks:0", "198.51.100.0/24");
         });
         HttpClient client = pinned.CreateClient();
 
@@ -165,6 +166,43 @@ public sealed class ProviderWebhookIngestionTests(DeliveryTrackingFixture fixtur
             fixture, DeliveryTrackingApi.SendGridProvider, eventId)).ShouldBe(0);
     }
 
+    /// <summary>
+    /// The one public route of this hub answers a batch it will not take,
+    /// instead of taking as long as the caller asks it to.
+    /// <para>
+    /// Every event in a callback costs a transaction of its own, só the
+    /// response time of this route is linear in a number chosen outside. The
+    /// provider measures that time and redelivers whatever takes too long,
+    /// which makes an unbounded batch a failure that feeds itself on the one
+    /// surface nobody outside can be asked to slow down.
+    /// </para>
+    /// <para>
+    /// The refusal is whole and not partial: answering success over events this
+    /// hub never stored would be worse than refusing, because the provider
+    /// would stop resending them.
+    /// </para>
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_callback_over_the_event_ceiling_is_refused_whole_and_stores_nothing()
+    {
+        var eventId = NewEventId();
+        using WebApplicationFactory<Program> narrow = fixture.WithWebHostBuilder(builder =>
+            builder.UseSetting(
+                $"{ProviderWebhookIngestionOptions.SectionName}:MaxEventsPerCallback", "2"));
+        HttpClient client = narrow.CreateClient();
+
+        HttpResponseMessage response = await client.SendAsync(DeliveryTrackingApi.SendGridCallback(
+            fixture,
+            DeliveryEventBatch.Many(eventId, NewMessageId(), "delivered", count: 3)));
+
+        response.StatusCode.ShouldBe(
+            HttpStatusCode.RequestEntityTooLarge,
+            "um lote acima do teto tem status próprio, para que o operador o distinga de um "
+            + "payload que o adaptador não soube ler.");
+        (await DeliveryTrackingApi.CountEvidenceAsync(fixture, $"{eventId}-0")).ShouldBe(0);
+        (await DeliveryTrackingApi.CountEvidenceAsync(fixture, $"{eventId}-2")).ShouldBe(0);
+    }
+
     [RequiresDockerFact]
     public async Task A_signature_over_the_internal_address_is_refused_when_a_public_base_is_configured()
     {
@@ -236,6 +274,45 @@ public sealed class ProviderWebhookIngestionTests(DeliveryTrackingFixture fixtur
         (await DeliveryTrackingApi.ReadEvidenceAsync(fixture, eventId)).AppliedAt.ShouldBeNull();
     }
 
+    /// <summary>
+    /// This provider signs the timestamp and the body, never the address, so a
+    /// pair of identifiers arriving in the query is an unsigned claim about
+    /// which attempt an authentic callback describes. Honouring it would let a
+    /// genuine callback, captured or merely replayed with a different query, be
+    /// steered onto an attempt it says nothing about, moving that attempt's
+    /// state and with it its fallback and its suppression effects.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_signed_callback_without_correlation_cannot_be_steered_by_the_query()
+    {
+        SeededAttempt target = await DeliveryTrackingApi.SeedAttemptAsync(
+            fixture,
+            "email",
+            DeliveryTrackingApi.SendGridProvider,
+            providerMessageId: null,
+            status: NotificationAttemptStatuses.Sent);
+        var eventId = NewEventId();
+        HttpClient client = fixture.CreateClient();
+
+        // A validly signed body that carries no correlation of its own, sent to
+        // an address that names someone else's attempt.
+        HttpResponseMessage response = await client.SendAsync(DeliveryTrackingApi.SendGridCallback(
+            fixture,
+            DeliveryEventBatch.Of(eventId, NewMessageId(), "delivered"),
+            query: $"?notificationId={target.NotificationId}&attemptId={target.AttemptId}"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+
+        EvidenceRow evidence = await DeliveryTrackingApi.ReadEvidenceAsync(fixture, eventId);
+        evidence.AttemptId.ShouldBeNull(
+            "a correlação veio da rota, que a assinatura deste provedor não cobre: "
+            + "aceitá-la deixaria um callback autêntico decidir sobre um attempt "
+            + "sobre o qual ele nada diz.");
+        evidence.NotificationId.ShouldBeNull();
+        (await DeliveryTrackingApi.ReadAttemptStatusAsync(fixture, target.AttemptId))
+            .ShouldBe(NotificationAttemptStatuses.Sent);
+    }
+
     private static string NewEventId() => $"evt-{Guid.NewGuid():N}";
 
     private static string NewMessageId() => $"msg-{Guid.NewGuid():N}";
@@ -297,5 +374,29 @@ internal static class DeliveryEventBatch
         }
 
         return body.Append("}]").ToString();
+    }
+
+    /// <summary>
+    /// A batch of the requested size, with one identity per entry. It exists to
+    /// exercise the ceiling, which is a property of how many events a callback
+    /// carries and not of how many bytes it weighs.
+    /// </summary>
+    internal static string Many(string eventId, string messageId, string eventName, int count)
+    {
+        var body = new StringBuilder("[");
+        for (var index = 0; index < count; index++)
+        {
+            if (index > 0) body.Append(',');
+            body.Append('{');
+            body.Append(CultureInfo.InvariantCulture, $"\"sg_event_id\":\"{eventId}-{index}\",");
+            body.Append(CultureInfo.InvariantCulture, $"\"sg_message_id\":\"{messageId}\",");
+            body.Append(CultureInfo.InvariantCulture, $"\"event\":\"{eventName}\",");
+            body.Append(
+                CultureInfo.InvariantCulture,
+                $"\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
+            body.Append('}');
+        }
+
+        return body.Append(']').ToString();
     }
 }

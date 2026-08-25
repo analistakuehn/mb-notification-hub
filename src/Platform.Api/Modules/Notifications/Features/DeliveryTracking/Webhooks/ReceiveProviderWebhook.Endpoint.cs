@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authentication;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
@@ -21,7 +23,41 @@ internal static partial class ReceiveProviderWebhook
         => group.MapPost("/{provider}", HandleHttpAsync)
             .RequireAuthorization(NotificationsProviderSignatureSetup.WebhookPolicyName)
             .RequireRateLimiting(NotificationsRateLimitingSetup.ProviderWebhookPolicyName)
+
+            // The ceiling is applied per route and not per host, because this
+            // is the one route whose body is written by somebody outside and
+            // whose response time is measured by that same somebody. The
+            // authentication scheme reads the whole body to verify it, so the
+            // limit has to bind before the scheme runs, which is what the
+            // feature does: it is read by the server when the body is first
+            // touched.
+            .AddEndpointFilter(LimitBodyAsync)
             .WithName("ReceiveProviderWebhook");
+
+    /// <summary>
+    /// Narrows the request body ceiling for this route.
+    /// <para>
+    /// A server that cannot be told, because the body is already buffered or
+    /// the feature is missing, is left alone rather than refused: the host
+    /// ceiling still applies, and refusing every callback over a knob nobody
+    /// configured would be the worse failure of the two.
+    /// </para>
+    /// </summary>
+    private static async ValueTask<object?> LimitBodyAsync(
+        EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next)
+    {
+        IHttpMaxRequestBodySizeFeature? feature =
+            context.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (feature is { IsReadOnly: false })
+        {
+            feature.MaxRequestBodySize = context.HttpContext.RequestServices
+                .GetRequiredService<IOptions<ProviderWebhookIngestionOptions>>()
+                .Value.MaxBodyBytes;
+        }
+
+        return await next(context);
+    }
 
     /// <summary>
     /// The correlation identifiers ride in the callback URL this hub gave the
@@ -62,9 +98,18 @@ internal static partial class ReceiveProviderWebhook
     private static IResult Problem(Result<Receipt> result)
     {
         var code = result.Error ?? ProviderWebhookRefusal.PayloadUnreadable;
-        var status = result.ErrorKind == ResultErrorKind.NotFound
-            ? StatusCodes.Status404NotFound
-            : StatusCodes.Status400BadRequest;
+        var status = code switch
+        {
+            // A batch over the ceiling is answered by its own status, so an
+            // operator reading the access log can tell it apart from a payload
+            // this hub could not parse. The two are different problems: one is
+            // a provider or an attacker sending more than this route accepts,
+            // the other is an adapter that no longer agrees with its provider.
+            DeliveryWebhookRefusal.BatchTooLarge => StatusCodes.Status413PayloadTooLarge,
+            _ => result.ErrorKind == ResultErrorKind.NotFound
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status400BadRequest,
+        };
         return Results.Problem(statusCode: status, title: code, type: code);
     }
 }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.SharedKernel;
@@ -25,6 +26,7 @@ internal static partial class ReceiveProviderWebhook
     internal sealed class Handler(
         IProviderWebhookInterpreterResolver resolver,
         DeliveryEventWriter writer,
+        IOptions<ProviderWebhookIngestionOptions> ingestionOptions,
         ILogger<Handler> logger)
     {
         public async Task<Result<Receipt>> HandleAsync(
@@ -51,6 +53,20 @@ internal static partial class ReceiveProviderWebhook
             }
 
             IReadOnlyList<ProviderDeliveryEvent> events = translated.Value!;
+            var maxEvents = ingestionOptions.Value.MaxEventsPerCallback;
+            if (events.Count > maxEvents)
+            {
+                // Refused before the first write, and refused whole. Every
+                // event costs a transaction, so accepting the batch would make
+                // the response time of this route a number the caller picks;
+                // storing part of it would answer 202 for evidence this hub
+                // never took. The provider redelivers and meets the same
+                // ceiling, which is the accepted cost of having one.
+                logger.DeliveryWebhookBatchTooLarge(
+                    command.Webhook.ProviderKey, events.Count, maxEvents);
+                return Result.ValidationError<Receipt>(DeliveryWebhookRefusal.BatchTooLarge);
+            }
+
             if (events.Count == 0)
             {
                 // A success with nothing to store. A batch made only of events
@@ -66,13 +82,26 @@ internal static partial class ReceiveProviderWebhook
             // expensive step of the request.
             var sealedPayload = await writer.SealPayloadAsync(command.Webhook.Body, cancellationToken);
 
+            // Correlation from the route counts only where the provider's
+            // signature covered the address. Where it did not, a pair of
+            // identifiers in the query is an unsigned claim about which attempt
+            // an authentic callback describes, and honouring it would let a
+            // genuine callback be steered onto another attempt.
+            DispatchCorrelation? routeCorrelation = interpreter.Value!.SignatureCoversRoute
+                ? command.RouteCorrelation
+                : null;
+            if (command.RouteCorrelation is not null && routeCorrelation is null)
+            {
+                logger.DeliveryWebhookRouteCorrelationIgnored(command.Webhook.ProviderKey);
+            }
+
             var stored = 0;
             var duplicated = 0;
             foreach (ProviderDeliveryEvent providerEvent in events)
             {
                 DeliveryEventRecordOutcome outcome = await writer.RecordAsync(
                     providerEvent,
-                    providerEvent.Correlation ?? command.RouteCorrelation,
+                    providerEvent.Correlation ?? routeCorrelation,
                     sealedPayload,
                     cancellationToken);
                 if (outcome == DeliveryEventRecordOutcome.Stored)
