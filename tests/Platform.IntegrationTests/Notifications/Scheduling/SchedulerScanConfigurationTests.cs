@@ -16,17 +16,20 @@ namespace NotificationHub.IntegrationTests.Notifications.Scheduling;
 public sealed class SchedulerScanConfigurationTests(SchedulerScanFixture fixture)
 {
     [RequiresDockerFact]
-    public async Task The_round_interval_is_configuration_and_defaults_to_five_seconds()
+    public async Task The_round_interval_is_configuration_and_defaults_to_two_seconds()
     {
         await using ServiceProvider byDefault = fixture.BuildSecondReplica();
-        OptionsOf(byDefault).Interval.ShouldBe(TimeSpan.FromSeconds(5));
+        OptionsOf(byDefault).Interval.ShouldBe(
+            TimeSpan.FromSeconds(2),
+            "o intervalo é termo do orçamento até o SMS de fallback, e o padrão é o valor que "
+            + "mantém a soma dentro do aceite; ele não é uma escolha isolada.");
 
         await using ServiceProvider tuned = fixture.BuildReplicaWith(
             new Dictionary<string, string?>
             {
-                [$"{SchedulerScanOptions.SectionName}:Interval"] = "00:00:02",
+                [$"{SchedulerScanOptions.SectionName}:Interval"] = "00:00:05",
             });
-        OptionsOf(tuned).Interval.ShouldBe(TimeSpan.FromSeconds(2));
+        OptionsOf(tuned).Interval.ShouldBe(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 
 namespace NotificationHub.UnitTests.Notifications.Pipeline;
@@ -9,7 +10,7 @@ public sealed class NotificationTransitionTests
     {
         Notification notification = AcceptedWithVariables();
 
-        notification.MarkDispatched(policyVersion: 4);
+        notification.MarkDispatched(policyVersion: 4, AdmittedPlan());
 
         notification.Status.ShouldBe(NotificationStatuses.Dispatched);
         notification.PolicyVersion.ShouldBe(4);
@@ -67,7 +68,7 @@ public sealed class NotificationTransitionTests
     public void A_notification_past_its_accepted_state_refuses_a_second_pipeline_transition()
     {
         Notification notification = AcceptedWithVariables();
-        notification.MarkDispatched(policyVersion: 4);
+        notification.MarkDispatched(policyVersion: 4, AdmittedPlan());
 
         Should.Throw<InvalidOperationException>(() => notification.MarkRejected(4));
         Should.Throw<InvalidOperationException>(() => notification.MarkExpired());
@@ -123,7 +124,7 @@ public sealed class NotificationTransitionTests
     public void The_first_accepted_push_sibling_delivers_the_notification()
     {
         Notification notification = AcceptedWithVariables();
-        notification.MarkDispatched(policyVersion: 4);
+        notification.MarkDispatched(policyVersion: 4, AdmittedPlan());
 
         notification.MarkDelivered();
 
@@ -135,7 +136,7 @@ public sealed class NotificationTransitionTests
     public void An_exhausted_plan_fails_the_notification()
     {
         Notification notification = AcceptedWithVariables();
-        notification.MarkDispatched(policyVersion: 4);
+        notification.MarkDispatched(policyVersion: 4, AdmittedPlan());
 
         notification.MarkFailedAfterDispatch();
 
@@ -146,7 +147,7 @@ public sealed class NotificationTransitionTests
     public void Expiring_during_fallback_purges_the_encrypted_variables()
     {
         Notification notification = AcceptedWithVariables();
-        notification.MarkDispatched(policyVersion: 4);
+        notification.MarkDispatched(policyVersion: 4, AdmittedPlan());
 
         notification.MarkExpiredAfterDispatch();
 
@@ -163,7 +164,7 @@ public sealed class NotificationTransitionTests
         Should.Throw<InvalidOperationException>(() => accepted.MarkExpiredAfterDispatch());
 
         Notification delivered = AcceptedWithVariables();
-        delivered.MarkDispatched(policyVersion: 4);
+        delivered.MarkDispatched(policyVersion: 4, AdmittedPlan());
         delivered.MarkDelivered();
         Should.Throw<InvalidOperationException>(() => delivered.MarkFailedAfterDispatch());
     }
@@ -196,4 +197,17 @@ public sealed class NotificationTransitionTests
             TtlSeconds = 300,
             AcceptedAt = DateTimeOffset.UtcNow,
         });
+
+    /// <summary>
+    /// A two step plan of the shape the Policy stage admits, used wherever a
+    /// seeded notification has to look dispatched without going through the
+    /// pipeline that would have computed one.
+    /// </summary>
+    private static string AdmittedPlan()
+        => AdmittedDeliveryPlan.Serialize(
+        [
+            new DeliveryPlanStep(Channel.Create("push").Value!, TimeSpan.FromSeconds(30)),
+            new DeliveryPlanStep(Channel.Create("email").Value!, null),
+        ]);
+
 }

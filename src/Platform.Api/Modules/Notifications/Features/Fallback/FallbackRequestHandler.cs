@@ -8,6 +8,7 @@ using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Rules;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
@@ -46,6 +47,15 @@ internal sealed class FallbackRequestHandler(
     internal const string ReasonPayloadWithoutIds = "payload-missing-fallback-reference";
     internal const string ReasonNotificationNotFound = "notification-not-found";
     internal const string ReasonFailedAttemptNotFound = "failed-attempt-not-found";
+
+    /// <summary>
+    /// Stable reason of a trigger whose attempt belongs to another
+    /// notification. The two identifiers travel in the same payload and are
+    /// resolved independently, so a malformed or crossed producer could pair
+    /// one notification's policy with another notification's channel. The pair
+    /// is rejected before any write: an inconsistent trigger settles nothing.
+    /// </summary>
+    internal const string ReasonAttemptNotificationMismatch = "attempt-notification-mismatch";
 
     /// <summary>Stable reason of a plan whose failed channel has no later usable step.</summary>
     internal const string ReasonPlanExhausted = "plan-exhausted";
@@ -86,6 +96,16 @@ internal sealed class FallbackRequestHandler(
             .FirstOrDefaultAsync(candidate => candidate.Id == failedAttemptId, cancellationToken);
         if (failedAttempt is null) return new MessageDisposition.Discard(ReasonFailedAttemptNotFound);
 
+        if (failedAttempt.NotificationId != notification.Id)
+        {
+            // Both identifiers are resolved independently, so the pair has to
+            // be checked: advancing here would apply this notification's plan
+            // to another notification's channel and cross their audit trails.
+            logger.FallbackAttemptNotificationMismatch(
+                notification.Id, failedAttempt.Id, failedAttempt.NotificationId);
+            return new MessageDisposition.Discard(ReasonAttemptNotificationMismatch);
+        }
+
         if (notification.Status != NotificationStatuses.Dispatched)
         {
             // The notification already ended: a redelivered or superseded
@@ -112,8 +132,21 @@ internal sealed class FallbackRequestHandler(
             throw new InvalidOperationException(policy.Error);
         }
 
-        DeliveryPlanStep? nextStep = NextStep(policy.Value!.Definition.DeliveryPlan, failedAttempt.Channel);
-        if (nextStep is null)
+        // The plan this notification was admitted under, not the one published
+        // right now: a republication is how a plan is activated and rolled
+        // back, so re-deriving here would change the plan of a notification
+        // already in flight. A row written before the column existed carries
+        // none, and falls back to the published plan.
+        IReadOnlyList<DeliveryPlanStep> plan =
+            AdmittedDeliveryPlan.Read(notification.AdmittedPlanJson)
+            ?? policy.Value!.Definition.DeliveryPlan;
+
+        // Whether any later step exists at all is answered before the catalog
+        // and the directory are asked, because a plan whose failed channel was
+        // the last one ends here and that is the ordinary case for a one step
+        // plan. Which of the later steps is usable needs the recipient, so it
+        // is decided below.
+        if (!HasLaterStep(plan, failedAttempt.Channel))
         {
             return await SettleTerminalAsync(
                 envelope, notification, failedAttempt,
@@ -144,6 +177,23 @@ internal sealed class FallbackRequestHandler(
             return await SettleTerminalAsync(
                 envelope, notification, failedAttempt,
                 terminal: PipelineResult.Failed, reason: ReasonNoValidContact, now, cancellationToken);
+        }
+
+        // Eligibility is read now, never frozen with the plan. A destination
+        // that died between the admission and this deadline must not be
+        // addressed, and a channel the recipient withdrew consent for in the
+        // meantime is no longer ours to use. An ineligible step is skipped
+        // rather than fatal, which is what the admission does with the same
+        // evidence: it filters the plan and keeps going.
+        (DeliveryPlanStep? nextStep, var blockedReason) = NextUsableStep(
+            plan, failedAttempt.Channel, recipient.Value!,
+            policy.Value!.Definition.ConsentPurpose, now);
+        if (nextStep is null)
+        {
+            logger.FallbackPlanStepBlocked(notification.Id, blockedReason!);
+            return await SettleTerminalAsync(
+                envelope, notification, failedAttempt,
+                terminal: PipelineResult.Failed, reason: blockedReason!, now, cancellationToken);
         }
 
         var channel = nextStep.Channel.Value;
@@ -201,13 +251,103 @@ internal sealed class FallbackRequestHandler(
             ? ReasonAuthenticationSmsLink
             : ReasonRenderFailed;
 
-    /// <summary>The step after the failed channel in the published plan; null when none follows.</summary>
+    /// <summary>The step after the failed channel in the plan; null when none follows.</summary>
     internal static DeliveryPlanStep? NextStep(IReadOnlyList<DeliveryPlanStep> plan, string failedChannel)
     {
         for (var index = 0; index < plan.Count - 1; index++)
             if (string.Equals(plan[index].Channel.Value, failedChannel, StringComparison.Ordinal)) return plan[index + 1];
 
         return null;
+    }
+
+    /// <summary>Whether the plan names any step after the failed channel.</summary>
+    internal static bool HasLaterStep(IReadOnlyList<DeliveryPlanStep> plan, string failedChannel)
+        => NextStep(plan, failedChannel) is not null;
+
+    /// <summary>
+    /// The first step after the failed channel the recipient may still be
+    /// addressed on, or the reason the plan ran out of usable ones.
+    /// <para>
+    /// The search walks forward instead of stopping at the immediate next step,
+    /// because a channel that became ineligible is not a reason to end a
+    /// notification that still has a usable channel behind it. When nothing is
+    /// usable the reason reported is the one that blocked the first later step,
+    /// which is the channel the plan would have taken.
+    /// </para>
+    /// </summary>
+    internal static (DeliveryPlanStep? Step, string? BlockedReason) NextUsableStep(
+        IReadOnlyList<DeliveryPlanStep> plan,
+        string failedChannel,
+        RecipientSnapshot recipient,
+        string? consentPurpose,
+        DateTimeOffset now)
+    {
+        var failedIndex = -1;
+        for (var index = 0; index < plan.Count; index++)
+        {
+            if (string.Equals(plan[index].Channel.Value, failedChannel, StringComparison.Ordinal))
+            {
+                failedIndex = index;
+                break;
+            }
+        }
+
+        if (failedIndex < 0)
+        {
+            return (null, ReasonPlanExhausted);
+        }
+
+        string? firstBlocked = null;
+        for (var index = failedIndex + 1; index < plan.Count; index++)
+        {
+            var candidate = plan[index].Channel.Value;
+            var blocked = !HasConsentFor(recipient, consentPurpose, candidate)
+                ? ConsentGateRule.ReasonNoConsent
+                : IsChannelSuppressed(recipient, candidate, now)
+                    ? SuppressionGateRule.ReasonChannelSuppressed
+                    : null;
+            if (blocked is null)
+            {
+                return (plan[index], null);
+            }
+
+            firstBlocked ??= blocked;
+        }
+
+        return (null, firstBlocked ?? ReasonPlanExhausted);
+    }
+
+    /// <summary>
+    /// Consent for one channel, read the same way the policy rule reads it: a
+    /// class without a purpose operates on a contractual or legal basis and
+    /// consults nothing.
+    /// </summary>
+    private static bool HasConsentFor(RecipientSnapshot recipient, string? consentPurpose, string channel)
+        => consentPurpose is not { Length: > 0 } purpose
+            || recipient.Consents.Any(consent => consent.Granted
+                && string.Equals(consent.Purpose, purpose, StringComparison.Ordinal)
+                && string.Equals(consent.Channel, channel, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether the hub stopped addressing every destination the recipient has
+    /// on one channel, read the same way the policy rule reads it. A recipient
+    /// who keeps a second live address on the channel is still reachable there,
+    /// and a channel the recipient has no contact point on is not suppressed,
+    /// it is unreachable, which the caller answers for separately.
+    /// </summary>
+    private static bool IsChannelSuppressed(
+        RecipientSnapshot recipient,
+        string channel,
+        DateTimeOffset now)
+    {
+        var suppressedPoints = recipient.Suppressions
+            .Where(suppression => suppression.Until is null || suppression.Until > now)
+            .Select(suppression => suppression.ContactPointId)
+            .ToHashSet();
+        List<ContactPointSnapshot> points = [.. recipient.ContactPoints
+            .Where(point => string.Equals(point.Channel, channel, StringComparison.Ordinal))];
+        return points.Count > 0
+            && points.TrueForAll(point => suppressedPoints.Contains(point.ContactPointId));
     }
 
     private enum PipelineResult
@@ -292,6 +432,7 @@ internal sealed class FallbackRequestHandler(
                 new
                 {
                     failedAttemptId = failedAttempt.Id,
+                    failedStatus = failedAttempt.Status,
                     attemptId = attempt.Id,
                     channel,
                     sequence = attempt.Sequence,
@@ -299,6 +440,34 @@ internal sealed class FallbackRequestHandler(
                 },
                 now),
             cancellationToken);
+
+        // A step that advanced from an inconclusive verdict is the one case
+        // where this hub may reach the same person twice, and it says so.
+        // The entry rides in the transaction that already holds the chain lock
+        // of its partition, so it costs the append and no second lock. It
+        // claims a risk taken, never a duplicate observed: the send it followed
+        // was never answered, and nothing downstream will ever answer it.
+        if (string.Equals(
+            failedAttempt.Status, NotificationAttemptStatuses.Unknown, StringComparison.Ordinal))
+        {
+            await auditTrail.AppendAsync(
+                transaction.GetDbTransaction(),
+                BuildAuditEntry(
+                    DispatchingAuditVocabulary.FallbackRequestedFromUnknown,
+                    notification,
+                    new
+                    {
+                        failedAttemptId = failedAttempt.Id,
+                        failedChannel = failedAttempt.Channel,
+                        attemptId = attempt.Id,
+                        channel,
+                        duplicateRiskAccepted = true,
+                    },
+                    now),
+                cancellationToken);
+            logger.FallbackRequestedFromUnknown(notification.Id, failedAttempt.Id, channel);
+        }
+
         await transaction.CommitAsync(cancellationToken);
         logger.FallbackAttemptQueued(notification.Id, attempt.Id, channel);
         return new MessageDisposition.Processed();

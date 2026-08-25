@@ -72,6 +72,15 @@ public sealed class Notification
     /// <summary>Stamped by the Policy stage of the pipeline; null until then.</summary>
     public int? PolicyVersion { get; private set; }
 
+    /// <summary>
+    /// The delivery plan the Policy stage admitted, frozen at dispatch so the
+    /// fallback advances over the plan this notification was accepted under
+    /// rather than over whatever version is published when its deadline
+    /// elapses. Null until dispatch, and null forever on rows written before
+    /// the column existed.
+    /// </summary>
+    public string? AdmittedPlanJson { get; private set; }
+
     /// <summary>Variables with every sensitive value masked; the only plaintext projection ever stored.</summary>
     public string VariablesMaskedJson { get; private set; }
 
@@ -96,11 +105,18 @@ public sealed class Notification
     /// Stamps the policy version that ruled the notification and records the
     /// dispatch: the first attempt is queued and the pipeline is done with
     /// this notification until delivery feedback arrives.
+    /// <para>
+    /// The admitted plan is stamped in the same transition and for the same
+    /// reason as the version: both say which published decision this
+    /// notification was accepted under, and the fallback needs the plan for
+    /// exactly the question the version answers for everything else.
+    /// </para>
     /// </summary>
-    public void MarkDispatched(int policyVersion)
+    public void MarkDispatched(int policyVersion, string admittedPlanJson)
     {
         EnsurePipelineCanTransition();
         PolicyVersion = policyVersion;
+        AdmittedPlanJson = admittedPlanJson;
         Status = NotificationStatuses.Dispatched;
     }
 

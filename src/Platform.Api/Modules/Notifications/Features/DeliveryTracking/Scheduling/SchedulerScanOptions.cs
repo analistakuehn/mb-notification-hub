@@ -15,12 +15,20 @@ public sealed class SchedulerScanOptions
     public bool Enabled { get; init; } = true;
 
     /// <summary>
-    /// Pause between rounds. The default adds at most its own length to a
-    /// fallback deadline, which the delivery design accepts against the
-    /// timeout the critical plan gives its first step.
+    /// Pause between rounds. It adds at most its own length to a fallback
+    /// deadline, so it is not a free knob: it is a term of the arithmetic that
+    /// has to fit inside the accepted time to a fallback SMS.
+    /// <para>
+    /// The sum the default is derived from is the thirty second deadline of the
+    /// first critical step, plus one interval, plus the outbox and relay hops,
+    /// plus the Core stage, plus the provider call. At two seconds that sum
+    /// stays inside the accepted window with the provider timeout counted in
+    /// full; at five it did not, and nothing measured it, because no oracle
+    /// asserts elapsed time on this path.
+    /// </para>
     /// </summary>
     [Range(typeof(TimeSpan), "00:00:01", "00:05:00")]
-    public TimeSpan Interval { get; init; } = TimeSpan.FromSeconds(5);
+    public TimeSpan Interval { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// How many rows one scan claims per round. It bounds the transaction, not

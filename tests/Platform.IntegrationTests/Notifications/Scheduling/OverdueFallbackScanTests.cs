@@ -207,6 +207,70 @@ public sealed class OverdueFallbackScanTests(SchedulerScanFixture fixture)
     }
 
     /// <summary>
+    /// The mirror of the test above: the grace has not run out, but the step
+    /// has. The published plan owes the next channel at the deadline, so a
+    /// provider that timed out seconds into a thirty second step must not wait
+    /// out the full grace on top of it. Waiting was the defect: the plan
+    /// promised thirty seconds and the scan answered at sixty five.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task An_inconclusive_verdict_past_its_step_deadline_is_asked_for_inside_the_grace()
+    {
+        DateTimeOffset now = fixture.Clock.GetUtcNow();
+        TimeSpan grace = new SchedulerScanOptions().UnknownGrace;
+        SeededAttempt seeded = await fixture.SeedDispatchedAttemptAsync(new AttemptSeed
+        {
+            Class = NotificationClasses.Critical,
+            Status = NotificationAttemptStatuses.Unknown,
+            CreatedAt = now.AddMinutes(-5),
+            FallbackDeadline = now.AddSeconds(-10),
+
+            // Well inside the grace, so the age rule cannot be what selects
+            // this row: the deadline is the only instant that has passed.
+            StatusChangedAt = now - grace + TimeSpan.FromSeconds(10),
+        });
+
+        await fixture.RunOverdueScanAsync();
+
+        (await fixture.CountFallbackTriggersAsync(seeded.NotificationId)).ShouldBe(
+            1,
+            "o prazo do passo venceu, então o plano deve o próximo canal agora: "
+            + "esperar a carência inteira gasta a carência em cima do passo, não dentro dele.");
+    }
+
+    /// <summary>
+    /// An open circuit, a throttle or a paused channel returns the attempt to
+    /// the queue with its deadline intact, and reading only sent left that row
+    /// invisible to every scan: the notification expired without ever trying
+    /// the next channel. The class is deliberately neither critical nor an
+    /// authentication flow, because a queued attempt was never handed to a
+    /// provider, so asking again cannot duplicate a delivery and the class
+    /// restriction that guards the inconclusive states does not apply here.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task An_attempt_returned_to_the_queue_is_asked_for_when_its_deadline_elapses()
+    {
+        DateTimeOffset now = fixture.Clock.GetUtcNow();
+        SeededAttempt seeded = await fixture.SeedDispatchedAttemptAsync(new AttemptSeed
+        {
+            Class = NotificationClasses.Transactional,
+            AuthFlow = false,
+            Status = NotificationAttemptStatuses.Queued,
+            CreatedAt = now.AddMinutes(-5),
+            FallbackDeadline = now.AddMinutes(-4),
+            StatusChangedAt = now.AddMinutes(-4),
+        });
+
+        await fixture.RunOverdueScanAsync();
+
+        (await fixture.CountFallbackTriggersAsync(seeded.NotificationId)).ShouldBe(
+            1,
+            "a tentativa voltou para a fila com o prazo vencido e nenhuma varredura a enxergava: "
+            + "com o canal primário fora por mais tempo que a validade, a notificação "
+            + "terminava sem nunca tentar o passo seguinte.");
+    }
+
+    /// <summary>
     /// The liability the migration accepted: an attempt parked before the age
     /// column existed carries no age, and a scan must not act on an age nobody
     /// can compute. Reconciliation owns those rows, not this scan.

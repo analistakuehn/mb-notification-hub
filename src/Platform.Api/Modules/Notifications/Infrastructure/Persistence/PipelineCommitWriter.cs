@@ -131,7 +131,12 @@ internal sealed class PipelineCommitWriter(
                     notification.RestampTemplateVersion(render.Version);
                 }
 
-                notification.MarkDispatched(RequiredPolicyVersion(context));
+                notification.MarkDispatched(
+                    RequiredPolicyVersion(context),
+                    AdmittedDeliveryPlan.Serialize(
+                        context.DeliveryPlan
+                            ?? throw new InvalidOperationException(
+                                "Um despacho requer o plano de entrega filtrado pelo estágio Policy.")));
                 var attempt = NotificationAttempt.Queue(new NotificationAttemptDraft
                 {
                     NotificationId = notification.Id,

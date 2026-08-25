@@ -51,6 +51,10 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
         builder.Property(notification => notification.PolicyVersion)
             .HasColumnName("policy_version");
 
+        builder.Property(notification => notification.AdmittedPlanJson)
+            .HasColumnName("admitted_plan")
+            .HasColumnType("jsonb");
+
         builder.Property(notification => notification.VariablesMaskedJson)
             .HasColumnName("variables_masked")
             .HasColumnType("jsonb");

@@ -1,3 +1,5 @@
+using NotificationHub.Api.Modules.ContactConsent.Domain;
+
 namespace NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 
 /// <summary>
@@ -10,6 +12,15 @@ namespace NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 /// </summary>
 public sealed record RecipientSnapshot
 {
+    /// <summary>
+    /// The timezone this contract falls back to, published because a consumer
+    /// that decides anything by the clock needs it. A declared value the
+    /// runtime cannot resolve is the same situation as no declared value at
+    /// all, and the reading of that situation belongs to the contract that
+    /// states the default rather than to each consumer inventing one.
+    /// </summary>
+    public const string DefaultTimezone = RecipientProfile.DefaultTimezone;
+
     public required string RecipientId { get; init; }
 
     /// <summary>Effective IANA timezone, with the platform default already applied when the recipient never declared one.</summary>

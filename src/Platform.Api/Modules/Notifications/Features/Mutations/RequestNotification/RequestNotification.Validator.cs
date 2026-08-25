@@ -6,8 +6,13 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Mutations;
 
 internal static partial class RequestNotification
 {
-    /// <summary>Thirty days; a notification older than that is operationally meaningless.</summary>
-    private const int MaxTtlSeconds = 2_592_000;
+    /// <summary>
+    /// Thirty days; a notification older than that is operationally
+    /// meaningless. It is also the bound the attempt window is derived from,
+    /// so the two are asserted against each other rather than kept in step by
+    /// hand.
+    /// </summary>
+    internal const int MaxTtlSeconds = 2_592_000;
 
     internal sealed class Validator : AbstractValidator<Command>
     {

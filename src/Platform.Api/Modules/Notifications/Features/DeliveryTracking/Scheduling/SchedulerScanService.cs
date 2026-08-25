@@ -1,11 +1,13 @@
 using Microsoft.Extensions.Options;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Events;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Scheduling;
 
 /// <summary>
 /// Runs one round of every scan per configured interval: the fallback
-/// deadlines that elapsed, the sends parked on an inconclusive verdict, and
-/// the notifications whose release instant has passed.
+/// deadlines that elapsed, the sends parked on an inconclusive verdict, the
+/// notifications whose release instant has passed, and the suppression signals
+/// the delivery applier could not hand to the contact ledger.
 /// <para>
 /// The loop holds no state at all. Everything a round needs to know is read
 /// from the database when the round runs, which is what lets this role run on
@@ -59,6 +61,15 @@ internal sealed class SchedulerScanService(
                 .RunAsync(cancellationToken);
             await scope.ServiceProvider
                 .GetRequiredService<DeferredReleaseScan>()
+                .RunAsync(cancellationToken);
+
+            // The suppression signals the applier could not hand to the contact
+            // ledger. It runs on this interval and not on the reconciliation's
+            // because the signal it carries is a destination that must stop
+            // being addressed, and a day of retry delay is a day of messages
+            // sent to an address the provider already refused.
+            await scope.ServiceProvider
+                .GetRequiredService<PendingSuppressionDrain>()
                 .RunAsync(cancellationToken);
             heartbeat.RoundCompleted();
         }

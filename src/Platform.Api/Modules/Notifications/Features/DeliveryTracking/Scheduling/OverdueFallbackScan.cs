@@ -76,6 +76,25 @@ internal sealed class OverdueFallbackScan(
     /// what lets the planner discard the partitions the notification cannot
     /// possibly be in.
     /// </para>
+    /// <para>
+    /// Queued belongs here next to sent, because an open circuit, a throttle
+    /// or a paused channel returns the attempt to the queue with its deadline
+    /// intact. Reading only sent left that attempt invisible to every scan, so
+    /// a primary channel down for longer than the validity ended the
+    /// notification without ever trying the next step. Neither state carries
+    /// the risk that keeps unknown out of this batch: a queued attempt was
+    /// never handed to a provider, and a sent one was accepted, so asking for
+    /// the next step cannot duplicate a delivery nobody can rule out. The
+    /// inconclusive states are asked for separately, under the class
+    /// restriction the accepted duplicate risk requires.
+    /// </para>
+    /// <para>
+    /// Claiming a queued attempt is what makes the dispatch claim conditional:
+    /// once this scan has asked, a dispatcher that later picks the message up
+    /// must not send the step the plan already moved past, or the recipient
+    /// gets both. The refusal lives in the claim itself, on the same two
+    /// columns this predicate reads.
+    /// </para>
     /// </summary>
     internal const string DeadlineClaimSql = """
         SELECT attempt.id, attempt.created_at, attempt.fallback_deadline,
@@ -85,7 +104,7 @@ internal sealed class OverdueFallbackScan(
           ON notification.id = attempt.notification_id
          AND notification.created_at > attempt.created_at - @attemptWindow
          AND notification.created_at <= attempt.created_at
-        WHERE attempt.status = 'sent'
+        WHERE attempt.status IN ('queued', 'sent')
           AND attempt.fallback_deadline IS NOT NULL
           AND attempt.plan_advanced_at IS NULL
           AND attempt.fallback_requested_at IS NULL
@@ -117,6 +136,14 @@ internal sealed class OverdueFallbackScan(
     /// unresolved last step is left to reconciliation instead of being turned
     /// into a failed notification by a handler that would find no step to take.
     /// </para>
+    /// <para>
+    /// The grace is the only instant this statement reads, and the step's own
+    /// deadline is asked for separately, by the statement below. Both instants
+    /// govern the same rows, but they cannot share a statement: an OR across
+    /// the age and the deadline is not seekable on either column, so a single
+    /// statement covering both degrades this scan into a walk of every
+    /// partition, which is measured and refused by the plan assertions.
+    /// </para>
     /// </summary>
     internal const string UnknownClaimSql = """
         SELECT attempt.id, attempt.created_at, attempt.status_changed_at,
@@ -134,6 +161,55 @@ internal sealed class OverdueFallbackScan(
           AND notification.status = 'dispatched'
           AND (notification.class = 'critical' OR notification.auth_flow)
         ORDER BY attempt.status_changed_at
+        LIMIT @batchSize
+        FOR UPDATE OF attempt SKIP LOCKED
+        """;
+
+    /// <summary>
+    /// An inconclusive verdict whose step already ran out of time, which the
+    /// grace alone answers far too late.
+    /// <para>
+    /// The published plan owes the next channel when the step's deadline
+    /// passes, and a provider that timed out early in a short step parks the
+    /// attempt on unknown within seconds of it starting. Waiting the full
+    /// grace there spends the grace on top of the step instead of inside it,
+    /// so a thirty second step answered at sixty five. This statement asks on
+    /// the deadline, and the one above keeps asking on the age, which still
+    /// governs an attempt parked well inside a long step.
+    /// </para>
+    /// <para>
+    /// The class restriction is the same one the grace carries, and it is not
+    /// negotiable here: an inconclusive verdict means nobody can rule out that
+    /// the message arrived, so asking again risks a second message to the same
+    /// person. The accepted decision spends that risk only where a lost
+    /// authentication code costs more than a duplicate. Queued and sent carry
+    /// no such doubt and are asked for without regard to class.
+    /// </para>
+    /// <para>
+    /// The quals imply the predicate of both partial indexes, so the planner is
+    /// free to choose, and measurement says it takes the age one: that filter
+    /// pins the same single status this statement does, which makes it the
+    /// narrower of the two. Either choice is a seek; what matters is that all
+    /// three shared conjuncts stay spelled out, because dropping one leaves
+    /// neither index provable and the round walks every partition.
+    /// </para>
+    /// </summary>
+    internal const string UnknownDeadlineClaimSql = """
+        SELECT attempt.id, attempt.created_at, attempt.fallback_deadline,
+               notification.id, notification.recipient_id, notification.class, notification.auth_flow
+        FROM notifications.notification_attempt AS attempt
+        JOIN notifications.notification AS notification
+          ON notification.id = attempt.notification_id
+         AND notification.created_at > attempt.created_at - @attemptWindow
+         AND notification.created_at <= attempt.created_at
+        WHERE attempt.status = 'unknown'
+          AND attempt.fallback_deadline IS NOT NULL
+          AND attempt.plan_advanced_at IS NULL
+          AND attempt.fallback_requested_at IS NULL
+          AND attempt.fallback_deadline < @now
+          AND notification.status = 'dispatched'
+          AND (notification.class = 'critical' OR notification.auth_flow)
+        ORDER BY attempt.fallback_deadline
         LIMIT @batchSize
         FOR UPDATE OF attempt SKIP LOCKED
         """;
@@ -180,12 +256,27 @@ internal sealed class OverdueFallbackScan(
         var released = await ReleaseStaleRequestsAsync(
             now - settings.FallbackRequestRetry, cancellationToken);
 
-        IReadOnlyList<OverdueAttempt> byDeadline = await RequestAsync(
-            DeadlineClaimSql,
-            command => ScanCommands.AddParameter(command, "now", now),
-            now,
-            settings,
-            cancellationToken);
+        IReadOnlyList<OverdueAttempt> byDeadline =
+        [
+            .. await RequestAsync(
+                DeadlineClaimSql,
+                bindScanParameter: null,
+                now,
+                settings,
+                cancellationToken),
+
+            // The same trigger, asked of the inconclusive rows the statement
+            // above leaves out. It runs before the age claim so an attempt
+            // that is overdue on both instants is asked for once, on the
+            // deadline, because the request stamp the winner writes takes the
+            // row out of the predicate of the loser.
+            .. await RequestAsync(
+                UnknownDeadlineClaimSql,
+                bindScanParameter: null,
+                now,
+                settings,
+                cancellationToken),
+        ];
         IReadOnlyList<OverdueAttempt> byAge = await RequestAsync(
             UnknownClaimSql,
             command => ScanCommands.AddParameter(command, "threshold", now - settings.UnknownGrace),
@@ -212,7 +303,7 @@ internal sealed class OverdueFallbackScan(
     /// </summary>
     private async Task<IReadOnlyList<OverdueAttempt>> RequestAsync(
         string claimSql,
-        Action<DbCommand> bindScanParameter,
+        Action<DbCommand>? bindScanParameter,
         DateTimeOffset now,
         SchedulerScanOptions settings,
         CancellationToken cancellationToken)
@@ -225,7 +316,8 @@ internal sealed class OverdueFallbackScan(
         {
             command.Transaction = transaction.GetDbTransaction();
             command.CommandText = claimSql;
-            bindScanParameter(command);
+            bindScanParameter?.Invoke(command);
+            ScanCommands.AddParameter(command, "now", now);
             ScanCommands.AddParameter(command, "attemptWindow", NotificationPlanOutcome.AttemptWindow);
             ScanCommands.AddParameter(command, "batchSize", settings.BatchSize);
             await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken);

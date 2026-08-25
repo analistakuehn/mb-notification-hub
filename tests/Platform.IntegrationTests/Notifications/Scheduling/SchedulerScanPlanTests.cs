@@ -29,6 +29,7 @@ namespace NotificationHub.IntegrationTests.Notifications.Scheduling;
 /// empty table would grade the size of the table instead of the index.
 /// </para>
 /// </summary>
+[Collection(QueryPlanCollectionDefinition.Name)]
 public sealed class SchedulerScanPlanTests : IAsyncLifetime
 {
     /// <summary>
@@ -120,6 +121,42 @@ public sealed class SchedulerScanPlanTests : IAsyncLifetime
 
         degraded.ShouldNotContain(
             line => line.Contains(OverdueIndex, StringComparison.Ordinal),
+            Plan(degraded));
+        await ShouldWalkAsync(db, degraded, AttemptTable);
+    }
+
+    /// <summary>
+    /// The deadline half of the inconclusive rows is seekable by both partial
+    /// indexes, because its quals imply both predicates, and the planner takes
+    /// the age one: that filter pins the same single status this statement
+    /// does, which makes it the narrower of the two. The choice is measured
+    /// rather than asserted from the shape of the statement, and what the
+    /// falsification proves is the part that matters either way: drop one
+    /// shared conjunct and neither index is provable anymore.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task The_planner_answers_the_unknown_deadline_scan_with_a_partial_index()
+    {
+        await using NotificationsDbContext db = CreateContext();
+        await ShouldUseAsync(
+            db,
+            await ExplainDeadlineScanAsync(db, OverdueFallbackScan.UnknownDeadlineClaimSql),
+            UnknownIndex,
+            AttemptTable);
+
+        var withoutPredicate = WithoutLines(
+            OverdueFallbackScan.UnknownDeadlineClaimSql,
+            "plan_advanced_at IS NULL",
+            "fallback_requested_at IS NULL");
+        withoutPredicate.ShouldNotBe(
+            OverdueFallbackScan.UnknownDeadlineClaimSql,
+            "a mutação não encontrou o predicado; sem ela este teste não prova nada.");
+
+        IReadOnlyList<string> degraded = await ExplainDeadlineScanAsync(db, withoutPredicate);
+
+        degraded.ShouldNotContain(
+            line => line.Contains(OverdueIndex, StringComparison.Ordinal)
+                || line.Contains(UnknownIndex, StringComparison.Ordinal),
             Plan(degraded));
         await ShouldWalkAsync(db, degraded, AttemptTable);
     }
@@ -440,12 +477,16 @@ public sealed class SchedulerScanPlanTests : IAsyncLifetime
                 CASE
                     WHEN row_number() OVER (ORDER BY notification.created_at) % 200 = 0 THEN 'sent'
                     WHEN row_number() OVER (ORDER BY notification.created_at) % 331 = 0 THEN 'unknown'
+                    WHEN row_number() OVER (ORDER BY notification.created_at) % 457 = 0 THEN 'queued'
+                    WHEN row_number() OVER (ORDER BY notification.created_at) % 613 = 0 THEN 'sending'
                     ELSE 'delivered'
                 END,
                 NULL,
                 CASE
                     WHEN row_number() OVER (ORDER BY notification.created_at) % 200 = 0
                       OR row_number() OVER (ORDER BY notification.created_at) % 331 = 0
+                      OR row_number() OVER (ORDER BY notification.created_at) % 457 = 0
+                      OR row_number() OVER (ORDER BY notification.created_at) % 613 = 0
                     THEN notification.created_at + interval '30 seconds'
                     ELSE NULL
                 END,

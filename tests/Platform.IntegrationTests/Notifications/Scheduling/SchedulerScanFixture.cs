@@ -1,3 +1,4 @@
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -126,7 +127,11 @@ public sealed class SchedulerScanFixture : IAsyncLifetime
                 TtlSeconds = 3600,
                 AcceptedAt = seed.CreatedAt,
             });
-            notification.MarkDispatched(policyVersion: 1);
+            notification.MarkDispatched(policyVersion: 1, AdmittedDeliveryPlan.Serialize(
+                [
+                    new DeliveryPlanStep(Channel.Create("push").Value!, TimeSpan.FromSeconds(30)),
+                    new DeliveryPlanStep(Channel.Create("email").Value!, null),
+                ]));
             db.Notifications.Add(notification);
 
             var attempt = NotificationAttempt.Queue(new NotificationAttemptDraft
@@ -368,4 +373,5 @@ public sealed record AttemptSeed
 public sealed class SchedulerScanCollectionDefinition : ICollectionFixture<SchedulerScanFixture>
 {
     public const string Name = "scheduler-scan";
+
 }

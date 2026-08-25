@@ -4,9 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Fallback;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Scheduling;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.IntegrationTests.Dispatch;
 using NotificationHub.IntegrationTests.Notifications;
+using NotificationHub.IntegrationTests.Notifications.Scheduling;
 using NotificationHub.IntegrationTests.TemplateManagement;
 
 namespace NotificationHub.IntegrationTests.Dispatching;
@@ -16,9 +18,12 @@ namespace NotificationHub.IntegrationTests.Dispatching;
 /// Two producers of the same trigger exist by design (an exhausted step, and a
 /// deadline that elapsed with no answer) and they write two distinct queue
 /// rows with two distinct message identities, so message deduplication cannot
-/// tell them apart. Every test here runs the two triggers in two real
+/// tell them apart. Each claim test runs the two triggers in two real
 /// concurrent transactions, because two calls in sequence would pass against a
-/// handler with no claim at all.
+/// handler with no claim at all. The last two cover the other ways a step can
+/// be settled twice: a trigger whose pair of identifiers does not belong
+/// together, and a dispatcher that still holds the message of a step the
+/// deadline scan already asked for.
 /// </summary>
 [Collection(CorePipelineCollectionDefinition.Name)]
 public sealed class FallbackStepClaimTests(CorePipelineFixture fixture)
@@ -112,6 +117,137 @@ public sealed class FallbackStepClaimTests(CorePipelineFixture fixture)
     }
 
     /// <summary>
+    /// The two identifiers of a trigger are resolved independently, so a
+    /// crossed pair has to be rejected before anything is written. This is the
+    /// adversarial case: one notification paired with the failed attempt of
+    /// another. Advancing would apply the first notification's published plan
+    /// to the second one's channel and cross their audit trails.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_trigger_whose_attempt_belongs_to_another_notification_settles_nothing()
+    {
+        Scenario first = await PrepareAsync(deviceCount: 1, acceptPush: true);
+        Scenario second = await PrepareAsync(deviceCount: 1, acceptPush: true);
+        List<Guid> strangerAttempts = await AttemptIdsAsync(second.NotificationId, "push");
+        strangerAttempts.Count.ShouldBe(1);
+
+        MessageDisposition outcome = await ProcessOneAsync(
+            FallbackTrigger(first.NotificationId, strangerAttempts[0]));
+
+        outcome.ShouldBeOfType<MessageDisposition.Discard>()
+            .Reason.ShouldBe(FallbackRequestHandler.ReasonAttemptNotificationMismatch);
+
+        // Neither notification moved: the plan of the first did not advance,
+        // neither trail records a queued attempt, and both remain open for
+        // their own deadline.
+        (await AttemptIdsAsync(first.NotificationId, "email")).ShouldBeEmpty(
+            "o gatilho cruzado avançou o plano da notificação errada: "
+            + "o destinatário da primeira receberia uma etapa que ninguém pediu.");
+        (await AttemptIdsAsync(second.NotificationId, "email")).ShouldBeEmpty();
+        (await CountTrailAsync(first.NotificationId, "fallback.attempt_queued")).ShouldBe(0);
+        (await CountTrailAsync(second.NotificationId, "fallback.attempt_queued")).ShouldBe(0);
+        (await StatusOfAsync(first.NotificationId)).ShouldBe(NotificationStatuses.Dispatched);
+        (await StatusOfAsync(second.NotificationId)).ShouldBe(NotificationStatuses.Dispatched);
+    }
+
+    /// <summary>
+    /// The invariant the conditional claim exists for. A step that ran out of
+    /// time while its message was still on the queue is asked for by the
+    /// deadline scan, and the dispatcher may pick that message up afterwards:
+    /// the message is durable and nothing recalls it. Sending it then would put
+    /// the same notification on two channels, which is the duplicate the
+    /// at-least-once decision refuses at the customer.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_step_asked_for_by_the_deadline_is_no_longer_sendable_by_its_dispatcher()
+    {
+        var application = DispatchApi.NewApplication();
+        (var templateKey, _) = await DispatchApi.CreatePublishedTemplateAsync(
+            fixture, application, "critical", "authentication");
+        await DispatchApi.CreatePublishedPolicyAsync(
+            fixture, application, "critical", ("push", "30s"), ("email", null));
+        (var recipientId, _, _) = await DispatchApi.RegisterRecipientAsync(fixture, deviceCount: 1);
+        await fixture.SeedProviderConfigAsync(("email", "sendgrid"), ("push", "fcm"));
+
+        // Routed and queued, deliberately never dispatched: this is the window
+        // between the message being written and a dispatcher claiming it.
+        Guid notificationId = await DispatchApi.AcceptAndRouteAsync(
+            fixture, application, templateKey, "critical", recipientId, "core-auth");
+        List<Guid> pushAttempts = await AttemptIdsAsync(notificationId, "push");
+        pushAttempts.Count.ShouldBe(1);
+
+        var clock = new MutableClock(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(5));
+        await using (ServiceProvider tracker = fixture.BuildDeliveryTrackerProvider(
+            replaceServices: services => services.AddSingleton<TimeProvider>(clock)))
+        {
+            using IServiceScope scope = tracker.CreateScope();
+            await scope.ServiceProvider
+                .GetRequiredService<OverdueFallbackScan>()
+                .RunAsync(CancellationToken.None);
+        }
+
+        // The stamp of this attempt, not the count of the round: the store is
+        // shared with the tests above and their overdue rows are claimed by the
+        // same round, so a global count would grade the suite instead of this
+        // scenario.
+        (await RequestStampOfAsync(pushAttempts[0])).ShouldNotBeNull(
+            "a varredura por prazo precisa alcançar a tentativa que ainda está na fila, "
+            + "senão o passo vencido nunca é pedido.");
+
+        await using FakeProviderServer provider = await FakeProviderServer.StartAsync();
+        provider.Handler = request => Task.FromResult(request.Path == DispatchApi.FcmTokenPath
+            ? new FakeProviderResponse(200, DispatchApi.FcmTokenBody, null)
+            : new FakeProviderResponse(200, FcmAccepted, null));
+        await using ServiceProvider dispatcher = fixture.BuildDispatcherWorkerProvider(
+            DispatchApi.ProviderSettings(provider.BaseAddress, provider.BaseAddress));
+        await CorePipelineFixture.RunDispatchPassAsync(dispatcher, "dispatch-push-auth");
+
+        // The provider is the oracle: a send here is a second message to the
+        // same person, and no assertion on internal state says that as plainly.
+        provider.Requests.Count(request => request.Path != DispatchApi.FcmTokenPath).ShouldBe(
+            0,
+            "o dispatcher enviou o passo que a varredura já havia pedido: "
+            + "o destinatário recebe o canal antigo e o canal do fallback.");
+        (await StatusOfAttemptAsync(pushAttempts[0])).ShouldBe(
+            NotificationAttemptStatuses.Queued,
+            "a reivindicação tinha de ser recusada, então a tentativa não sai de 'queued'.");
+    }
+
+    /// <summary>
+    /// A republication must not reach a notification already admitted. Both
+    /// activating a plan and rolling one back are republications of the class
+    /// policy, so a fallback that re-read the current version would make the
+    /// documented rollback change the behaviour of messages already accepted.
+    /// Here the plan is rolled back to a single step after the notification was
+    /// admitted under two: the notification keeps the plan it was accepted
+    /// under and still reaches its second channel.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_republished_plan_does_not_reach_a_notification_already_admitted()
+    {
+        Scenario scenario = await PrepareAsync(deviceCount: 1, acceptPush: true);
+        List<Guid> pushAttempts = await AttemptIdsAsync(scenario.NotificationId, "push");
+        pushAttempts.Count.ShouldBe(1);
+
+        // The rollback: the same class, published again without the step the
+        // notification above was admitted with.
+        var rolledBack = await DispatchApi.CreatePublishedPolicyAsync(
+            fixture, scenario.Application, "critical", ("push", "30s"));
+        rolledBack.ShouldBeGreaterThan(1, "a republicação precisa gerar uma versão nova.");
+
+        MessageDisposition outcome = await ProcessOneAsync(
+            FallbackTrigger(scenario.NotificationId, pushAttempts[0]));
+
+        outcome.ShouldBeOfType<MessageDisposition.Processed>();
+        (await AttemptIdsAsync(scenario.NotificationId, "email")).Count.ShouldBe(
+            1,
+            "o fallback usou o plano publicado agora em vez do plano admitido: "
+            + "uma republicação passou a mudar o comportamento de mensagem já aceita, "
+            + "e o rollback descrito como seguro deixou de ser.");
+        (await StatusOfAsync(scenario.NotificationId)).ShouldBe(NotificationStatuses.Dispatched);
+    }
+
+    /// <summary>
     /// Accepts one notification of an authentication template over a
     /// two-step plan (push with a deadline, then e-mail), routes it and runs
     /// one dispatch pass. With <paramref name="acceptPush"/> the provider takes
@@ -157,7 +293,7 @@ public sealed class FallbackStepClaimTests(CorePipelineFixture fixture)
             }
         }
 
-        return new Scenario(notificationId, recipientId);
+        return new Scenario(notificationId, recipientId, application);
     }
 
     /// <summary>
@@ -211,6 +347,37 @@ public sealed class FallbackStepClaimTests(CorePipelineFixture fixture)
             Payload = JsonSerializer.SerializeToElement(new { notificationId, failedAttemptId }),
         };
 
+    /// <summary>Runs one trigger through one handler in one scope.</summary>
+    private async Task<MessageDisposition> ProcessOneAsync(MessageEnvelope envelope)
+    {
+        await using ServiceProvider core = fixture.BuildCoreWorkerProvider();
+        using IServiceScope scope = core.CreateScope();
+        return await scope.ServiceProvider
+            .GetRequiredService<FallbackRequestHandler>()
+            .ProcessAsync(envelope, CancellationToken.None);
+    }
+
+    private async Task<string> StatusOfAsync(Guid notificationId)
+        => await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .Where(notification => notification.Id == notificationId)
+            .Select(notification => notification.Status)
+            .SingleAsync());
+
+    private async Task<DateTimeOffset?> RequestStampOfAsync(Guid attemptId)
+        => await fixture.QueryNotificationsDbAsync(db => db.NotificationAttempts
+            .AsNoTracking()
+            .Where(candidate => candidate.Id == attemptId)
+            .Select(candidate => candidate.FallbackRequestedAt)
+            .SingleAsync());
+
+    private async Task<string> StatusOfAttemptAsync(Guid attemptId)
+        => await fixture.QueryNotificationsDbAsync(db => db.NotificationAttempts
+            .AsNoTracking()
+            .Where(candidate => candidate.Id == attemptId)
+            .Select(candidate => candidate.Status)
+            .SingleAsync());
+
     private async Task<List<Guid>> AttemptIdsAsync(Guid notificationId, string channel)
         => await fixture.QueryNotificationsDbAsync(db => db.NotificationAttempts
             .AsNoTracking()
@@ -226,5 +393,5 @@ public sealed class FallbackStepClaimTests(CorePipelineFixture fixture)
             .CountAsync(entry => entry.Action == action
                 && entry.EntityId == notificationId.ToString()));
 
-    private sealed record Scenario(Guid NotificationId, string RecipientId);
+    private sealed record Scenario(Guid NotificationId, string RecipientId, string Application);
 }

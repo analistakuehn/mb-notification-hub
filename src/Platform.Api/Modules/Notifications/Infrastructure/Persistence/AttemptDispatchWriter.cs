@@ -65,7 +65,20 @@ internal sealed class AttemptDispatchWriter(
     internal static string DedupeMessageId(Guid envelopeMessageId, Guid attemptId)
         => $"{envelopeMessageId:N}:{attemptId:N}";
 
-    /// <summary>Claims one ready-to-send attempt: email, or a push sibling already carrying its token.</summary>
+    /// <summary>
+    /// Claims one ready-to-send attempt: email, or a push sibling already
+    /// carrying its token.
+    /// <para>
+    /// Queued is not enough to send. The deadline scan reaches queued attempts
+    /// too, so between the moment a message was written and the moment a
+    /// dispatcher picks it up the plan may have moved past this step, either
+    /// because the request is on its way or because the next attempt already
+    /// exists. Sending here would put the same notification on two channels.
+    /// The two columns the scan writes are therefore part of the claim, and a
+    /// refused claim settles as a duplicate: the step is being resolved
+    /// elsewhere and this message has nothing left to do.
+    /// </para>
+    /// </summary>
     public async Task<AttemptClaimOutcome> TryClaimAsync(
         NotificationAttempt attempt,
         string providerKey,
@@ -74,7 +87,9 @@ internal sealed class AttemptDispatchWriter(
         DateTimeOffset now = timeProvider.GetUtcNow();
         var claimed = await db.NotificationAttempts
             .Where(candidate => candidate.Id == attempt.Id
-                && candidate.Status == NotificationAttemptStatuses.Queued)
+                && candidate.Status == NotificationAttemptStatuses.Queued
+                && candidate.PlanAdvancedAt == null
+                && candidate.FallbackRequestedAt == null)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Sending)
@@ -107,7 +122,9 @@ internal sealed class AttemptDispatchWriter(
         Guid stampedToken = deviceTokenIds[0];
         var claimed = await db.NotificationAttempts
             .Where(candidate => candidate.Id == attempt.Id
-                && candidate.Status == NotificationAttemptStatuses.Queued)
+                && candidate.Status == NotificationAttemptStatuses.Queued
+                && candidate.PlanAdvancedAt == null
+                && candidate.FallbackRequestedAt == null)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Sending)

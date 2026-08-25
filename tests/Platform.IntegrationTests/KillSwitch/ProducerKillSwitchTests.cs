@@ -62,7 +62,7 @@ public sealed class ProducerKillSwitchTests(NotificationsApiFixture fixture)
             {
                 services.RemoveAll<IKillSwitchSnapshotSource>();
                 services.AddSingleton<IKillSwitchSnapshotSource, ThrowingSnapshotSource>();
-        }));
+            }));
         var producerId = $"producer-{Guid.NewGuid():N}";
         var recipientId = $"cus_{Guid.NewGuid():N}";
         HttpClient producer = fixture.CreateProducerClient(

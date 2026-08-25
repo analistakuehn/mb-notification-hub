@@ -36,6 +36,16 @@ public sealed partial class SchedulerScanStatementTests
         => ShouldCarryPredicateOf<NotificationAttempt>(
             OverdueFallbackScan.UnknownClaimSql, UnknownIndex);
 
+    /// <summary>
+    /// The deadline half of the inconclusive rows seeks the deadline index, not
+    /// the age one: its key starts at the status this statement pins to a
+    /// single value, so the planner gets an equality and a range in key order.
+    /// </summary>
+    [Fact]
+    public void The_unknown_deadline_scan_carries_the_predicate_of_the_index_that_answers_it()
+        => ShouldCarryPredicateOf<NotificationAttempt>(
+            OverdueFallbackScan.UnknownDeadlineClaimSql, OverdueIndex);
+
     [Fact]
     public void The_stale_request_release_carries_the_predicate_of_the_index_that_answers_it()
         => ShouldCarryPredicateOf<NotificationAttempt>(
@@ -55,9 +65,16 @@ public sealed partial class SchedulerScanStatementTests
     public void The_statements_spell_the_same_vocabulary_the_module_writes()
     {
         OverdueFallbackScan.DeadlineClaimSql.ShouldContain(
-            $"attempt.status = '{NotificationAttemptStatuses.Sent}'");
+            $"attempt.status IN ('{NotificationAttemptStatuses.Queued}', "
+            + $"'{NotificationAttemptStatuses.Sent}')");
         OverdueFallbackScan.UnknownClaimSql.ShouldContain(
             $"attempt.status = '{NotificationAttemptStatuses.Unknown}'");
+        OverdueFallbackScan.UnknownDeadlineClaimSql.ShouldContain(
+            $"attempt.status = '{NotificationAttemptStatuses.Unknown}'");
+        OverdueFallbackScan.UnknownDeadlineClaimSql.ShouldContain(
+            $"notification.status = '{NotificationStatuses.Dispatched}'");
+        OverdueFallbackScan.UnknownDeadlineClaimSql.ShouldContain(
+            $"notification.class = '{NotificationClasses.Critical}'");
         OverdueFallbackScan.DeadlineClaimSql.ShouldContain(
             $"notification.status = '{NotificationStatuses.Dispatched}'");
         OverdueFallbackScan.UnknownClaimSql.ShouldContain(
@@ -83,6 +100,7 @@ public sealed partial class SchedulerScanStatementTests
         [
             OverdueFallbackScan.DeadlineClaimSql,
             OverdueFallbackScan.UnknownClaimSql,
+            OverdueFallbackScan.UnknownDeadlineClaimSql,
             OverdueFallbackScan.StampRequestSql,
             OverdueFallbackScan.ReleaseStaleRequestSql,
             DeferredReleaseScan.CandidateSql,
@@ -94,19 +112,20 @@ public sealed partial class SchedulerScanStatementTests
     }
 
     /// <summary>
-    /// Both overdue scans have to leave a concluded notification alone. An
+    /// Every overdue scan has to leave a concluded notification alone. An
     /// attempt whose plan ended without advancing its step keeps a deadline and
     /// an empty claim forever, so a scan that did not read the state of the
     /// notification would ask for its next step once per round until the
     /// partition is dropped.
     /// </summary>
     [Fact]
-    public void Both_overdue_scans_join_the_notification_they_decide_about()
+    public void Every_overdue_scan_joins_the_notification_it_decides_about()
     {
         foreach (var statement in new[]
         {
             OverdueFallbackScan.DeadlineClaimSql,
             OverdueFallbackScan.UnknownClaimSql,
+            OverdueFallbackScan.UnknownDeadlineClaimSql,
         })
         {
             statement.ShouldContain("JOIN notifications.notification");
@@ -128,6 +147,8 @@ public sealed partial class SchedulerScanStatementTests
         DeferredReleaseScan.CandidateSql.ShouldContain("LIMIT @batchSize");
         OverdueFallbackScan.DeadlineClaimSql.ShouldContain("attempt.fallback_deadline < @now");
         OverdueFallbackScan.UnknownClaimSql.ShouldContain("attempt.status_changed_at < @threshold");
+        OverdueFallbackScan.UnknownDeadlineClaimSql.ShouldContain("LIMIT @batchSize");
+        OverdueFallbackScan.UnknownDeadlineClaimSql.ShouldContain("attempt.fallback_deadline < @now");
         DeferredReleaseScan.CandidateSql.ShouldContain("notification.release_at <= @now");
     }
 
@@ -141,6 +162,7 @@ public sealed partial class SchedulerScanStatementTests
     {
         OverdueFallbackScan.DeadlineClaimSql.ShouldContain("FOR UPDATE OF attempt SKIP LOCKED");
         OverdueFallbackScan.UnknownClaimSql.ShouldContain("FOR UPDATE OF attempt SKIP LOCKED");
+        OverdueFallbackScan.UnknownDeadlineClaimSql.ShouldContain("FOR UPDATE OF attempt SKIP LOCKED");
         DeferredReleaseScan.ClaimSql.ShouldContain("FOR UPDATE SKIP LOCKED");
     }
 

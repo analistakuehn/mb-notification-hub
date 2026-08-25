@@ -36,7 +36,15 @@ internal static class PolicyEvidenceProjection
         {
             [ConsentGateRule.RuleName] = Keys("basis", "purpose", "granted", "denied"),
             [SuppressionGateRule.RuleName] = Keys("remaining", "suppressed", "surviving"),
-            [QuietHoursRule.RuleName] = Keys("guard", "window", "timezone", "localTime", "releaseAt"),
+            // The declared identifier joins the resolved one, and it is the same
+            // category of fact: an IANA zone that infers approximate geography,
+            // disclosable under the audit role. It earns its place because the
+            // two can differ. When a declared zone is unusable the window is
+            // measured in the platform default, and without both values an
+            // auditor cannot tell that deferral apart from one measured in the
+            // zone the recipient actually asked for.
+            [QuietHoursRule.RuleName] = Keys(
+                "guard", "window", "timezone", "declaredTimezone", "localTime", "releaseAt"),
             [DedupeWindowRule.RuleName] = Keys(
                 "windowSeconds", "acquired", "heldByThisNotification", "failOpen", "risk"),
             [ChannelSelectionRule.RuleName] = Keys(

@@ -47,7 +47,7 @@ internal sealed class QuietHoursRule(TimeProvider timeProvider) : IPolicyRule<No
 
         RecipientSnapshot recipient = context.Recipient
             ?? throw new InvalidOperationException("A regra de janela de silêncio requer o destinatário resolvido.");
-        var timezone = TimeZoneInfo.FindSystemTimeZoneById(recipient.Timezone);
+        (TimeZoneInfo timezone, var resolvedTimezone) = ResolveTimezone(recipient.Timezone);
         DateTimeOffset nowUtc = timeProvider.GetUtcNow();
         DateTimeOffset localNow = TimeZoneInfo.ConvertTime(nowUtc, timezone);
         if (NextReleaseInstant(localNow, window, timezone) is not { } releaseAt)
@@ -57,7 +57,8 @@ internal sealed class QuietHoursRule(TimeProvider timeProvider) : IPolicyRule<No
                 EvidenceJson = JsonSerializer.Serialize(new
                 {
                     window = Describe(window),
-                    timezone = recipient.Timezone,
+                    timezone = resolvedTimezone,
+                    declaredTimezone = recipient.Timezone,
                     localTime = localNow.ToString("HH:mm", CultureInfo.InvariantCulture),
                 }),
             });
@@ -68,7 +69,8 @@ internal sealed class QuietHoursRule(TimeProvider timeProvider) : IPolicyRule<No
             EvidenceJson = JsonSerializer.Serialize(new
             {
                 window = Describe(window),
-                timezone = recipient.Timezone,
+                timezone = resolvedTimezone,
+                declaredTimezone = recipient.Timezone,
                 localTime = localNow.ToString("HH:mm", CultureInfo.InvariantCulture),
                 releaseAt,
             }),
@@ -76,9 +78,52 @@ internal sealed class QuietHoursRule(TimeProvider timeProvider) : IPolicyRule<No
     }
 
     /// <summary>
+    /// The timezone the window is measured in, and the identifier that was
+    /// actually used. A declared identifier the runtime cannot resolve falls
+    /// back to the platform default, which is the same reading the recipient
+    /// contract already gives to a recipient who declared nothing: the value is
+    /// unusable either way, and this rule has to reach a decision rather than
+    /// propagate an exception through the stage that exists to produce one.
+    /// <para>
+    /// The substitution is named in the evidence next to the declared value, so
+    /// a deferral measured in a timezone the recipient did not declare is
+    /// visible in the trail instead of being indistinguishable from one that
+    /// was. A default the runtime cannot resolve either is not a data problem
+    /// but a host without a timezone database, and that is not something this
+    /// rule can decide around.
+    /// </para>
+    /// </summary>
+    internal static (TimeZoneInfo Timezone, string Resolved) ResolveTimezone(string declared)
+    {
+        if (TimeZoneInfo.TryFindSystemTimeZoneById(declared, out TimeZoneInfo? resolved))
+        {
+            return (resolved, declared);
+        }
+
+        if (TimeZoneInfo.TryFindSystemTimeZoneById(
+            RecipientSnapshot.DefaultTimezone, out TimeZoneInfo? platformDefault))
+        {
+            return (platformDefault, RecipientSnapshot.DefaultTimezone);
+        }
+
+        throw new InvalidOperationException(
+            $"O fuso padrão da plataforma '{RecipientSnapshot.DefaultTimezone}' não existe neste host; "
+            + "a janela de silêncio não pode ser avaliada sem base de fusos.");
+    }
+
+    /// <summary>
     /// The instant the window ends, in UTC, when the local time sits inside
     /// the window; null when delivery may proceed now. Windows may wrap
     /// midnight: from 22:00 to 08:00 is silent at 23:00 and at 06:00.
+    /// <para>
+    /// The end of the window is a wall-clock time, and a daylight-saving
+    /// transition can make one of those not exist or happen twice. Both are
+    /// resolved on the side that keeps the silence rather than breaks it: the
+    /// offset of a repeated hour is the standard one, which picks the later of
+    /// the two instants, and the offset of an hour the clock skipped is the one
+    /// in force before the jump, which releases at the moment the wall clock
+    /// passes the end of the window instead of an hour after it.
+    /// </para>
     /// </summary>
     internal static DateTimeOffset? NextReleaseInstant(
         DateTimeOffset localNow,

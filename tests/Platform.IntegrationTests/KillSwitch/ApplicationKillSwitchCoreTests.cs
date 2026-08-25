@@ -1,3 +1,4 @@
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using Microsoft.EntityFrameworkCore;
@@ -124,7 +125,11 @@ public sealed class ApplicationKillSwitchCoreTests(CorePipelineFixture fixture)
             TtlSeconds = 60,
             AcceptedAt = now.AddMinutes(-2),
         });
-        notification.MarkDispatched(policyVersion: 1);
+        notification.MarkDispatched(policyVersion: 1, AdmittedDeliveryPlan.Serialize(
+                [
+                    new DeliveryPlanStep(Channel.Create("push").Value!, TimeSpan.FromSeconds(30)),
+                    new DeliveryPlanStep(Channel.Create("email").Value!, null),
+                ]));
         var failedAttempt = NotificationAttempt.Queue(new NotificationAttemptDraft
         {
             NotificationId = notification.Id,
@@ -187,4 +192,5 @@ public sealed class ApplicationKillSwitchCoreTests(CorePipelineFixture fixture)
                 ({KillSwitchScopes.Application}, {application}, {KillSwitchStates.Active},
                  1, {"tdd-application-core"}, NULL, {DateTimeOffset.UtcNow})
             """));
+
 }

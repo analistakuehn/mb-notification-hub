@@ -1,3 +1,4 @@
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using System.Text.Json;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
@@ -79,6 +80,42 @@ public sealed class QuietHoursRuleTests
 
         result.ShouldBeOfType<PolicyRuleResult.Allow>();
     }
+
+    /// <summary>
+    /// A declared timezone the runtime cannot resolve used to throw out of the
+    /// stage whose whole contract is to produce a decision, so every
+    /// notification of that recipient went to retry and then to the dead letter
+    /// queue. The rule now reads it the way the recipient contract already
+    /// reads a recipient who declared nothing, and says so in the evidence.
+    /// </summary>
+    [Fact]
+    public async Task An_unresolvable_timezone_falls_back_to_the_platform_default_and_says_so()
+    {
+        NotificationContext context = PipelineTestData.Context(
+            template: PipelineTestData.Template(),
+            recipient: PipelineTestData.Recipient(timezone: "America/Nao_Existe"));
+        ClassPolicyDefinition policy = PipelineTestData.Policy(
+            quietHours: new QuietHoursWindow(new TimeOnly(22, 0), new TimeOnly(8, 0)));
+
+        PolicyRuleResult result = await Rule(InsideWindowUtc).EvaluateAsync(
+            context, policy, CancellationToken.None);
+
+        // The same deferral the platform default produces, reached instead of
+        // an exception, with both identifiers in the trail so a window measured
+        // in a timezone the recipient never declared is visible as such.
+        PolicyRuleResult.Defer defer = result.ShouldBeOfType<PolicyRuleResult.Defer>();
+        defer.ReleaseAt.ShouldBe(new DateTimeOffset(2026, 8, 23, 11, 0, 0, TimeSpan.Zero));
+        defer.EvidenceJson.ShouldNotBeNull();
+        defer.EvidenceJson.Contains(RecipientSnapshot.DefaultTimezone, StringComparison.Ordinal)
+            .ShouldBeTrue();
+        defer.EvidenceJson.Contains("America/Nao_Existe", StringComparison.Ordinal).ShouldBeTrue(
+            "a evidência tem de nomear o valor declarado, senão a substituição fica "
+            + "indistinguível de uma janela medida no fuso que o destinatário pediu.");
+    }
+
+    [Fact]
+    public void A_resolvable_timezone_is_used_exactly_as_declared()
+        => QuietHoursRule.ResolveTimezone("America/Sao_Paulo").Resolved.ShouldBe("America/Sao_Paulo");
 
     [Fact]
     public async Task The_guard_never_defers_a_critical_notification_even_inside_the_window()
