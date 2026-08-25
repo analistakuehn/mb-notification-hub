@@ -33,10 +33,17 @@ internal readonly record struct DeliveryEventRecorded(
 
 /// <summary>
 /// Transactional write of the delivery-tracking ingestion. One callback event
-/// commits three writes together or none: the deduplication mark that claims
-/// the provider's event identity, the evidence row carrying the sealed
-/// provider payload, and the queue message that hands the event to its
-/// asynchronous application.
+/// commits together or not at all: the deduplication mark that claims the
+/// provider's event identity, the sealed callback bytes when this is the event
+/// that first claims one, the evidence row that references them, and the queue
+/// message that hands the event to its asynchronous application.
+/// <para>
+/// The bytes are written once per callback rather than once per event. The
+/// property that an event's evidence is the whole batch that carried it is
+/// preserved by ordering and not by a shared transaction: the payload row
+/// commits no later than the first event that references it, which is what
+/// keeps one transaction per event.
+/// </para>
 /// </summary>
 /// <remarks>
 /// There is deliberately no audit append here. The append takes the chain
@@ -62,23 +69,31 @@ internal sealed class DeliveryEventWriter(
     internal const string PayloadKeyScope = "notifications-delivery-evidence";
 
     /// <summary>
-    /// Seals the verified provider bytes once per callback. A batch shares one
-    /// ciphertext across its rows on purpose: the evidence of every event in a
-    /// batch is the batch itself, and sealing once keeps the cryptographic
-    /// work off the per-event path of the latency budget.
+    /// Seals the verified provider bytes once per callback and stamps the
+    /// instant every event of that callback will carry. Both are per callback
+    /// and not per event: the cipher call is the most expensive step of the
+    /// request, and a single reception instant is what keeps a batch inside one
+    /// monthly partition on both tables instead of straddling two at a month
+    /// boundary.
     /// </summary>
-    public async Task<byte[]> SealPayloadAsync(
+    public async Task<SealedDeliveryPayload> SealPayloadAsync(
+        string providerKey,
+        string source,
         ReadOnlyMemory<byte> verifiedPayload,
         CancellationToken cancellationToken)
-        => await cipher.EncryptAsync(PayloadKeyScope, verifiedPayload.ToArray(), cancellationToken);
+        => new(
+            timeProvider.GetUtcNow(),
+            providerKey,
+            source,
+            await cipher.EncryptAsync(PayloadKeyScope, verifiedPayload.ToArray(), cancellationToken));
 
     /// <summary>Records one canonical event, or refuses it as already seen.</summary>
     public async Task<DeliveryEventRecordOutcome> RecordAsync(
         ProviderDeliveryEvent providerEvent,
         DispatchCorrelation? correlation,
-        byte[] sealedPayload,
+        SealedDeliveryPayload payload,
         CancellationToken cancellationToken)
-        => (await RecordDiscoveredAsync(providerEvent, correlation, sealedPayload, cancellationToken))
+        => (await RecordDiscoveredAsync(providerEvent, correlation, payload, cancellationToken))
             .Outcome;
 
     /// <summary>
@@ -99,11 +114,16 @@ internal sealed class DeliveryEventWriter(
     public async Task<DeliveryEventRecorded> RecordDiscoveredAsync(
         ProviderDeliveryEvent providerEvent,
         DispatchCorrelation? correlation,
-        byte[] sealedPayload,
+        SealedDeliveryPayload payload,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(providerEvent);
-        DateTimeOffset now = timeProvider.GetUtcNow();
+        ArgumentNullException.ThrowIfNull(payload);
+
+        // The callback's own instant, not this event's: the batch was taken
+        // once, and one instant is what puts the payload and every event of it
+        // in the same monthly partition.
+        DateTimeOffset now = payload.ReceivedAt;
 
         await using IDbContextTransaction transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
@@ -127,6 +147,23 @@ internal sealed class DeliveryEventWriter(
             return new DeliveryEventRecorded(DeliveryEventRecordOutcome.Duplicate, null);
         }
 
+        // The bytes are written by whichever event first claims its identity,
+        // and only then: a batch that is entirely a redelivery claims nothing
+        // and must leave nothing behind. The conflict clause covers the round
+        // where an earlier transaction wrote the row and then rolled back.
+        if (!payload.IsStored)
+        {
+            await db.Database.ExecuteSqlAsync(
+                $"""
+                 INSERT INTO notifications.delivery_payload
+                     (id, received_at, provider_key, source, payload_enc)
+                 VALUES ({payload.Id}, {payload.ReceivedAt}, {payload.ProviderKey},
+                         {payload.Source}, {payload.Envelope})
+                 ON CONFLICT (id, received_at) DO NOTHING
+                 """,
+                cancellationToken);
+        }
+
         var evidence = DeliveryEvent.Record(new DeliveryEventDraft
         {
             ReceivedAt = now,
@@ -144,7 +181,7 @@ internal sealed class DeliveryEventWriter(
             // dispatch side, and the consumer that acts on it runs long after
             // this row is the only thing left of the callback.
             SuppressionSignal = DeliverySuppressionSignals.From(providerEvent.Signal),
-            PayloadEncrypted = sealedPayload,
+            PayloadId = payload.Id,
         });
         db.DeliveryEvents.Add(evidence);
         await db.SaveChangesAsync(cancellationToken);
@@ -155,6 +192,11 @@ internal sealed class DeliveryEventWriter(
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+
+        // After the commit and never before: a rollback has to leave the next
+        // event of the batch to write the bytes, or the events that follow
+        // would reference a row that never existed.
+        payload.MarkStored();
         return new DeliveryEventRecorded(DeliveryEventRecordOutcome.Stored, evidence.Id);
     }
 }

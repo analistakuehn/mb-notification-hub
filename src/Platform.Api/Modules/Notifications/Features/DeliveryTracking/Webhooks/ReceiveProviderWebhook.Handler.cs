@@ -80,7 +80,11 @@ internal static partial class ReceiveProviderWebhook
             // Sealed once for the whole callback: the evidence of every event
             // in a batch is the batch itself, and the cipher call is the most
             // expensive step of the request.
-            var sealedPayload = await writer.SealPayloadAsync(command.Webhook.Body, cancellationToken);
+            SealedDeliveryPayload payload = await writer.SealPayloadAsync(
+                command.Webhook.ProviderKey,
+                DeliveryPayloadSources.Webhook,
+                command.Webhook.Body,
+                cancellationToken);
 
             // Correlation from the route counts only where the provider's
             // signature covered the address. Where it did not, a pair of
@@ -102,7 +106,7 @@ internal static partial class ReceiveProviderWebhook
                 DeliveryEventRecordOutcome outcome = await writer.RecordAsync(
                     providerEvent,
                     providerEvent.Correlation ?? routeCorrelation,
-                    sealedPayload,
+                    payload,
                     cancellationToken);
                 if (outcome == DeliveryEventRecordOutcome.Stored)
                 {

@@ -20,7 +20,13 @@ internal sealed class NotificationsPartitionManagerService(
 
     /// <summary>Every partitioned table this module owns, provisioned together.</summary>
     internal static readonly string[] PartitionedTables =
-        ["notification", "notification_attempt", "policy_evaluation", "delivery_event"];
+        [
+        "notification",
+        "notification_attempt",
+        "policy_evaluation",
+        "delivery_event",
+        "delivery_payload",
+    ];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

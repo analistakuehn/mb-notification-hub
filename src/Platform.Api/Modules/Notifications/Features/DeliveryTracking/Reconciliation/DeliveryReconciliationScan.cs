@@ -283,10 +283,16 @@ internal sealed class DeliveryReconciliationScan(
         ReconciliationCandidate candidate,
         CancellationToken cancellationToken)
     {
-        var sealedPayload = await evidenceWriter.SealPayloadAsync(
-            JsonSerializer.SerializeToUtf8Bytes(found), cancellationToken);
+        // One event, one payload here: what is sealed is the canonical event
+        // this hub serialized after asking, not a batch a provider signed, and
+        // the stored row says so.
+        SealedDeliveryPayload payload = await evidenceWriter.SealPayloadAsync(
+            found.ProviderKey,
+            DeliveryPayloadSources.Reconciliation,
+            JsonSerializer.SerializeToUtf8Bytes(found),
+            cancellationToken);
         DeliveryEventRecorded recorded = await evidenceWriter.RecordDiscoveredAsync(
-            found, found.Correlation, sealedPayload, cancellationToken);
+            found, found.Correlation, payload, cancellationToken);
         if (recorded.DeliveryEventId is not { } deliveryEventId)
         {
             logger.ReconciliationAlreadyHonoured(candidate.AttemptId, found.ProviderEventId);

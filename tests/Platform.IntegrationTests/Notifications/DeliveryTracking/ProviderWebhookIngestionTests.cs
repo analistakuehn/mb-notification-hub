@@ -143,7 +143,8 @@ public sealed class ProviderWebhookIngestionTests(DeliveryTrackingFixture fixtur
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         EvidenceRow evidence = await DeliveryTrackingApi.ReadEvidenceAsync(fixture, eventId);
-        var stored = Encoding.UTF8.GetString(evidence.PayloadEncrypted);
+        PayloadRow payload = await DeliveryTrackingApi.ReadPayloadAsync(fixture, eventId);
+        var stored = Encoding.UTF8.GetString(payload.PayloadEncrypted);
         stored.Contains(address, StringComparison.Ordinal).ShouldBeFalse(
             "o corpo do provedor carrega contato em claro e o módulo proíbe PII em claro em repouso.");
     }

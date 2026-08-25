@@ -21,23 +21,10 @@ public sealed class ProviderSignatureOptions : AuthenticationSchemeOptions
     /// </summary>
     public string? PublicBaseUrl { get; set; }
 
-    /// <summary>
-    /// Largest callback body this scheme reads into memory before refusing.
-    /// The body must be buffered whole, because every scheme verified here
-    /// signs the exact octets, so the ceiling is what keeps an unauthenticated
-    /// caller from choosing this process's memory footprint.
-    /// </summary>
-    public int MaxBodyBytes { get; set; } = 1_048_576;
-
     /// <inheritdoc />
     public override void Validate()
     {
         base.Validate();
-        if (MaxBodyBytes <= 0)
-        {
-            throw new InvalidOperationException(
-                "O limite de corpo do esquema de assinatura de provedor precisa ser positivo.");
-        }
 
         if (!string.IsNullOrWhiteSpace(PublicBaseUrl)
             && !Uri.TryCreate(PublicBaseUrl, UriKind.Absolute, out _))

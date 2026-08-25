@@ -375,18 +375,24 @@ internal static class ReportRenderer
         text.AppendLine(" Fora desta medição: TLS, verificação de assinatura e pipeline HTTP, que");
         text.AppendLine(" não crescem com o lote.");
         text.AppendLine();
-        text.AppendLine(" forma                  eventos   callback p50   callback p95   callback p99   por evento p50   por evento p99");
+        text.AppendLine(" forma                  eventos   callback p50   callback p95   callback p99   por evento p50   por evento p99   WAL/callback   ampl.");
         foreach (WebhookIngestionCost cost in outcome.WebhookIngestion)
         {
             text.AppendLine(Culture,
                 $" {cost.Shape,-21}  {cost.EventsPerCallback,7:N0}  {cost.Callback.P50,13:0.000}  "
                 + $"{cost.Callback.P95,13:0.000}  {cost.Callback.P99,13:0.000}  "
-                + $"{cost.PerEventP50Ms,15:0.000}  {cost.PerEventP99Ms,15:0.000}");
+                + $"{cost.PerEventP50Ms,15:0.000}  {cost.PerEventP99Ms,15:0.000}  "
+                + $"{cost.WalBytesPerCallback,12:N0}  {cost.BodyAmplification,5:0.0}x");
         }
 
         text.AppendLine();
         text.AppendLine(" Tempos em milissegundos. O selo do payload roda uma vez por callback, como");
         text.AppendLine(" no handler, então ele aparece na coluna do callback e nunca na por evento.");
+        text.AppendLine(" WAL/callback é o avanço do log de escrita dividido pelos callbacks da");
+        text.AppendLine(" célula, e a amplificação é esse número dividido pelo corpo que chegou.");
+        text.AppendLine(" É a amplificação que responde ao tamanho do lote: ela fica estável");
+        text.AppendLine(" porque o corpo é gravado uma vez, e subiria com o lote se cada evento");
+        text.AppendLine(" guardasse a sua própria cópia.");
         if (outcome.RoundTrip is { } yardstick)
         {
             text.AppendLine();

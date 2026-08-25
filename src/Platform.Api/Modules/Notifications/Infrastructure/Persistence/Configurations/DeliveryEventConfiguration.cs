@@ -58,8 +58,8 @@ internal sealed class DeliveryEventConfiguration : IEntityTypeConfiguration<Deli
             .HasColumnName("suppression_signal")
             .HasMaxLength(30);
 
-        builder.Property(deliveryEvent => deliveryEvent.PayloadEncrypted)
-            .HasColumnName("payload_enc");
+        builder.Property(deliveryEvent => deliveryEvent.PayloadId)
+            .HasColumnName("payload_id");
 
         builder.Property(deliveryEvent => deliveryEvent.AppliedAt)
             .HasColumnName("applied_at");

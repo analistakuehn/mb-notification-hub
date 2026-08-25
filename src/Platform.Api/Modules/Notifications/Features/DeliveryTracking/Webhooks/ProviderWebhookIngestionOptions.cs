@@ -34,31 +34,31 @@ public sealed class ProviderWebhookIngestionOptions
     /// <summary>
     /// Most tracked events one callback may carry.
     /// <para>
-    /// The cost it bounds is not linear, and that is why the value is what it
-    /// is. Every event of a callback is stored with the sealed bytes of the
-    /// whole callback as its evidence, because the evidence of one event in a
-    /// batch is the batch. So a callback of N events whose body grows with N
-    /// writes N copies of a body of size N: the write volume is quadratic in
-    /// the batch size, not linear in it. At roughly 420 bytes per event that is
-    /// 1 MiB at fifty events, 16 MiB at two hundred and 100 MiB at five
-    /// hundred, for a single request on the one route this hub exposes.
+    /// The cost it bounds is the response time of the only public surface of
+    /// this hub, and that cost is linear: every event of a callback is a
+    /// transaction of its own, because the deduplication claim, the evidence row
+    /// and the outbox append have to commit together per event. Without a
+    /// ceiling the number of transactions one request performs is chosen by the
+    /// caller, and the provider redelivers whatever takes too long.
     /// </para>
     /// <para>
-    /// Two hundred is the bound that keeps the worst case at tens of megabytes
-    /// rather than hundreds. It is a judgement and it is stated as one: the
-    /// arithmetic above is certain, the right ceiling is not, and it belongs to
-    /// the load gate measuring real provider bodies. What would remove the
-    /// question instead of bounding it is storing the body once and referencing
-    /// it from the event rows, which is a change to the evidence model and not
-    /// to this knob.
+    /// The bytes ceiling does not stand in for this one. It bounds the body, and
+    /// a body bounded at one mebibyte still holds thousands of events, which is
+    /// thousands of transactions inside a single answer.
     /// </para>
     /// <para>
-    /// The refusal is deliberate and it is not free: the provider redelivers,
-    /// meets the same ceiling and eventually drops the batch, so the evidence
-    /// of an over-sized callback is lost. That is the accepted side of the
-    /// trade, because the alternative is a request that writes hundreds of
-    /// megabytes on the route whose slowness is what triggers the redelivery in
-    /// the first place.
+    /// The value is a judgement and is stated as one: what the ceiling has to
+    /// keep is the answer inside the budget the provider measures, the per-event
+    /// cost is measured by the delivery mode of the performance probe, and the
+    /// right number belongs to the load gate running against real provider
+    /// bodies rather than to this comment.
+    /// </para>
+    /// <para>
+    /// The refusal is whole and it is not free: the provider redelivers, meets
+    /// the same ceiling and eventually drops the batch, so the evidence of an
+    /// over-sized callback is lost. That is the accepted side of the trade,
+    /// because storing part of it would answer 202 over evidence this hub never
+    /// took.
     /// </para>
     /// </summary>
     [Range(1, 10_000)]

@@ -49,6 +49,9 @@ public class NotificationsDbContext : DbContext
     /// <summary>Provider feedback as received, partitioned by month on its reception instant.</summary>
     internal DbSet<DeliveryEvent> DeliveryEvents => Set<DeliveryEvent>();
 
+    /// <summary>Verified callback bytes, stored once per callback and referenced by its events.</summary>
+    internal DbSet<DeliveryPayload> DeliveryPayloads => Set<DeliveryPayload>();
+
     /// <summary>Deduplication ledger of provider callbacks; unpartitioned so its unique key can exist.</summary>
     internal DbSet<ProviderEventDedupe> ProviderEventDedupes => Set<ProviderEventDedupe>();
 

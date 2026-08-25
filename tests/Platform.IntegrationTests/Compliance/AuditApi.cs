@@ -136,20 +136,28 @@ internal static class AuditApi
                 CancellationToken.None));
 
         var id = Guid.CreateVersion7();
+        var payloadId = Guid.CreateVersion7();
 
         // The reception instant is this hub's own and lands the row in the
         // partition the migration provisioned; the provider's instant is the
         // one the answer publishes and the one the ordering follows.
         DateTimeOffset receivedAt = DateTimeOffset.UtcNow;
         await fixture.QueryNotificationsDbAsync(db => db.Database.ExecuteSqlAsync($"""
+            INSERT INTO notifications.delivery_payload
+                (id, received_at, provider_key, source, payload_enc)
+            VALUES
+                ({payloadId}, {receivedAt}, {providerKey}, 'webhook', {sealedPayload})
+            """));
+
+        await fixture.QueryNotificationsDbAsync(db => db.Database.ExecuteSqlAsync($"""
             INSERT INTO notifications.delivery_event
                 (id, received_at, attempt_id, notification_id, provider_key, provider_event_id,
                  provider_message_id, kind, occurred_at, error_code, suppression_signal,
-                 payload_enc, applied_at)
+                 payload_id, applied_at)
             VALUES
                 ({id}, {receivedAt}, {attemptId}, {notificationId}, {providerKey}, {providerEventId},
                  NULL, {kind}, {occurredAt}, {errorCode}, 'none',
-                 {sealedPayload}, {receivedAt})
+                 {payloadId}, {receivedAt})
             """));
     }
 

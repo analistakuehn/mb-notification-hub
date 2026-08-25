@@ -34,7 +34,7 @@ internal static partial class ProviderSignatureAuthenticationHandlerLogger
         Level = LogLevel.Warning,
         Message = "Callback de '{ProviderKey}' recusado por exceder o limite de {MaxBodyBytes} bytes.")]
     internal static partial void ProviderWebhookBodyTooLarge(
-        this ILogger logger, string providerKey, int maxBodyBytes);
+        this ILogger logger, string providerKey, long maxBodyBytes);
 
     [LoggerMessage(
         EventId = 7184,

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Webhooks;
 using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Authentication;
@@ -26,7 +27,8 @@ internal sealed class ProviderSignatureAuthenticationHandler(
     IOptionsMonitor<ProviderSignatureOptions> options,
     ILoggerFactory loggerFactory,
     UrlEncoder encoder,
-    IProviderWebhookInterpreterResolver resolver)
+    IProviderWebhookInterpreterResolver resolver,
+    IOptions<ProviderWebhookIngestionOptions> ingestionOptions)
     : AuthenticationHandler<ProviderSignatureOptions>(options, loggerFactory, encoder)
 {
     private const int CopyChunkBytes = 8 * 1024;
@@ -53,7 +55,7 @@ internal sealed class ProviderSignatureAuthenticationHandler(
         ReadOnlyMemory<byte>? body = await TryReadBodyAsync();
         if (body is null)
         {
-            Logger.ProviderWebhookBodyTooLarge(providerKey, Options.MaxBodyBytes);
+            Logger.ProviderWebhookBodyTooLarge(providerKey, ingestionOptions.Value.MaxBodyBytes);
             return AuthenticateResult.Fail(ProviderWebhookRefusal.PayloadUnreadable);
         }
 
@@ -129,7 +131,10 @@ internal sealed class ProviderSignatureAuthenticationHandler(
     /// </summary>
     private async Task<ReadOnlyMemory<byte>?> TryReadBodyAsync()
     {
-        var maxBytes = Options.MaxBodyBytes;
+        // One ceiling on the body, owned by the ingestion options and applied
+        // here as well because this scheme buffers the whole body to prove the
+        // signature over the exact octets.
+        var maxBytes = ingestionOptions.Value.MaxBodyBytes;
         if (Request.ContentLength is { } declared && declared > maxBytes) return null;
 
         Request.EnableBuffering();

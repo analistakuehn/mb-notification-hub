@@ -391,7 +391,9 @@ public sealed class DeliveryReconciliationTests(ReconciliationFixture fixture)
     {
         using IServiceScope scope = fixture.Services.CreateScope();
         DeliveryEventWriter writer = scope.ServiceProvider.GetRequiredService<DeliveryEventWriter>();
-        var sealedPayload = await writer.SealPayloadAsync(
+        SealedDeliveryPayload sealedPayload = await writer.SealPayloadAsync(
+            callbackEvent.ProviderKey,
+            DeliveryPayloadSources.Webhook,
             Encoding.UTF8.GetBytes("[callback-body]"), CancellationToken.None);
         DeliveryEventRecorded recorded = await writer.RecordDiscoveredAsync(
             callbackEvent, callbackEvent.Correlation, sealedPayload, CancellationToken.None);
@@ -488,7 +490,11 @@ public sealed class DeliveryReconciliationTests(ReconciliationFixture fixture)
         => await fixture.QueryNotificationsDbAsync(async db => (IReadOnlyList<byte[]>)await db.DeliveryEvents
             .AsNoTracking()
             .Where(evidence => evidence.NotificationId == notificationId)
-            .Select(evidence => evidence.PayloadEncrypted)
+            .Join(
+                db.DeliveryPayloads.AsNoTracking(),
+                evidence => new { Id = evidence.PayloadId, evidence.ReceivedAt },
+                payload => new { payload.Id, payload.ReceivedAt },
+                (evidence, payload) => payload.PayloadEncrypted)
             .ToListAsync());
 
     /// <summary>The transition one trail records, without the identifiers that differ per attempt.</summary>

@@ -19,7 +19,9 @@ internal sealed record WebhookIngestionCost(
     PhaseStatistics Callback,
     double PerEventP50Ms,
     double PerEventP99Ms,
-    int Callbacks);
+    int Callbacks,
+    double WalBytesPerCallback,
+    double BodyAmplification);
 
 /// <summary>
 /// Measures the write path of the only public surface of this hub, at batch
@@ -92,15 +94,22 @@ internal static class WebhookIngestionCostScenario
         ON CONFLICT (provider, provider_event_id) DO NOTHING
         """;
 
+    private const string PayloadInsertSql = """
+        INSERT INTO notifications.delivery_payload
+            (id, received_at, provider_key, source, payload_enc)
+        VALUES (@payloadId, @now, @provider, 'webhook', @payload)
+        ON CONFLICT (id, received_at) DO NOTHING
+        """;
+
     private const string EvidenceInsertSql = """
         INSERT INTO notifications.delivery_event
             (id, received_at, attempt_id, notification_id, provider_key, provider_event_id,
              provider_message_id, kind, occurred_at, error_code, suppression_signal,
-             payload_enc, applied_at, suppression_reported_at)
+             payload_id, applied_at, suppression_reported_at)
         VALUES
             (@id, @now, NULL, NULL, @provider, @providerEventId,
              @providerMessageId, 'delivered', @now, NULL, 'none',
-             @payload, NULL, NULL)
+             @payloadId, NULL, NULL)
         """;
 
     private const string OutboxAppendSql = """
@@ -164,12 +173,16 @@ internal static class WebhookIngestionCostScenario
         // the bench, and publishing it would have been worse than not measuring.
         await database.ExecuteAsync("CHECKPOINT", cancellationToken);
 
+        var walBefore = await WalPositionAsync(database, cancellationToken);
         for (var callback = 0; callback < callbacks; callback++)
         {
             var started = Stopwatch.GetTimestamp();
             await IngestAsync(database, body, eventsPerCallback, perBatch, cancellationToken);
             samples.Add(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
+
+        var walAfter = await WalPositionAsync(database, cancellationToken);
+        var walPerCallback = (double)(walAfter - walBefore) / callbacks;
 
         PhaseStatistics stats = samples.Snapshot();
         return new WebhookIngestionCost(
@@ -178,7 +191,9 @@ internal static class WebhookIngestionCostScenario
             stats,
             stats.P50 / eventsPerCallback,
             stats.P99 / eventsPerCallback,
-            callbacks);
+            callbacks,
+            walPerCallback,
+            walPerCallback / body.Length);
     }
 
     /// <summary>
@@ -194,6 +209,8 @@ internal static class WebhookIngestionCostScenario
         CancellationToken cancellationToken)
     {
         var sealedPayload = Seal(body);
+        var payloadId = Guid.CreateVersion7();
+        var payloadStored = false;
         await using NpgsqlConnection connection =
             await database.DataSource.OpenConnectionAsync(cancellationToken);
 
@@ -219,6 +236,24 @@ internal static class WebhookIngestionCostScenario
                         Instant(command, "now", now);
                     }, cancellationToken);
 
+                    // The bytes go in once, written by whichever event first
+                    // claims its identity, and every event of the batch names
+                    // the row that first one wrote.
+                    if (!payloadStored)
+                    {
+                        await ExecuteAsync(connection, transaction, PayloadInsertSql, command =>
+                        {
+                            Uuid(command, "payloadId", payloadId);
+                            Instant(command, "now", now);
+                            Text(command, "provider", ProviderKey);
+                            command.Parameters.Add(new NpgsqlParameter("payload", NpgsqlDbType.Bytea)
+                            {
+                                Value = sealedPayload,
+                            });
+                        }, cancellationToken);
+                        payloadStored = true;
+                    }
+
                     await ExecuteAsync(connection, transaction, EvidenceInsertSql, command =>
                     {
                         Uuid(command, "id", evidenceId);
@@ -226,10 +261,7 @@ internal static class WebhookIngestionCostScenario
                         Text(command, "provider", ProviderKey);
                         Text(command, "providerEventId", eventId);
                         Text(command, "providerMessageId", $"msg-{eventId}");
-                        command.Parameters.Add(new NpgsqlParameter("payload", NpgsqlDbType.Bytea)
-                        {
-                            Value = sealedPayload,
-                        });
+                        Uuid(command, "payloadId", payloadId);
                     }, cancellationToken);
 
                     await ExecuteAsync(connection, transaction, OutboxAppendSql, command =>
@@ -299,6 +331,22 @@ internal static class WebhookIngestionCostScenario
     /// AES-256-GCM, and the key id and the scope are bound as associated data.
     /// Which master key a deployment holds does not change what sealing costs.
     /// </summary>
+    /// <summary>
+    /// Bytes the cell committed to the write-ahead log, which is what durability
+    /// and replication actually pay for. Read against the size of the body that
+    /// arrived, it answers the question the batch size raises: the ratio holds
+    /// steady while the body is stored once, and would climb with the batch if
+    /// the body were stored per event.
+    /// </summary>
+    private static async Task<long> WalPositionAsync(
+        ProbeDatabase database,
+        CancellationToken cancellationToken)
+    {
+        var position = await database.ScalarAsync<object>(
+            "SELECT pg_wal_lsn_diff(pg_current_wal_insert_lsn(), '0/0')::bigint", cancellationToken);
+        return position is null ? 0 : Convert.ToInt64(position, CultureInfo.InvariantCulture);
+    }
+
     private static byte[] Seal(byte[] plaintext)
     {
         var envelope = new byte[2 + KeyIdBytes.Length + NonceSize + TagSize + plaintext.Length];

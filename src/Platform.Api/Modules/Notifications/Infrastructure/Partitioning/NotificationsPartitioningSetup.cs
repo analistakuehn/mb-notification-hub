@@ -54,6 +54,17 @@ public static class NotificationsPartitioningSetup
                 table: "delivery_event",
                 minimumFutureDays: serviceProvider => serviceProvider
                     .GetRequiredService<IOptions<NotificationsPartitionOptions>>()
+                    .Value.FutureWindowMinimumDays)
+
+            // The payload table shares the callback's arrival rate and its
+            // partition column, so a gap here refuses exactly the same evidence
+            // a gap in delivery_event would.
+            .AddMonthlyPartitionCoverageCheck<NotificationsDbContext>(
+                name: "notifications-delivery-payload-partitions",
+                schema: "notifications",
+                table: "delivery_payload",
+                minimumFutureDays: serviceProvider => serviceProvider
+                    .GetRequiredService<IOptions<NotificationsPartitionOptions>>()
                     .Value.FutureWindowMinimumDays);
         return services;
     }

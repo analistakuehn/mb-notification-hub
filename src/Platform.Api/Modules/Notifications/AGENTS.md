@@ -485,11 +485,24 @@ curta própria.
   este processo observa é o interno enquanto o provedor assinou o público. Sem
   a base configurável, toda assinatura válida seria recusada em produção e
   ainda assim passaria em teste.
-- **Invariante transacional da recepção**: por evento, três escritas em uma
-  única transação ou nenhuma: a marca em `provider_event_dedupe`, a linha
-  `delivery_event` com o payload bruto selado pela cifra de envelope, e a
-  mensagem `delivery.event_received` na outbox para `delivery-events`. Uma
-  chave já existente é ignorada sem erro. **Nenhum `IAuditTrail.AppendAsync`
+- **Invariante transacional da recepção**: por evento, uma única transação ou
+  nenhuma: a marca em `provider_event_dedupe`, a linha `delivery_payload` com o
+  corpo selado quando este é o primeiro evento a reivindicar o lote, a linha
+  `delivery_event` que a referencia por `payload_id`, e a mensagem
+  `delivery.event_received` na outbox para `delivery-events`. Uma chave já
+  existente é ignorada sem erro.
+- **O corpo é selado uma vez e gravado uma vez por callback.** Replicá-lo em
+  cada evento do lote tornava a escrita quadrática no tamanho do lote, que é
+  variável escolhida pelo provedor. O que preserva a propriedade de que a
+  evidência de um evento é o lote inteiro é a ordem, e não uma transação
+  compartilhada: a linha de payload confirma no máximo junto do primeiro evento
+  que a referencia, o que mantém uma transação por evento. Lote inteiramente
+  reentregue não reivindica nada e não grava nada.
+- **O instante da recepção é do callback, não do evento**, e é isso que mantém o
+  lote inteiro dentro da mesma partição mensal nas duas tabelas.
+- **`delivery_payload.source` diz o que são os bytes**: `webhook` para o corpo
+  que o provedor assinou, `reconciliation` para o evento canônico que este hub
+  serializou depois de perguntar. **Nenhum `IAuditTrail.AppendAsync`
   entra nessa transação**: o acréscimo segura o bloqueio da cadeia até o fim da
   transação e serializaria o callback contra a ingestão, e quem decide o ritmo
   do callback é o provedor. A trilha é escrita pelo consumidor assíncrono.
@@ -858,8 +871,8 @@ curta própria.
 ## Particionamento
 
 - `notification` (por `created_at`), `notification_attempt` (por `created_at`),
-  `policy_evaluation` (por `evaluated_at`) e `delivery_event` (por
-  `received_at`) são particionadas por mês; cada migração de criação provisiona
+  `policy_evaluation` (por `evaluated_at`), `delivery_event` e
+  `delivery_payload` (as duas por `received_at`) são particionadas por mês; cada migração de criação provisiona
   as partições iniciais, e o agendador do módulo
   (`Modules:Notifications:PartitionManager`) mantém meses futuros provisionados
   para as quatro tabelas por meio do provisionador da plataforma.

@@ -106,12 +106,11 @@ internal static class DeliverySuppressionSignals
 /// right to refuse.
 /// </para>
 /// <para>
-/// <see cref="PayloadEncrypted"/> holds the verified provider bytes sealed by
-/// the envelope cipher under a key scope of the tracker's own. The raw body
-/// carries the destination in the clear, this module forbids personal data at
-/// rest in the clear, and the owning application is not necessarily known at
-/// insert time: a lookup to learn it would spend the whole latency budget of
-/// the callback.
+/// The verified provider bytes are not here. They live once in the
+/// <see cref="DeliveryPayload"/> row that <see cref="PayloadId"/> names, because
+/// the evidence of an event of a batch is the batch and replicating the batch
+/// into each of its own events made the write quadratic in a size the provider
+/// chooses.
 /// </para>
 /// </summary>
 internal sealed class DeliveryEvent
@@ -122,7 +121,6 @@ internal sealed class DeliveryEvent
         ProviderEventId = null!;
         Kind = null!;
         SuppressionSignal = null!;
-        PayloadEncrypted = null!;
     }
 
     public Guid Id { get; private set; }
@@ -159,8 +157,13 @@ internal sealed class DeliveryEvent
     /// </summary>
     public string SuppressionSignal { get; private set; }
 
-    /// <summary>Envelope-encrypted verified provider payload.</summary>
-    public byte[] PayloadEncrypted { get; private set; }
+    /// <summary>
+    /// The stored callback these bytes came in. A logical reference and not a
+    /// foreign key, for the reason the correlation columns are logical too and
+    /// for one more: a foreign key into a partitioned table would block the
+    /// partition drop that a later retention needs.
+    /// </summary>
+    public Guid PayloadId { get; private set; }
 
     /// <summary>When the state machine consumed this event; null while it stays stored and unapplied.</summary>
     public DateTimeOffset? AppliedAt { get; private set; }
@@ -195,10 +198,10 @@ internal sealed class DeliveryEvent
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.ProviderEventId);
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.Kind);
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.SuppressionSignal);
-        if (draft.PayloadEncrypted is not { Length: > 0 })
+        if (draft.PayloadId == Guid.Empty)
         {
             throw new ArgumentException(
-                "A evidência de entrega exige o payload do provedor selado.", nameof(draft));
+                "A evidência de entrega exige o callback que a carregou.", nameof(draft));
         }
 
         return new DeliveryEvent
@@ -214,7 +217,7 @@ internal sealed class DeliveryEvent
             OccurredAt = draft.OccurredAt,
             ErrorCode = draft.ErrorCode,
             SuppressionSignal = draft.SuppressionSignal,
-            PayloadEncrypted = draft.PayloadEncrypted,
+            PayloadId = draft.PayloadId,
             AppliedAt = null,
             SuppressionReportedAt = null,
         };
@@ -245,7 +248,8 @@ internal sealed record DeliveryEventDraft
     /// <summary>Durable spelling of the classification the dispatch side made.</summary>
     public required string SuppressionSignal { get; init; }
 
-    public required byte[] PayloadEncrypted { get; init; }
+    /// <summary>Callback row that carries the bytes this event arrived in.</summary>
+    public required Guid PayloadId { get; init; }
 }
 
 /// <summary>

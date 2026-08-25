@@ -132,8 +132,30 @@ internal static class DeliveryTrackingApi
                 evidence.ProviderMessageId,
                 evidence.ErrorCode,
                 evidence.AppliedAt,
-                evidence.PayloadEncrypted))
+                evidence.PayloadId))
             .SingleAsync());
+
+    /// <summary>The stored callback one evidence row references, read through that reference.</summary>
+    internal static async Task<PayloadRow> ReadPayloadAsync(
+        DeliveryTrackingFixture fixture,
+        string providerEventId)
+        => await fixture.QueryNotificationsDbAsync(async db =>
+            await (from evidence in db.DeliveryEvents.AsNoTracking()
+                   where evidence.ProviderEventId == providerEventId
+                   join payload in db.DeliveryPayloads.AsNoTracking()
+                       on new { Id = evidence.PayloadId, evidence.ReceivedAt }
+                       equals new { payload.Id, payload.ReceivedAt }
+                   select new PayloadRow(
+                       payload.Id, payload.ProviderKey, payload.Source, payload.PayloadEncrypted))
+                .SingleAsync());
+
+    /// <summary>How many callback rows the store holds for one provider.</summary>
+    internal static async Task<int> CountPayloadsAsync(
+        DeliveryTrackingFixture fixture,
+        string providerKey)
+        => await fixture.QueryNotificationsDbAsync(async db => await db.DeliveryPayloads
+            .AsNoTracking()
+            .CountAsync(payload => payload.ProviderKey == providerKey));
 
     internal static async Task<int> CountDedupeAsync(
         DeliveryTrackingFixture fixture,
@@ -255,4 +277,11 @@ internal sealed record EvidenceRow(
     string? ProviderMessageId,
     string? ErrorCode,
     DateTimeOffset? AppliedAt,
+    Guid PayloadId);
+
+/// <summary>What a test reads back from one stored callback.</summary>
+internal sealed record PayloadRow(
+    Guid Id,
+    string ProviderKey,
+    string Source,
     byte[] PayloadEncrypted);
