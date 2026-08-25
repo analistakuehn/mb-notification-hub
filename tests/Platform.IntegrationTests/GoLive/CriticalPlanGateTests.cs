@@ -108,7 +108,9 @@ public sealed class CriticalPlanGateTests(CorePipelineFixture fixture)
             new NpgsqlCountQueryExecutor(),
             fixture.PostgresConnectionString,
             NotificationClasses.Critical,
-            ClassPolicyVersionStatuses.Published);
+            ClassPolicyVersionStatuses.Published,
+            TemplateValidation.AuthenticationPurpose,
+            TemplateVersionStatuses.Published);
         GoLiveSourceCheck check = await source.CheckAsync(CancellationToken.None);
         return check.Count;
     }

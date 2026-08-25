@@ -45,6 +45,8 @@ internal static class Program
                 new NpgsqlCountQueryExecutor(),
                 configuration.TemplateManagementConnectionString,
                 NotificationClasses.Critical,
-                ClassPolicyVersionStatuses.Published),
+                ClassPolicyVersionStatuses.Published,
+                TemplateValidation.AuthenticationPurpose,
+                TemplateVersionStatuses.Published),
             timeProvider);
 }

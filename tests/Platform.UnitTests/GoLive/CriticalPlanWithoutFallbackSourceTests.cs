@@ -14,6 +14,8 @@ public sealed class CriticalPlanWithoutFallbackSourceTests
             executor,
             connectionString,
             "critical",
+            "published",
+            "authentication",
             "published");
 
         var count = await source.CountAsync(cancellation.Token);
@@ -37,9 +39,21 @@ public sealed class CriticalPlanWithoutFallbackSourceTests
         executor.Query.CommandText.ShouldContain("< 2");
         executor.Query.CommandText.ShouldNotContain("'critical'");
         executor.Query.CommandText.ShouldNotContain("'published'");
+
+        // The class name is not the whole question. A class that hosts a
+        // published authentication template owes a fallback for the same
+        // reason critical does, and the rest of the design already treats the
+        // two as one unit, so the gate has to reach it by purpose and not only
+        // by name.
+        executor.Query.CommandText.ShouldContain("template.purpose = @authenticationPurpose");
+        executor.Query.CommandText.ShouldContain("template.class = policy_version.class");
+        executor.Query.CommandText.ShouldContain("version.status = @templateVersionStatus");
+        executor.Query.CommandText.ShouldNotContain("'authentication'");
         executor.Query.Parameters.ShouldBe([
             new CountQueryParameter("notificationClass", "critical"),
             new CountQueryParameter("versionStatus", "published"),
+            new CountQueryParameter("authenticationPurpose", "authentication"),
+            new CountQueryParameter("templateVersionStatus", "published"),
         ]);
     }
 
@@ -50,6 +64,8 @@ public sealed class CriticalPlanWithoutFallbackSourceTests
             new ThrowingCountQueryExecutor(),
             "Host=database",
             "critical",
+            "published",
+            "authentication",
             "published");
 
         await Should.ThrowAsync<InvalidOperationException>(
