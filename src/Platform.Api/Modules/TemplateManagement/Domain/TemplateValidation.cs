@@ -325,7 +325,7 @@ public static partial class TemplateValidation
     {
         if (!string.Equals(template.Purpose, AuthenticationPurpose, StringComparison.Ordinal)) return;
 
-        List<TemplateContent> smsContents = version.Contents
+        var smsContents = version.Contents
             .Where(content => content.Channel == Channel.Sms)
             .ToList();
         if (smsContents.Count == 0) return;
