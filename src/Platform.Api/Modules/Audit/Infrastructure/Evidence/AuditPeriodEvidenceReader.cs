@@ -186,7 +186,7 @@ internal sealed class AuditPeriodEvidenceReader(AuditDbContext db) : IAuditPerio
     /// </summary>
     private static AuditGovernedChange ToChange(ChangeRow row)
     {
-        using JsonDocument document = JsonDocument.Parse(row.Canonical);
+        using var document = JsonDocument.Parse(row.Canonical);
         JsonElement root = document.RootElement;
         return new AuditGovernedChange
         {

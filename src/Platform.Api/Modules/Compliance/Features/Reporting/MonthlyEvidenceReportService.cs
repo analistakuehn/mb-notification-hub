@@ -55,7 +55,7 @@ internal sealed class MonthlyEvidenceReportService(
         TimeSpan reconciliationGrace,
         int lookbackMonths)
     {
-        ReportMonth current = ReportMonth.Of(now);
+        var current = ReportMonth.Of(now);
         for (var back = 1; back <= lookbackMonths; back++)
         {
             ReportMonth candidate = current.AddMonths(-back);
