@@ -655,9 +655,11 @@ curta própria.
 - A forma da resposta segue três regras. Os membros que sempre existem estão
   sempre presentes, inclusive arrays vazios. Os membros cujo valor está ausente
   são omitidos. Os membros cuja fonte não existe nesta fase não são declarados,
-  portanto `deliveryEvents` e o comprovante de leitura ficam ausentes, não
-  vazios. `attempts[].deliveredAt` nunca é gravado nesta fase, e a regra de
-  omissão o mantém fora.
+  portanto o comprovante de leitura fica ausente, não vazio. `deliveryEvents`
+  deixou de cair nessa regra quando a tabela de eventos de entrega passou a
+  existir: ele é sempre declarado, e lista vazia afirma que o provedor não
+  relatou nada para aquela tentativa. `attempts[].deliveredAt` é gravado por
+  confirmação do provedor e omitido enquanto nenhuma tiver sido aplicada.
 - **Nunca saem por aqui**: conteúdo renderizado em qualquer forma (somente
   `content_hash_full` e `content_hash_masked` trafegam) e `variables_masked`, que
   ainda é dado de negócio e pertence à superfície de auditoria. As projeções de

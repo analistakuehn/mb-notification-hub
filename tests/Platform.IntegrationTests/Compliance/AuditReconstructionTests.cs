@@ -26,7 +26,7 @@ public sealed class AuditReconstructionTests(CorePipelineFixture fixture)
     private static readonly string[] SensitiveCode = ["code"];
 
     [RequiresDockerFact]
-    public async Task The_reconstruction_answers_the_seven_answerable_questions_with_trail_and_state_apart()
+    public async Task The_reconstruction_answers_the_eight_questions_with_trail_and_state_apart()
     {
         Reconstructed sent = await SendAndReconstructAsync();
         JsonElement body = sent.Body;
@@ -90,6 +90,13 @@ public sealed class AuditReconstructionTests(CorePipelineFixture fixture)
             .ShouldBe(template.GetProperty("contentHash").GetString());
         approval.GetProperty("approverOid").GetString().ShouldBe("template-publisher");
         approval.GetProperty("role").GetString().ShouldBe("publisher");
+
+        // Question 7, did the provider confirm delivery: answerable, and the
+        // answer for this notification is that no feedback arrived. The empty
+        // list states it; nothing was sent to this attempt's provider after the
+        // acceptance above.
+        AuditApi.Items(attempt, "deliveryEvents").ShouldBeEmpty();
+        attempt.TryGetProperty("deliveredAt", out _).ShouldBeFalse();
 
         // Question 8, who looked afterwards: legitimate and empty on the first
         // read, because the disclosure of this very call is cut out.
@@ -196,22 +203,120 @@ public sealed class AuditReconstructionTests(CorePipelineFixture fixture)
     }
 
     [RequiresDockerFact]
-    public async Task The_answer_declares_nothing_about_delivery_and_names_provider_acceptance_instead()
+    public async Task An_attempt_with_no_provider_feedback_answers_an_empty_list_and_names_acceptance()
     {
         Reconstructed sent = await SendAndReconstructAsync();
 
-        // No delivery member exists in the payload, in any form: not an empty
-        // array, not a null, not a timestamp on the attempt.
-        sent.Raw.Contains("deliveryEvents", StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
-        sent.Raw.Contains("deliveredAt", StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
-        sent.Raw.Contains("readAt", StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
-
         JsonElement attempt = AuditApi.Items(sent.Body.GetProperty("state"), "attempts")
             .ShouldHaveSingleItem();
+
+        // The list is present and empty, which is an assertion: the store holds
+        // no feedback for this attempt. The delivery instant stays absent,
+        // because nothing confirmed anything.
+        AuditApi.Items(attempt, "deliveryEvents").ShouldBeEmpty();
         attempt.TryGetProperty("deliveredAt", out _).ShouldBeFalse();
+
+        // What the answer does state about the provider is still acceptance.
         attempt.GetProperty("status").GetString().ShouldBe("sent");
         attempt.GetProperty("sentAt").GetDateTimeOffset().ShouldBeGreaterThan(default);
         attempt.GetProperty("providerMessageId").GetString().ShouldNotBeNullOrWhiteSpace();
+
+        // The read receipt has no table behind it, so it is still not declared
+        // in any form, not even as an empty array.
+        sent.Raw.Contains("readAt", StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
+        sent.Raw.Contains("readReceipt", StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
+    }
+
+    [RequiresDockerFact]
+    public async Task An_attempt_with_provider_feedback_answers_it_in_the_order_the_provider_dated_it()
+    {
+        Reconstructed sent = await SendAndReconstructAsync();
+        Guid attemptId = await AuditApi.SingleAttemptIdAsync(fixture, sent.NotificationId);
+        DateTimeOffset accepted = Truncated(DateTimeOffset.UtcNow.AddMinutes(-10));
+        DateTimeOffset confirmed = accepted.AddMinutes(2);
+
+        // Written newest first on purpose: an answer ordered by insertion, by
+        // reception or by identity comes back reversed and fails here.
+        await AuditApi.SeedProviderFeedbackAsync(
+            fixture, sent.NotificationId, attemptId, "sendgrid", "sg-event-delivered", "delivered",
+            confirmed, ProviderPayload(sent.Email, "delivered", "confirmed-probe"));
+        await AuditApi.SeedProviderFeedbackAsync(
+            fixture, sent.NotificationId, attemptId, "sendgrid", "sg-event-processed", "sent",
+            accepted, ProviderPayload(sent.Email, "processed", "accepted-probe"));
+        await AuditApi.StampDeliveredAtAsync(fixture, attemptId, confirmed);
+
+        var disclosedBefore = await AuditApi.CountDisclosuresAsync(
+            fixture, "notification", sent.NotificationId.ToString());
+
+        HttpClient auditor = fixture.CreateAuditorClient(AuditApi.AuditorSubject);
+        (var status, JsonElement body, _) = await AuditApi.ReadAsync(
+            auditor, AuditApi.EvidencePath(sent.NotificationId));
+
+        status.ShouldBe(200);
+        JsonElement attempt = AuditApi.Items(body.GetProperty("state"), "attempts").ShouldHaveSingleItem();
+        IReadOnlyList<JsonElement> feedback = AuditApi.Items(attempt, "deliveryEvents");
+
+        feedback.Select(item => item.GetProperty("providerEventId").GetString())
+            .ShouldBe(["sg-event-processed", "sg-event-delivered"]);
+        feedback.Select(item => item.GetProperty("kind").GetString()).ShouldBe(["sent", "delivered"]);
+        feedback.Select(item => item.GetProperty("occurredAt").GetDateTimeOffset())
+            .ShouldBe([accepted, confirmed]);
+        feedback.ShouldAllBe(item => item.GetProperty("providerKey").GetString() == "sendgrid");
+
+        // The attempt states the conclusion the hub applied, beside the
+        // feedback that produced it.
+        attempt.GetProperty("status").GetString().ShouldBe("delivered");
+        attempt.GetProperty("deliveredAt").GetDateTimeOffset().ShouldBe(confirmed);
+
+        // The answer that disclosed all of this left its own trail row, and it
+        // did so before the body existed.
+        (await AuditApi.CountDisclosuresAsync(fixture, "notification", sent.NotificationId.ToString()))
+            .ShouldBe(disclosedBefore + 1);
+    }
+
+    /// <summary>
+    /// The named guard of the rule "the provider payload is evidence held, not
+    /// evidence served". The stored callback body carries the destination in
+    /// the clear and the module keeps it sealed for that reason; the only thing
+    /// keeping it out of this answer is a projection that names five columns.
+    /// Every other assertion about the feedback list passes with a projection
+    /// that also forwards the payload, so deleting this test does not weaken a
+    /// slice, it turns the rule it guards into a comment.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task No_raw_provider_payload_and_no_contact_value_leaves_with_the_feedback()
+    {
+        Reconstructed sent = await SendAndReconstructAsync();
+        Guid attemptId = await AuditApi.SingleAttemptIdAsync(fixture, sent.NotificationId);
+        var probe = $"payload-probe-{Guid.NewGuid():N}";
+
+        await AuditApi.SeedProviderFeedbackAsync(
+            fixture, sent.NotificationId, attemptId, "sendgrid", "sg-event-bounced", "bounced",
+            Truncated(DateTimeOffset.UtcNow), ProviderPayload(sent.Email, "bounce", probe),
+            errorCode: "hard-bounce");
+
+        HttpClient auditor = fixture.CreateAuditorClient(AuditApi.AuditorSubject);
+        (var status, JsonElement body, var raw) = await AuditApi.ReadAsync(
+            auditor, AuditApi.EvidencePath(sent.NotificationId));
+
+        status.ShouldBe(200);
+
+        // The assertions are on the serialized body: a member added to the
+        // projection is invisible to a check on a deserialized shape.
+        raw.ShouldNotContain(probe);
+        raw.ShouldNotContain(sent.Email);
+        raw.Contains("payload", StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
+        raw.Contains("suppressionSignal", StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
+
+        JsonElement attempt = AuditApi.Items(body.GetProperty("state"), "attempts").ShouldHaveSingleItem();
+        JsonElement recorded = AuditApi.Items(attempt, "deliveryEvents").ShouldHaveSingleItem();
+        var members = recorded.EnumerateObject()
+            .Select(member => member.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        members.ShouldBe(["errorCode", "kind", "occurredAt", "providerEventId", "providerKey"]);
+        recorded.GetProperty("errorCode").GetString().ShouldBe("hard-bounce");
     }
 
     [RequiresDockerFact]
@@ -263,6 +368,24 @@ public sealed class AuditReconstructionTests(CorePipelineFixture fixture)
         // The lifecycle block never repeats a disclosure link.
         AuditApi.Actions(second.GetProperty("trail"), "links").ShouldNotContain("audit.read");
     }
+
+    /// <summary>
+    /// One verified provider body in the shape the callback route stores,
+    /// carrying the destination in the clear exactly as the real one does. The
+    /// probe is what a leak of any payload field drags into the answer.
+    /// </summary>
+    private static string ProviderPayload(string email, string providerEvent, string probe)
+        => $$"""
+            [{"email":"{{email}}","event":"{{providerEvent}}","sg_message_id":"sg-audit-1","probe":"{{probe}}"}]
+            """;
+
+    /// <summary>
+    /// Cuts an instant to the microsecond the store keeps, so a comparison
+    /// against the answer is about the value and never about the precision the
+    /// column dropped.
+    /// </summary>
+    private static DateTimeOffset Truncated(DateTimeOffset instant)
+        => new(instant.Ticks - (instant.Ticks % TimeSpan.TicksPerMicrosecond), instant.Offset);
 
     private static JsonElement EvaluationOf(JsonElement state, string rule)
         => AuditApi.Items(state, "policyEvaluations")

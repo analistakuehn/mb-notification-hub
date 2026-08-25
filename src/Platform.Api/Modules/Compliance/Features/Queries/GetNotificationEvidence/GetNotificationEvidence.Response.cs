@@ -15,12 +15,12 @@ internal static partial class GetNotificationEvidence
     /// projection would borrow credibility the chain never gave it.
     /// </summary>
     /// <remarks>
-    /// Three members that a reader may expect are deliberately not declared, in
-    /// any form. There is no delivery-event member and no read receipt, and
-    /// neither comes back as an empty array: no table records them yet, and an
-    /// empty array would state that no event happened. There is no delivery
-    /// timestamp on an attempt for the same reason. What the answer does state
-    /// about the provider is acceptance, and it says so in those words.
+    /// One member a reader may expect is deliberately not declared, in any
+    /// form: there is no read receipt, and it does not come back as an empty
+    /// array either, because no table records one and an empty array would
+    /// state that nobody read the message. Provider feedback is a different
+    /// case now that it is recorded, so the attempt carries it and an empty
+    /// list there asserts a fact.
     /// </remarks>
     internal sealed record Response
     {
@@ -182,9 +182,13 @@ internal static partial class GetNotificationEvidence
     }
 
     /// <summary>
-    /// One delivery attempt. <c>sentAt</c> and <c>providerMessageId</c> assert
-    /// that the provider took responsibility for the message; neither of them,
-    /// nor any other member here, asserts that it reached the recipient.
+    /// One delivery attempt, with acceptance and delivery kept apart.
+    /// <c>sentAt</c> and <c>providerMessageId</c> assert that the provider took
+    /// responsibility for the message. <c>deliveredAt</c> and
+    /// <c>deliveryEvents</c> are the ones that speak about the destination:
+    /// the first is the conclusion this hub applied, the second is what the
+    /// provider reported, and they may disagree, because feedback can be
+    /// recorded without moving an attempt that already reached a verdict.
     /// </summary>
     internal sealed record AttemptView
     {
@@ -199,6 +203,14 @@ internal static partial class GetNotificationEvidence
         public required string ContentHashMasked { get; init; }
 
         public required DateTimeOffset CreatedAt { get; init; }
+
+        /// <summary>
+        /// Provider feedback recorded for this attempt, oldest first by the
+        /// instant the provider says it happened. Always present: an empty
+        /// array asserts that the store holds no feedback for this attempt,
+        /// which is a fact, and no longer the absence of a place to record one.
+        /// </summary>
+        public required IReadOnlyList<DeliveryEventView> DeliveryEvents { get; init; }
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ProviderKey { get; init; }
@@ -217,6 +229,15 @@ internal static partial class GetNotificationEvidence
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DateTimeOffset? SentAt { get; init; }
 
+        /// <summary>
+        /// Instant a provider confirmed the message reached the destination, in
+        /// the provider's own clock. Absent means this hub applied no
+        /// confirmation to the attempt; <c>deliveryEvents</c> is what says
+        /// whether any feedback arrived at all.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DateTimeOffset? DeliveredAt { get; init; }
+
         /// <summary>Contact point the attempt targeted; described under the recipient block.</summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Guid? ContactPointId { get; init; }
@@ -224,6 +245,35 @@ internal static partial class GetNotificationEvidence
         /// <summary>Device registration the attempt targeted; described under the recipient block.</summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Guid? DeviceTokenId { get; init; }
+    }
+
+    /// <summary>
+    /// One piece of provider feedback: what the provider reported about the
+    /// attempt, when it says it happened, and under which identity it said it.
+    /// The verified provider payload that the same row stores does not travel
+    /// here in any form. It carries the destination in the clear, which is why
+    /// it is sealed at rest, and this route discloses evidence to an auditor
+    /// rather than reopening a contact value the rest of the answer masks.
+    /// </summary>
+    internal sealed record DeliveryEventView
+    {
+        public required string ProviderKey { get; init; }
+
+        /// <summary>Identity of the event inside its provider, which is what deduplication claims.</summary>
+        public required string ProviderEventId { get; init; }
+
+        /// <summary>What the provider reported: sent, delivered, read, failed or bounced.</summary>
+        public required string Kind { get; init; }
+
+        /// <summary>
+        /// Instant the provider says the event happened, in the provider's own
+        /// clock. A provider may date an event backwards, so this is the claim
+        /// of the feedback and not the instant this hub took it.
+        /// </summary>
+        public required DateTimeOffset OccurredAt { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ErrorCode { get; init; }
     }
 
     /// <summary>

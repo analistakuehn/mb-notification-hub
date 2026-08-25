@@ -3,6 +3,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using NotificationHub.Api.Infrastructure.Cryptography;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.IntegrationTests.Notifications;
 
@@ -93,6 +96,73 @@ internal static class AuditApi
                  {canonical}, {prevHash}, {hash})
             """));
     }
+
+    /// <summary>The attempt of a notification the pipeline produced exactly one attempt for.</summary>
+    internal static Task<Guid> SingleAttemptIdAsync(CorePipelineFixture fixture, Guid notificationId)
+        => fixture.QueryNotificationsDbAsync(db => db.NotificationAttempts
+            .AsNoTracking()
+            .Where(attempt => attempt.NotificationId == notificationId)
+            .Select(attempt => attempt.Id)
+            .SingleAsync());
+
+    /// <summary>
+    /// Writes one piece of provider feedback straight into the evidence table,
+    /// sealed under the key scope the tracker seals with. The callback path is
+    /// not exercised here on purpose: it needs a signed provider request and the
+    /// queue that hands the event to its application, and this test is about
+    /// what the evidence route does with a row that already exists.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="rawPayload"/> is the verified provider body, which is
+    /// where the destination travels in the clear. The seeded value carries a
+    /// real contact so the disclosure assertions have something to catch.
+    /// </remarks>
+    internal static async Task SeedProviderFeedbackAsync(
+        CorePipelineFixture fixture,
+        Guid notificationId,
+        Guid attemptId,
+        string providerKey,
+        string providerEventId,
+        string kind,
+        DateTimeOffset occurredAt,
+        string rawPayload,
+        string? errorCode = null)
+    {
+        var sealedPayload = await fixture.UsingScopeAsync(services => services
+            .GetRequiredService<IEnvelopeCipher>()
+            .EncryptAsync(
+                DeliveryEventWriter.PayloadKeyScope,
+                Encoding.UTF8.GetBytes(rawPayload),
+                CancellationToken.None));
+
+        var id = Guid.CreateVersion7();
+
+        // The reception instant is this hub's own and lands the row in the
+        // partition the migration provisioned; the provider's instant is the
+        // one the answer publishes and the one the ordering follows.
+        DateTimeOffset receivedAt = DateTimeOffset.UtcNow;
+        await fixture.QueryNotificationsDbAsync(db => db.Database.ExecuteSqlAsync($"""
+            INSERT INTO notifications.delivery_event
+                (id, received_at, attempt_id, notification_id, provider_key, provider_event_id,
+                 provider_message_id, kind, occurred_at, error_code, suppression_signal,
+                 payload_enc, applied_at)
+            VALUES
+                ({id}, {receivedAt}, {attemptId}, {notificationId}, {providerKey}, {providerEventId},
+                 NULL, {kind}, {occurredAt}, {errorCode}, 'none',
+                 {sealedPayload}, {receivedAt})
+            """));
+    }
+
+    /// <summary>Stamps on the attempt the delivery instant the applier would have stamped.</summary>
+    internal static Task StampDeliveredAtAsync(
+        CorePipelineFixture fixture,
+        Guid attemptId,
+        DateTimeOffset deliveredAt)
+        => fixture.QueryNotificationsDbAsync(db => db.Database.ExecuteSqlAsync($"""
+            UPDATE notifications.notification_attempt
+               SET status = 'delivered', delivered_at = {deliveredAt}
+             WHERE id = {attemptId}
+            """));
 
     /// <summary>The canonical document of the crafted link, in the shape the chain writes.</summary>
     private static string Canonical(

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json.Serialization;
 using NotificationHub.Api.Modules.Compliance.Features.Queries;
 using NotificationHub.Api.Modules.ContactConsent.Domain;
 using NotificationHub.Api.Modules.Notifications.Domain;
@@ -30,17 +31,46 @@ public sealed class AuditResponseShapeTests
     }
 
     [Fact]
-    public void The_reconstruction_declares_no_delivery_member_in_any_form()
+    public void The_reconstruction_answers_delivery_and_still_declares_no_read_receipt()
     {
-        // The question "did the provider confirm delivery" is not answerable in
-        // this phase, so no member claims it, not even as an empty array: an
-        // empty array would state that no event happened.
+        // "Did the provider confirm delivery" is answerable now that the
+        // feedback is recorded, so both members exist. Whether the recipient
+        // read the message is still recorded nowhere, so no member claims it,
+        // not even as an empty array: an empty array would state that nobody
+        // read it.
         var names = MemberNames().ToArray();
 
-        names.ShouldNotContain("DeliveryEvents");
-        names.ShouldNotContain("DeliveredAt");
+        names.ShouldContain("DeliveryEvents");
+        names.ShouldContain("DeliveredAt");
         names.ShouldNotContain("ReadAt");
         names.ShouldNotContain("ReadReceipt");
+    }
+
+    [Fact]
+    public void The_provider_feedback_view_carries_five_members_and_no_payload()
+    {
+        var names = typeof(GetNotificationEvidence.DeliveryEventView)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        // The stored provider payload carries the destination in the clear, so
+        // the view has no member it could land in, under any name.
+        names.ShouldBe(["ErrorCode", "Kind", "OccurredAt", "ProviderEventId", "ProviderKey"]);
+    }
+
+    [Fact]
+    public void The_provider_feedback_list_is_never_omitted_from_an_attempt()
+    {
+        PropertyInfo feedback = typeof(GetNotificationEvidence.AttemptView)
+            .GetProperty(nameof(GetNotificationEvidence.AttemptView.DeliveryEvents))
+            .ShouldNotBeNull();
+
+        // An empty list asserts that the store holds no feedback for the
+        // attempt. Serializing it away would turn that assertion back into the
+        // silence the surface used to keep.
+        feedback.GetCustomAttribute<JsonIgnoreAttribute>().ShouldBeNull();
     }
 
     [Fact]
@@ -97,6 +127,7 @@ public sealed class AuditResponseShapeTests
         graph.ShouldContain(typeof(GetNotificationEvidence.LinkView));
         graph.ShouldContain(typeof(GetNotificationEvidence.StateView));
         graph.ShouldContain(typeof(GetNotificationEvidence.AttemptView));
+        graph.ShouldContain(typeof(GetNotificationEvidence.DeliveryEventView));
         graph.ShouldContain(typeof(GetNotificationEvidence.RecipientView));
         graph.ShouldContain(typeof(GetNotificationEvidence.DeviceRegistrationView));
         graph.ShouldContain(typeof(GetNotificationEvidence.ConsentEntryView));

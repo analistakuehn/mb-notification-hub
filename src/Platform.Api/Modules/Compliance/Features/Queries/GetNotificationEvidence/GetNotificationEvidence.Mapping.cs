@@ -41,21 +41,46 @@ internal static partial class GetNotificationEvidence
         ReleaseAt = evidence.ReleaseAt,
     };
 
-    private static AttemptView ToAttempt(NotificationAttemptEvidence attempt) => new()
+    /// <summary>
+    /// Projects one attempt member by member. The list of provider feedback is
+    /// always materialized, even when it is empty, because an empty array here
+    /// states that the store holds no feedback for the attempt.
+    /// </summary>
+    internal static AttemptView ToAttempt(NotificationAttemptEvidence attempt)
     {
-        Sequence = attempt.Sequence,
-        Channel = attempt.Channel,
-        Status = attempt.Status,
-        ContentHashFull = attempt.ContentHashFull,
-        ContentHashMasked = attempt.ContentHashMasked,
-        CreatedAt = attempt.CreatedAt,
-        ProviderKey = attempt.ProviderKey,
-        ProviderMessageId = attempt.ProviderMessageId,
-        ErrorCode = attempt.ErrorCode,
-        FallbackDeadline = attempt.FallbackDeadline,
-        SentAt = attempt.SentAt,
-        ContactPointId = attempt.ContactPointId,
-        DeviceTokenId = attempt.DeviceTokenId,
+        ArgumentNullException.ThrowIfNull(attempt);
+        return new AttemptView
+        {
+            Sequence = attempt.Sequence,
+            Channel = attempt.Channel,
+            Status = attempt.Status,
+            ContentHashFull = attempt.ContentHashFull,
+            ContentHashMasked = attempt.ContentHashMasked,
+            CreatedAt = attempt.CreatedAt,
+            DeliveryEvents = [.. attempt.DeliveryEvents.Select(ToDeliveryEvent)],
+            ProviderKey = attempt.ProviderKey,
+            ProviderMessageId = attempt.ProviderMessageId,
+            ErrorCode = attempt.ErrorCode,
+            FallbackDeadline = attempt.FallbackDeadline,
+            SentAt = attempt.SentAt,
+            DeliveredAt = attempt.DeliveredAt,
+            ContactPointId = attempt.ContactPointId,
+            DeviceTokenId = attempt.DeviceTokenId,
+        };
+    }
+
+    /// <summary>
+    /// Projects one piece of provider feedback member by member. The sealed
+    /// provider payload has no member to land in, which is the point: the
+    /// projection cannot forward what it never names.
+    /// </summary>
+    private static DeliveryEventView ToDeliveryEvent(DeliveryEventEvidence feedback) => new()
+    {
+        ProviderKey = feedback.ProviderKey,
+        ProviderEventId = feedback.ProviderEventId,
+        Kind = feedback.Kind,
+        OccurredAt = feedback.OccurredAt,
+        ErrorCode = feedback.ErrorCode,
     };
 
     private static PolicyEvaluationView ToEvaluation(PolicyEvaluationEvidence evaluation) => new()

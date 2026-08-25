@@ -1146,7 +1146,7 @@ Para qualquer `notification_id`, uma única chamada — `GET /v1/audit/notificat
 | Por que foi para SMS e não push? | `fallback.triggered` com motivo, `policy_version` usada, evidência da regra de canal e a descrição histórica do registro de dispositivo |
 | Qual texto exato foi enviado? | `rendered_content_enc` na forma mascarada + `content_hash_masked` da tentativa, recomputado e conferido (`content_hash_full` sai declarado, sem verificação, para confronto com evidência externa); `content_hash` da versão de template e da versão de layout usadas |
 | Quem aprovou esse texto? | `APPROVAL[]` com `content_hash` igual ao da versão (publicador difere do autor, quatro olhos) |
-| O provedor confirmou entrega? | Não respondível na fase 1b, sem o Delivery Tracker |
+| O provedor confirmou entrega? | `attempts[].deliveryEvents` e `attempts[].deliveredAt` (fase 2; ver a errata de 2026-08-25 abaixo) |
 | Quem olhou isso depois? | `audit: audit.read`, apenas os acessos anteriores à chamada |
 
 Se alguma dessas perguntas não for respondível por esse endpoint, é bug de auditoria, tratado com a mesma severidade de bug de envio.
@@ -1155,9 +1155,18 @@ Se alguma dessas perguntas não for respondível por esse endpoint, é bug de au
 
 - **Base legal e hashes vêm da versão histórica.** A leitura é por versão exata, aquela que a notificação renderizou, e não pela versão publicada hoje. Responder com o catálogo corrente não seria resposta parcial, seria resposta errada: publicar uma versão nova depois não pode mover a resposta da notificação antiga.
 - **Consentimento sem parâmetro de instante.** A resposta entrega o ledger na janela e declara a janela; ela nunca afirma qual decisão estava vigente no instante do envio. Calcular o vigente naquele momento é leitura do auditor, e o hub afirmando isso seria o hub interpretando a própria evidência.
-- **Pergunta 7 não é declarada de forma alguma.** Não existe membro de eventos de entrega, nem lista vazia, nem carimbo de entrega na tentativa: sem a tabela de eventos, uma lista vazia afirmaria que nada aconteceu. O que sai é `status`, `sentAt` e `providerMessageId`, que afirmam **aceitação pelo provedor, nunca entrega**, e o OpenAPI diz isso com essas palavras. A errata da linha `GET /v1/audit/notifications/{id}` no §7.4 vale junto: webhooks brutos são de fase posterior.
+- **Pergunta 7 não é declarada de forma alguma.** Não existe membro de eventos de entrega, nem lista vazia, nem carimbo de entrega na tentativa: sem a tabela de eventos, uma lista vazia afirmaria que nada aconteceu. O que sai é `status`, `sentAt` e `providerMessageId`, que afirmam **aceitação pelo provedor, nunca entrega**, e o OpenAPI diz isso com essas palavras. A errata da linha `GET /v1/audit/notifications/{id}` no §7.4 vale junto: webhooks brutos são de fase posterior. **Superada em 2026-08-25**, pela errata logo abaixo: o recorte descrito aqui vale para a fase 1b e não descreve mais a resposta.
 - **Pergunta 8 passa a ser respondível.** A lista traz os acessos anteriores à chamada, com o corte declarado na própria resposta, senão o auditor leria a própria pegada. Array vazio é legítimo aqui, porque a tabela existe.
 - **A resposta separa dois blocos com peso probatório diferente.** O bloco de trilha traz elos encadeados com `seq`, `hash` e `prev_hash`, montados a partir do parse do texto `canonical`; a coluna `details` é superfície de consulta e indexação, nunca payload de prova, porque é `jsonb` e reescreve os bytes na leitura. O bloco de estado traz projeções de domínio dos módulos donos, que cadeia nenhuma cobre, e `APPROVAL` vive nele, porque a tabela é append-only mas está fora da cadeia. Sem essa separação o auditor não sabe o que a cadeia cobre.
+
+**Errata de 2026-08-25: a pergunta 7 passou a ser respondível.**
+
+- **A linha da pergunta 7 na tabela acima vale para o recorte da fase 1b e está superada.** Com a tabela de eventos de entrega em produção, a resposta declara `attempts[].deliveryEvents`, sempre presente, em ordem cronológica pelo instante que o provedor atribui ao evento, e `attempts[].deliveredAt`, o instante confirmado, omitido enquanto confirmação nenhuma tiver sido aplicada à tentativa. Cada evento sai com provedor, identidade do evento no provedor, tipo, instante de ocorrência e código de erro, e com mais nada.
+- **Lista vazia passou a ser afirmação legítima**, pelo mesmo motivo que já valia para a pergunta 8: a tabela existe. Vazio diz que a base não guarda retorno do provedor para aquela tentativa, e não que a fase não sabe.
+- **Os dois membros podem discordar, e é assim que se lê a evidência.** `deliveredAt` é a conclusão que o hub aplicou à tentativa; `deliveryEvents` é o que o provedor relatou. Retorno que chega para tentativa já encerrada fica guardado sem mover nada, então evento de entrega sem carimbo é fato, não defeito da resposta. A resposta afirma os dois e não interpreta nenhum, no mesmo critério do ledger de consentimento.
+- **O payload bruto do provedor continua selado e não sai pela rota em forma alguma.** Ele carrega o destino em claro, é por isso que fica cifrado em repouso, e a projeção da evidência nomeia cinco colunas e nenhuma a mais: evidência guardada não é evidência divulgada.
+- **O comprovante de leitura continua não declarado**, em forma alguma, porque tabela nenhuma o registra. Lista vazia ali afirmaria que ninguém leu.
+- **O OpenAPI da rota descreve a mudança de significado**, porque até esta versão a resposta afirmava aceitação pelo provedor e nunca entrega, e um consumidor que aprendeu o contrato antes continuaria lendo dessa forma.
 
 ### 9.6 Retenção, acesso e evidências
 

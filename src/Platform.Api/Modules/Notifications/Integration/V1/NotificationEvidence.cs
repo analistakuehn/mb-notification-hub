@@ -54,8 +54,11 @@ public sealed record NotificationEvidence
 
 /// <summary>
 /// One delivery attempt as evidence. The two content hashes travel, the content
-/// never does. The provider fields state that a provider took responsibility for
-/// the message, which is not the same claim as delivery.
+/// never does. Acceptance and delivery are separate claims and travel in
+/// separate members: <see cref="ProviderKey"/>, <see cref="ProviderMessageId"/>
+/// and <see cref="SentAt"/> state that a provider took responsibility for the
+/// message, while <see cref="DeliveredAt"/> and <see cref="DeliveryEvents"/>
+/// state what the provider reported afterwards about the destination.
 /// </summary>
 public sealed record NotificationAttemptEvidence
 {
@@ -88,7 +91,52 @@ public sealed record NotificationAttemptEvidence
     /// <summary>Instant the provider accepted the message.</summary>
     public DateTimeOffset? SentAt { get; init; }
 
+    /// <summary>
+    /// Instant a provider confirmed the message reached the destination, in the
+    /// provider's own clock. Absent means no confirmation was applied to this
+    /// attempt, which is a weaker statement than an empty
+    /// <see cref="DeliveryEvents"/>: feedback can be stored without moving the
+    /// attempt, and the two members then disagree on purpose.
+    /// </summary>
+    public DateTimeOffset? DeliveredAt { get; init; }
+
+    /// <summary>
+    /// Every piece of provider feedback this module recorded for the attempt,
+    /// oldest first by the instant the provider says it happened. An empty list
+    /// asserts a fact rather than ignorance: the store holds no feedback for
+    /// this attempt.
+    /// </summary>
+    public required IReadOnlyList<DeliveryEventEvidence> DeliveryEvents { get; init; }
+
     public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>
+/// One piece of provider feedback as evidence: what the provider said about one
+/// attempt, when it says it happened, and under which identity it said it. The
+/// verified provider payload the row also stores never travels here. It carries
+/// the destination in the clear, it is sealed at rest for that reason, and this
+/// is a disclosure surface: the payload is evidence held, not evidence served.
+/// </summary>
+public sealed record DeliveryEventEvidence
+{
+    public required string ProviderKey { get; init; }
+
+    /// <summary>Identity of the event inside its provider, which is what deduplication claims.</summary>
+    public required string ProviderEventId { get; init; }
+
+    /// <summary>Durable spelling of what the provider reported.</summary>
+    public required string Kind { get; init; }
+
+    /// <summary>
+    /// Instant the provider says the event happened, in the provider's own
+    /// clock and never this hub's. A provider may date an event backwards, so
+    /// this is what the feedback claims rather than when the hub learned it.
+    /// </summary>
+    public required DateTimeOffset OccurredAt { get; init; }
+
+    /// <summary>Code the provider gave for a failure; absent on feedback that reports no failure.</summary>
+    public string? ErrorCode { get; init; }
 }
 
 /// <summary>

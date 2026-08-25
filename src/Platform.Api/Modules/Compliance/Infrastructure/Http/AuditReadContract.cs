@@ -19,12 +19,20 @@ internal static class AuditReadContract
 
     /// <summary>
     /// Notice the OpenAPI description carries on the provider fields, in the
-    /// exact words the answer must be read with.
+    /// exact words the answer must be read with. It also states what changed:
+    /// the answer used to assert acceptance and nothing else, so a consumer
+    /// that learned it then would otherwise keep reading it that way.
     /// </summary>
-    internal const string ProviderAcceptanceNotice =
-        "Os campos sentAt e providerMessageId afirmam que o provedor aceitou a mensagem, nunca que ela foi "
-        + "entregue ao cliente. Confirmação de entrega depende de eventos do provedor, que a fase atual não "
-        + "coleta e por isso não declara em nenhum membro da resposta.";
+    internal const string ProviderDeliveryNotice =
+        "Os campos sentAt e providerMessageId afirmam que o provedor aceitou a mensagem, nunca que ela "
+        + "chegou ao destinatário. Quem responde pelo destino são deliveredAt e deliveryEvents, membros "
+        + "novos desta versão: antes deles a resposta afirmava apenas aceitação e não declarava entrega em "
+        + "forma alguma. deliveredAt é o instante que o provedor confirmou, no relógio do provedor, e fica "
+        + "ausente enquanto confirmação nenhuma tiver sido aplicada à tentativa. deliveryEvents lista o "
+        + "retorno do provedor em ordem cronológica de ocorrência, e lista vazia é afirmação: a base não "
+        + "guarda retorno para aquela tentativa. Os dois podem discordar, porque retorno chega e fica "
+        + "guardado mesmo quando não move uma tentativa já encerrada. O payload bruto do provedor continua "
+        + "selado na base e não sai por esta rota em forma alguma.";
 
     /// <summary>Notice the OpenAPI description carries on the disclosure record of every call.</summary>
     internal const string DisclosureNotice =

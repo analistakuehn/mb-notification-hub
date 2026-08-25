@@ -21,6 +21,18 @@ internal sealed class NotificationEvidenceReader(
     NotificationsReadDbContext db,
     IEnvelopeCipher cipher) : INotificationEvidence
 {
+    /// <summary>
+    /// How far before the notification's own instant the feedback read reaches.
+    /// A callback cannot be taken before the send it describes, so the
+    /// notification's creation is the true floor and it prunes every earlier
+    /// monthly partition of the feedback table. The margin is there because the
+    /// two instants are stamped by different processes: a second of clock skew
+    /// between them must never drop a row out of an evidence answer, and with
+    /// monthly partitions the margin costs one extra partition only for a
+    /// notification created right after a month turned.
+    /// </summary>
+    private static readonly TimeSpan DeliveryFeedbackFloorMargin = TimeSpan.FromHours(1);
+
     public async Task<Result<NotificationEvidence>> FindAsync(
         Guid notificationId,
         CancellationToken cancellationToken)
@@ -51,26 +63,29 @@ internal sealed class NotificationEvidenceReader(
         // Explicit projections: the encrypted render and the masked variables
         // are never selected here. Content leaves through the reveal read, one
         // attempt at a time, and every one of those is its own disclosure.
-        List<NotificationAttemptEvidence> attempts = await db.NotificationAttempts
+        List<AttemptRow> attempts = await db.NotificationAttempts
             .Where(attempt => attempt.NotificationId == notificationId)
             .OrderBy(attempt => attempt.Sequence)
-            .Select(attempt => new NotificationAttemptEvidence
-            {
-                Sequence = attempt.Sequence,
-                Channel = attempt.Channel,
-                Status = attempt.Status,
-                ProviderKey = attempt.ProviderKey,
-                ProviderMessageId = attempt.ProviderMessageId,
-                ContactPointId = attempt.ContactPointId,
-                DeviceTokenId = attempt.DeviceTokenId,
-                ContentHashFull = attempt.ContentHashFull,
-                ContentHashMasked = attempt.ContentHashMasked,
-                ErrorCode = attempt.ErrorCode,
-                FallbackDeadline = attempt.FallbackDeadline,
-                SentAt = attempt.SentAt,
-                CreatedAt = attempt.CreatedAt,
-            })
+            .Select(attempt => new AttemptRow(
+                attempt.Id,
+                attempt.Sequence,
+                attempt.Channel,
+                attempt.Status,
+                attempt.ProviderKey,
+                attempt.ProviderMessageId,
+                attempt.ContactPointId,
+                attempt.DeviceTokenId,
+                attempt.ContentHashFull,
+                attempt.ContentHashMasked,
+                attempt.ErrorCode,
+                attempt.FallbackDeadline,
+                attempt.SentAt,
+                attempt.DeliveredAt,
+                attempt.CreatedAt))
             .ToListAsync(cancellationToken);
+
+        ILookup<Guid, DeliveryEventEvidence> feedback = await ReadDeliveryFeedbackAsync(
+            notificationId, notification.CreatedAt, cancellationToken);
 
         List<EvaluationRow> evaluations = await db.PolicyEvaluations
             .Where(evaluation => evaluation.NotificationId == notificationId)
@@ -100,7 +115,7 @@ internal sealed class NotificationEvidenceReader(
             ExpiresAt = notification.ExpiresAt,
             VariablesMasked = ParseDocument(notification.VariablesMaskedJson),
             CreatedAt = notification.CreatedAt,
-            Attempts = attempts,
+            Attempts = [.. attempts.Select(attempt => ToAttempt(attempt, feedback[attempt.Id]))],
             PolicyEvaluations = [.. evaluations.Select(ToEvaluation)],
         });
     }
@@ -155,6 +170,77 @@ internal sealed class NotificationEvidenceReader(
     }
 
     /// <summary>
+    /// Reads the provider feedback of one notification, grouped by the attempt
+    /// each piece describes and ordered by the instant the provider says it
+    /// happened. The sealed provider payload is never selected: it carries the
+    /// destination in the clear, and a column left out of the projection cannot
+    /// be served by accident later.
+    /// </summary>
+    private async Task<ILookup<Guid, DeliveryEventEvidence>> ReadDeliveryFeedbackAsync(
+        Guid notificationId,
+        DateTimeOffset notificationCreatedAt,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset receivedFrom = notificationCreatedAt - DeliveryFeedbackFloorMargin;
+        List<DeliveryEventRow> rows = await db.DeliveryEvents
+
+            // The correlation columns are written together, so feedback that
+            // names the notification also names the attempt; a row that named
+            // only the notification would have no attempt to sit under.
+            .Where(feedback => feedback.NotificationId == notificationId
+                && feedback.AttemptId != null
+                && feedback.ReceivedAt >= receivedFrom)
+
+            // The provider's own chronology, because that is the only instant
+            // this projection publishes. Reception and identity break ties, so
+            // two events stamped alike still come back in one stable order.
+            .OrderBy(feedback => feedback.OccurredAt)
+            .ThenBy(feedback => feedback.ReceivedAt)
+            .ThenBy(feedback => feedback.Id)
+            .Select(feedback => new DeliveryEventRow(
+                feedback.AttemptId,
+                feedback.ProviderKey,
+                feedback.ProviderEventId,
+                feedback.Kind,
+                feedback.OccurredAt,
+                feedback.ErrorCode))
+            .ToListAsync(cancellationToken);
+
+        return rows.ToLookup(
+            row => row.AttemptId!.Value,
+            row => new DeliveryEventEvidence
+            {
+                ProviderKey = row.ProviderKey,
+                ProviderEventId = row.ProviderEventId,
+                Kind = row.Kind,
+                OccurredAt = row.OccurredAt,
+                ErrorCode = row.ErrorCode,
+            });
+    }
+
+    private static NotificationAttemptEvidence ToAttempt(
+        AttemptRow row,
+        IEnumerable<DeliveryEventEvidence> feedback)
+        => new()
+        {
+            Sequence = row.Sequence,
+            Channel = row.Channel,
+            Status = row.Status,
+            ProviderKey = row.ProviderKey,
+            ProviderMessageId = row.ProviderMessageId,
+            ContactPointId = row.ContactPointId,
+            DeviceTokenId = row.DeviceTokenId,
+            ContentHashFull = row.ContentHashFull,
+            ContentHashMasked = row.ContentHashMasked,
+            ErrorCode = row.ErrorCode,
+            FallbackDeadline = row.FallbackDeadline,
+            SentAt = row.SentAt,
+            DeliveredAt = row.DeliveredAt,
+            DeliveryEvents = [.. feedback],
+            CreatedAt = row.CreatedAt,
+        };
+
+    /// <summary>
     /// Reads one stored JSON document into a detached element. The column is
     /// written by this module and is never null, so a document that does not
     /// parse is corruption of the row rather than a shape to smooth over.
@@ -194,6 +280,31 @@ internal sealed class NotificationEvidenceReader(
         DateTimeOffset? ReleaseAt,
         DateTimeOffset ExpiresAt,
         DateTimeOffset CreatedAt);
+
+    private sealed record AttemptRow(
+        Guid Id,
+        int Sequence,
+        string Channel,
+        string Status,
+        string? ProviderKey,
+        string? ProviderMessageId,
+        Guid? ContactPointId,
+        Guid? DeviceTokenId,
+        string ContentHashFull,
+        string ContentHashMasked,
+        string? ErrorCode,
+        DateTimeOffset? FallbackDeadline,
+        DateTimeOffset? SentAt,
+        DateTimeOffset? DeliveredAt,
+        DateTimeOffset CreatedAt);
+
+    private sealed record DeliveryEventRow(
+        Guid? AttemptId,
+        string ProviderKey,
+        string ProviderEventId,
+        string Kind,
+        DateTimeOffset OccurredAt,
+        string? ErrorCode);
 
     private sealed record EvaluationRow(
         string Rule,

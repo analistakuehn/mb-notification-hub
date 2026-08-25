@@ -74,10 +74,23 @@
 ## Absence discipline
 
 - A member that is genuinely absent is omitted; an empty array asserts a fact.
-- Delivery events and the read receipt are **not declared at all**, in any form,
-  because no table records them yet. Neither is a delivery timestamp on an
-  attempt. What the answer states about the provider is acceptance, and the
-  OpenAPI description says so in those words.
+- Provider feedback **is** declared, and its empty array is legitimate: the
+  table that records it exists, so "no feedback for this attempt" is a fact this
+  surface can state. `deliveryEvents` is always present on an attempt and
+  ordered by the instant the provider says the event happened.
+- `deliveredAt` is the conclusion this hub applied and `deliveryEvents` is what
+  the provider reported, so the two may disagree: feedback that arrives for an
+  attempt already at a verdict stays recorded without moving it. The answer
+  states both and interprets neither.
+- The read receipt is still **not declared at all**, in any form, because no
+  table records one. An empty array would state that nobody read the message.
+- The sealed provider payload never leaves. It holds the destination in the
+  clear, which is why it is encrypted at rest, and the projection of a feedback
+  row names five columns and no more: naming the payload nowhere is what keeps
+  a later refactor from forwarding it.
+- What the answer states about acceptance is still acceptance: `sentAt` and
+  `providerMessageId` are the provider taking responsibility, never an arrival,
+  and the OpenAPI description separates the two claims in those words.
 - The historical version is omitted when the catalog no longer resolves it.
   Answering with the version published today would not be a partial answer, it
   would be a wrong one.

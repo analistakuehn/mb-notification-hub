@@ -19,7 +19,7 @@ internal static partial class GetNotificationEvidence
         route.WithDescription(
             AuditReadContract.DisclosureNotice + " "
             + AuditReadContract.PriorAccessNotice + " "
-            + AuditReadContract.ProviderAcceptanceNotice + " "
+            + AuditReadContract.ProviderDeliveryNotice + " "
             + AuditReadContract.DeviceInvalidationReasonNotice);
     }
 
