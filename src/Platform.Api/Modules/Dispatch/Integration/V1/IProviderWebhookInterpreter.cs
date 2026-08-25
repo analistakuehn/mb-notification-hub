@@ -33,6 +33,25 @@ public interface IProviderWebhookInterpreter
     string ProviderKey { get; }
 
     /// <summary>
+    /// Whether this provider's signature covers the callback URL, and with it
+    /// anything the hub asked the provider to carry in the route.
+    /// <para>
+    /// It decides whether correlation read from the route may be believed. A
+    /// provider that signs only a timestamp and a body proves the body came
+    /// from it and proves nothing at all about the address the body arrived
+    /// at, so route correlation from such a provider is an unsigned claim
+    /// about which attempt an authentic callback describes. Believing it lets
+    /// a genuine callback be steered onto another attempt, changing its state,
+    /// its fallback and its suppression effects.
+    /// </para>
+    /// <para>
+    /// It is a property of the provider's signing scheme, not a configuration
+    /// knob: an operator cannot make a signature cover more than it covers.
+    /// </para>
+    /// </summary>
+    bool SignatureCoversRoute { get; }
+
+    /// <summary>
     /// Proves the callback came from this provider, unchanged, recently
     /// enough and from an allowed origin.
     /// </summary>

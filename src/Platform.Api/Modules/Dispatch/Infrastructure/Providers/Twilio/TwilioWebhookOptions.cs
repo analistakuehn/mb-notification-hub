@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Net;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Webhooks;
 
 namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Twilio;
 
@@ -8,10 +10,18 @@ namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Twilio;
 /// channel boots with the section absent, and the missing secret surfaces as
 /// a refusal at verification time, in the same regime as the sending adapter.
 /// </summary>
-public sealed class TwilioWebhookOptions
+public sealed class TwilioWebhookOptions : IValidatableObject
 {
     /// <summary>Configuration section this options type binds to.</summary>
     public const string SectionName = "Modules:Dispatch:Webhooks:Twilio";
+
+    private readonly Lazy<IPNetwork[]> _allowedNetworks;
+
+    public TwilioWebhookOptions()
+        => _allowedNetworks = new Lazy<IPNetwork[]>(
+            () => WebhookRequestGuards.TryParseNetworks(AllowedNetworks, out IPNetwork[] parsed, out _)
+                ? parsed
+                : []);
 
     private static readonly string[] DefaultHardBounceCodes = ["21610"];
 
@@ -26,12 +36,16 @@ public sealed class TwilioWebhookOptions
     public string AuthToken { get; init; } = "";
 
     /// <summary>
-    /// Textual address prefixes allowed to deliver callbacks, for example
-    /// <c>54.172.60.</c>. Empty, the shipped value, turns the allowlist off,
-    /// because pinning provider ranges belongs first to the network edge and a
-    /// half-filled list here would drop authentic callbacks in silence.
+    /// Networks allowed to deliver callbacks, in CIDR form, for example
+    /// <c>54.172.60.0/24</c>. Empty, the shipped value, turns the allowlist
+    /// off, and off is the posture this host is meant to run in: the address
+    /// the application sees is the address of whatever proxy or load balancer
+    /// terminates the connection, so pinning provider ranges belongs at that
+    /// edge, where the client address is the real one. Filling this list on a
+    /// host that sits behind a proxy refuses every authentic callback and
+    /// raises a forgery alarm for each one.
     /// </summary>
-    public string[] AllowedIpPrefixes { get; init; } = [];
+    public string[] AllowedNetworks { get; init; } = [];
 
     /// <summary>Half-width of the replay window applied when the callback carries a timestamp.</summary>
     [Range(1, 86_400)]
@@ -76,4 +90,24 @@ public sealed class TwilioWebhookOptions
 
     internal IReadOnlyList<string> EffectiveInvalidDestinationCodes
         => InvalidDestinationCodes ?? DefaultInvalidDestinationCodes;
+
+    /// <summary>The configured networks, parsed once and reused per callback.</summary>
+    internal IReadOnlyList<IPNetwork> ParsedAllowedNetworks => _allowedNetworks.Value;
+
+    /// <summary>
+    /// Refuses a range nobody can parse at host start. The alternative is
+    /// discovering it on the first real callback, where the failure is silent
+    /// in the worst direction: an unparsed entry is an entry that never
+    /// matches, so the guard would refuse authentic traffic and report it as
+    /// forgery.
+    /// </summary>
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!WebhookRequestGuards.TryParseNetworks(AllowedNetworks, out _, out var invalid))
+        {
+            yield return new ValidationResult(
+                $"'{invalid}' não é uma rede em notação CIDR.",
+                [nameof(AllowedNetworks)]);
+        }
+    }
 }

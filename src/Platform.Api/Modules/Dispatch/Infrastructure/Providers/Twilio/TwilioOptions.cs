@@ -4,7 +4,7 @@ using NotificationHub.Api.Modules.Dispatch.Infrastructure.Resilience;
 
 namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Twilio;
 
-public sealed class TwilioOptions
+public sealed class TwilioOptions : IValidatableObject
 {
     public const string SectionName = "Modules:Dispatch:Providers:Twilio";
 
@@ -44,8 +44,35 @@ public sealed class TwilioOptions
     [Url]
     public string BaseAddress { get; init; } = "https://api.twilio.com";
 
-    /// <summary>Twilio product used for the configured SMS test account.</summary>
-    public TwilioSmsProduct Product { get; init; } = TwilioSmsProduct.Verify;
+    /// <summary>
+    /// Twilio product the SMS call is built for. The two products carry
+    /// different delivery contracts: only Programmable Messaging accepts a
+    /// Messaging Service, a per-message status callback and a validity period,
+    /// so it is the default. Verify sends the code and reports nothing back,
+    /// which is usable for a test account but leaves the delivery tracker
+    /// without any event to close the notification with.
+    /// </summary>
+    public TwilioSmsProduct Product { get; init; } = TwilioSmsProduct.ProgrammableMessaging;
+
+    /// <summary>
+    /// Refuses to start the SMS role in a configuration that can send and can
+    /// never confirm.
+    /// <para>
+    /// The failure it guards is silent in the worst way: with the Verify
+    /// product, or with no callback address, the message goes out and no
+    /// delivery event ever comes back, so the tracker never closes the
+    /// notification, the fallback never learns the send worked and the
+    /// end-to-end proof this phase rests on cannot reproduce in production.
+    /// Nothing errors; the confirmation simply never arrives.
+    /// </para>
+    /// <para>
+    /// It is off by default and turned on where it matters, rather than the
+    /// other way round, because a local host with one verified test number and
+    /// no public address is a legitimate configuration and refusing it would
+    /// make the guard the first thing anybody switches off.
+    /// </para>
+    /// </summary>
+    public bool RequireDeliveryFeedback { get; init; }
 
     /// <summary>Credential family used to authenticate the provider call.</summary>
     public TwilioAuthenticationMode AuthenticationMode { get; init; } = TwilioAuthenticationMode.AuthToken;
@@ -145,8 +172,27 @@ public sealed class TwilioOptions
     [Range(2, 100)]
     public int LookupPageSize { get; init; } = 5;
 
+    /// <summary>
+    /// How long one provider call may take before it is abandoned.
+    /// <para>
+    /// The knob is per provider and the timeout budget of the design is per
+    /// notification class, and the two do not line up: the resilience pipeline
+    /// is composed once per provider and never per queue, so a class never
+    /// reaches this decision. The gap is closed by what this channel is used
+    /// for rather than by making the knob finer. SMS exists in the delivery
+    /// plan as the fallback of critical, so every call this provider makes is a
+    /// critical call, and the value is the critical budget rather than the one
+    /// for everything else.
+    /// </para>
+    /// <para>
+    /// It is also a term of the fallback arithmetic: the step deadline, the
+    /// scheduler interval, the two queue hops and this timeout together have to
+    /// stay inside the accepted time to a fallback SMS, and this is the term
+    /// that used to push the sum past it.
+    /// </para>
+    /// </summary>
     [Range(1, 120)]
-    public int TimeoutSeconds { get; init; } = 5;
+    public int TimeoutSeconds { get; init; } = 2;
 
     /// <summary>Maximum simultaneous SMS sends against Twilio from this host.</summary>
     [Range(1, 1_000)]
@@ -176,6 +222,46 @@ public sealed class TwilioOptions
     }
 
     internal Regex DestinationExpression => _destinationExpression.Value;
+
+    /// <summary>
+    /// Validates the nested circuit-breaker knobs, which the registration of
+    /// this type does not reach on its own (their ranges would read as enforced
+    /// and never be evaluated, letting an out-of-range threshold reach the
+    /// pipeline at runtime), plus the delivery-feedback contract when the
+    /// deployment declares that it needs one.
+    /// </summary>
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        foreach (ValidationResult result in NestedOptionsValidation.Validate(
+            CircuitBreaker, nameof(CircuitBreaker)))
+        {
+            yield return result;
+        }
+
+        if (!RequireDeliveryFeedback) yield break;
+
+        if (Product != TwilioSmsProduct.ProgrammableMessaging)
+        {
+            yield return new ValidationResult(
+                $"O produto '{Product}' não devolve evento de entrega; com retorno de entrega "
+                + "exigido, o canal SMS precisa de Programmable Messaging.",
+                [nameof(Product)]);
+        }
+
+        if (string.IsNullOrWhiteSpace(StatusCallbackUrl))
+        {
+            yield return new ValidationResult(
+                "Sem endereço de callback o provedor não tem para onde reportar a entrega.",
+                [nameof(StatusCallbackUrl)]);
+        }
+
+        if (string.IsNullOrWhiteSpace(MessagingServiceSid) && MessagingServiceSids.Count == 0)
+        {
+            yield return new ValidationResult(
+                "Nenhum Messaging Service configurado; o pool de sender por aplicação não existe.",
+                [nameof(MessagingServiceSid)]);
+        }
+    }
 }
 
 public enum TwilioSmsProduct

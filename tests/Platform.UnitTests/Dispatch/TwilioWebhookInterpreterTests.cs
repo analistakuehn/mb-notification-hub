@@ -93,7 +93,7 @@ public sealed class TwilioWebhookInterpreterTests
         TwilioWebhookInterpreter interpreter = Build(new TwilioWebhookOptions
         {
             AuthToken = VectorToken,
-            AllowedIpPrefixes = ["54.172.60."],
+            AllowedNetworks = ["54.172.60.0/24"],
         });
 
         Result<VerifiedProviderWebhook> result = interpreter.Verify(
@@ -108,7 +108,7 @@ public sealed class TwilioWebhookInterpreterTests
         TwilioWebhookInterpreter interpreter = Build(new TwilioWebhookOptions
         {
             AuthToken = VectorToken,
-            AllowedIpPrefixes = ["54.172.60."],
+            AllowedNetworks = ["54.172.60.0/24"],
         });
 
         Result<VerifiedProviderWebhook> result = interpreter.Verify(
@@ -123,7 +123,7 @@ public sealed class TwilioWebhookInterpreterTests
         TwilioWebhookInterpreter interpreter = Build(new TwilioWebhookOptions
         {
             AuthToken = VectorToken,
-            AllowedIpPrefixes = [],
+            AllowedNetworks = [],
         });
 
         Result<VerifiedProviderWebhook> result = interpreter.Verify(

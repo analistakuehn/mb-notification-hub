@@ -56,6 +56,8 @@ public sealed class ProviderWebhookInterpreterResolverTests
     {
         public string ProviderKey => providerKey;
 
+        public bool SignatureCoversRoute => false;
+
         public Result<VerifiedProviderWebhook> Verify(ProviderWebhookRequest request)
             => Result.Success(new VerifiedProviderWebhook(
                 providerKey, DateTimeOffset.UnixEpoch, ReadOnlyMemory<byte>.Empty));

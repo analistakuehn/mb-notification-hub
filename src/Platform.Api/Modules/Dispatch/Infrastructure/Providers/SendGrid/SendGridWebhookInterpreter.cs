@@ -27,6 +27,15 @@ internal sealed class SendGridWebhookInterpreter(
 
     public string ProviderKey => SendGridChannelProvider.Key;
 
+    /// <summary>
+    /// False: this provider signs the timestamp and the body, never the
+    /// address. Correlation therefore has to come from the body, where this
+    /// provider does echo it back, and a pair of identifiers arriving in the
+    /// route is an unsigned claim that must not be allowed to decide which
+    /// attempt an authentic callback describes.
+    /// </summary>
+    public bool SignatureCoversRoute => false;
+
     public Result<VerifiedProviderWebhook> Verify(ProviderWebhookRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -41,7 +50,7 @@ internal sealed class SendGridWebhookInterpreter(
         // Origin is the first gate: it is the cheapest one, and it is the only
         // failure that means forgery rather than the everyday symptom of a
         // rotated secret, so a later refusal must not mask it.
-        if (!WebhookRequestGuards.IsOriginAllowed(request.RemoteIpAddress, config.AllowedIpPrefixes))
+        if (!WebhookRequestGuards.IsOriginAllowed(request.RemoteIpAddress, config.ParsedAllowedNetworks))
         {
             logger.SendGridWebhookOriginRejected();
             return ProviderWebhookRefusal.Refuse<VerifiedProviderWebhook>(

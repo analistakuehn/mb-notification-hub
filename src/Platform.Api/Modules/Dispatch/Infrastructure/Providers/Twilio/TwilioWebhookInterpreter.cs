@@ -28,6 +28,15 @@ internal sealed class TwilioWebhookInterpreter(
 
     public string ProviderKey => TwilioChannelProvider.Key;
 
+    /// <summary>
+    /// True: this provider signs the full callback URL together with the form
+    /// body, so the correlation identifiers the sending adapter appended to the
+    /// address it handed over are covered by the same signature as the payload.
+    /// That is the only reason this provider can be correlated at all, since it
+    /// echoes nothing back in the body.
+    /// </summary>
+    public bool SignatureCoversRoute => true;
+
     public Result<VerifiedProviderWebhook> Verify(ProviderWebhookRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -42,7 +51,7 @@ internal sealed class TwilioWebhookInterpreter(
         // Origin is the first gate: it is the cheapest one, and it is the only
         // failure that means forgery rather than the everyday symptom of a
         // rotated secret, so a later refusal must not mask it.
-        if (!WebhookRequestGuards.IsOriginAllowed(request.RemoteIpAddress, config.AllowedIpPrefixes))
+        if (!WebhookRequestGuards.IsOriginAllowed(request.RemoteIpAddress, config.ParsedAllowedNetworks))
         {
             logger.TwilioWebhookOriginRejected();
             return ProviderWebhookRefusal.Refuse<VerifiedProviderWebhook>(

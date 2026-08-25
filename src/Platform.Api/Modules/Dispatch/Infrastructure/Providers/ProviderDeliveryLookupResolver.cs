@@ -17,6 +17,16 @@ namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers;
 internal sealed class ProviderDeliveryLookupResolver(
     IEnumerable<IProviderDeliveryLookup> lookups) : IProviderDeliveryLookupResolver
 {
+    private readonly Lazy<string[]> _answerable = new(
+        () => [.. lookups.Select(lookup => lookup.ProviderKey).Distinct(StringComparer.Ordinal)]);
+
+    /// <summary>
+    /// The keys of the lookups this process hosts, computed once. It is a
+    /// composition fact rather than a runtime one: nothing registers a lookup
+    /// after the host is built.
+    /// </summary>
+    public IReadOnlyCollection<string> AnswerableProviderKeys => _answerable.Value;
+
     public Result<IProviderDeliveryLookup> Resolve(string providerKey)
     {
         if (string.IsNullOrWhiteSpace(providerKey))

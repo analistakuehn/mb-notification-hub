@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 
 namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Webhooks;
 
@@ -27,28 +28,68 @@ internal static class WebhookRequestGuards
     }
 
     /// <summary>
-    /// Tells whether the origin is allowed. An empty allowlist means the
-    /// allowlist is off, which is the shipped posture: the network edge is
-    /// the primary place to pin provider ranges, and a half-configured list
-    /// inside the application would silently drop real callbacks. A
-    /// configured list with no known origin is a refusal, never a pass.
+    /// Tells whether the origin falls inside one of the allowed networks. An
+    /// empty allowlist means the allowlist is off, which is the shipped
+    /// posture: pinning provider ranges belongs to the network edge, where the
+    /// address of the client is the one the edge actually sees. This guard is
+    /// defence in depth for a directly exposed host and nothing more.
+    /// <para>
+    /// The comparison is by network and not by text, because a textual prefix
+    /// is not a range: <c>54.172.6</c> reads as a prefix of <c>54.172.60.x</c>
+    /// through <c>54.172.69.x</c>, quietly authorising nine networks nobody
+    /// listed, and an address written in another equally valid form never
+    /// matches at all. An address the runtime cannot parse is a refusal, and a
+    /// configured list with no matching network is a refusal, never a pass.
+    /// </para>
+    /// <para>
+    /// An IPv4 address arriving in its mapped IPv6 form is compared as IPv4,
+    /// because the two spellings name the same host and a list written in the
+    /// obvious form would otherwise refuse every callback on a dual stack
+    /// listener.
+    /// </para>
     /// </summary>
-    internal static bool IsOriginAllowed(string? remoteIpAddress, IReadOnlyList<string> allowedPrefixes)
+    internal static bool IsOriginAllowed(string? remoteIpAddress, IReadOnlyList<IPNetwork> allowedNetworks)
     {
-        if (allowedPrefixes.Count == 0) return true;
+        if (allowedNetworks.Count == 0) return true;
 
-        if (string.IsNullOrWhiteSpace(remoteIpAddress)) return false;
+        if (!IPAddress.TryParse(remoteIpAddress, out IPAddress? origin)) return false;
 
-        foreach (var prefix in allowedPrefixes)
-        {
-            if (prefix.Length > 0
-                && remoteIpAddress.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
+        if (origin.IsIPv4MappedToIPv6) origin = origin.MapToIPv4();
+
+        foreach (IPNetwork network in allowedNetworks)
+            if (network.Contains(origin)) return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Parses configured networks in CIDR form, naming the first value that is
+    /// not one. Callers validate at startup rather than at verification time:
+    /// a range nobody can parse is a configuration error, and discovering it
+    /// on the first real callback would either refuse authentic traffic or
+    /// silently widen the allowlist, depending on which way the parse failed.
+    /// </summary>
+    internal static bool TryParseNetworks(
+        IReadOnlyList<string> values,
+        out IPNetwork[] networks,
+        out string? invalidValue)
+    {
+        var parsed = new List<IPNetwork>(values.Count);
+        foreach (var value in values)
+        {
+            if (!IPNetwork.TryParse(value, out IPNetwork network))
+            {
+                networks = [];
+                invalidValue = value;
+                return false;
+            }
+
+            parsed.Add(network);
+        }
+
+        networks = [.. parsed];
+        invalidValue = null;
+        return true;
     }
 
     /// <summary>

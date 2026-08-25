@@ -93,4 +93,19 @@ public interface IProviderDeliveryLookupResolver
 {
     /// <summary>Resolves the lookup registered under <paramref name="providerKey"/>.</summary>
     Result<IProviderDeliveryLookup> Resolve(string providerKey);
+
+    /// <summary>
+    /// Every provider key this process can ask afterwards, so a caller that
+    /// selects work can leave out the sends nobody can be asked about.
+    /// <para>
+    /// Resolving one key at a time answers the question too late for a bounded
+    /// batch. An attempt whose provider offers no lookup is never settled by
+    /// asking, so it stays eligible for the life of its partition, and a batch
+    /// picked oldest first fills up with those rows and never reaches the
+    /// channels the caller exists to correct. Knowing the set up front is what
+    /// lets the selection exclude them instead of spending its budget
+    /// rediscovering them.
+    /// </para>
+    /// </summary>
+    IReadOnlyCollection<string> AnswerableProviderKeys { get; }
 }

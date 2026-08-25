@@ -86,7 +86,7 @@ public sealed class ProviderWebhookInterpreterResolutionTests(TestApplicationFac
             new Dictionary<string, string?>
             {
                 ["Modules:Dispatch:Webhooks:Twilio:AuthToken"] = VectorToken,
-                ["Modules:Dispatch:Webhooks:Twilio:AllowedIpPrefixes:0"] = "54.172.60.",
+                ["Modules:Dispatch:Webhooks:Twilio:AllowedNetworks:0"] = "54.172.60.0/24",
             });
         IProviderWebhookInterpreterResolver resolver =
             services.GetRequiredService<IProviderWebhookInterpreterResolver>();

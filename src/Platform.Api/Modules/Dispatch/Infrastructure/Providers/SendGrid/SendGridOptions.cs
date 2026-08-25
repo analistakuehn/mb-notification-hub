@@ -3,7 +3,7 @@ using NotificationHub.Api.Modules.Dispatch.Infrastructure.Resilience;
 
 namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.SendGrid;
 
-public sealed class SendGridOptions
+public sealed class SendGridOptions : IValidatableObject
 {
     public const string SectionName = "Modules:Dispatch:Providers:SendGrid";
 
@@ -60,4 +60,13 @@ public sealed class SendGridOptions
     public int MaxConcurrency { get; init; } = 8;
 
     public ProviderCircuitBreakerOptions CircuitBreaker { get; init; } = new();
+
+    /// <summary>
+    /// Validates the nested circuit-breaker knobs, which the registration of
+    /// this type does not reach on its own: their ranges would read as
+    /// enforced and never be evaluated, letting an out-of-range threshold
+    /// reach the pipeline at runtime.
+    /// </summary>
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        => NestedOptionsValidation.Validate(CircuitBreaker, nameof(CircuitBreaker));
 }

@@ -24,6 +24,26 @@ public sealed class SendGridWebhookInterpreterTests
 
     private static readonly DateTimeOffset Now = new(2026, 8, 24, 12, 0, 0, TimeSpan.Zero);
 
+    /// <summary>
+    /// Fixed vector, signed once by OpenSSL over the exact bytes below and
+    /// pinned. The private key was never committed: only what a verifier needs.
+    /// The instant matches the frozen clock of these tests, so the replay window
+    /// is never what decides these three cases.
+    /// </summary>
+    private const string VectorPublicKey =
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAENJcwRldt+lu4TouJyDtOnPEWvbap53KqkZOGTr9UkYxX"
+        + "mxJ2o8OEQe4d0CDSubYjNL64xkLiKxRLoRy8qZ8fLw==";
+
+    private const string VectorSignature =
+        "MEUCIQCLO6SB3i1XcJbmlCy7ys6WgFRIZF/HFyeXwB2XZiMQaAIgVu2tILIm6AsBkZ0pOJDw2fZb81CM"
+        + "p4B5tM6vUOxP5L8=";
+
+    private const string VectorTimestamp = "1787572800";
+
+    private const string VectorBody =
+        """[{"sg_event_id":"evt-fixed","event":"delivered","timestamp":1787923200,"sg_message_id":"msg-fixed"}]""";
+
+
     [Fact]
     public void Accepts_a_callback_signed_with_the_configured_verification_key()
     {
@@ -149,7 +169,7 @@ public sealed class SendGridWebhookInterpreterTests
         SendGridWebhookInterpreter interpreter = Build(new SendGridWebhookOptions
         {
             PublicKey = PublicKeyOf(key),
-            AllowedIpPrefixes = ["168.245."],
+            AllowedNetworks = ["168.245.0.0/16"],
         });
 
         Result<VerifiedProviderWebhook> result = interpreter.Verify(
@@ -165,7 +185,7 @@ public sealed class SendGridWebhookInterpreterTests
         SendGridWebhookInterpreter interpreter = Build(new SendGridWebhookOptions
         {
             PublicKey = PublicKeyOf(key),
-            AllowedIpPrefixes = [],
+            AllowedNetworks = [],
         });
 
         Result<VerifiedProviderWebhook> result = interpreter.Verify(
@@ -354,6 +374,89 @@ public sealed class SendGridWebhookInterpreterTests
 
         ProviderWebhookRefusal.Is(result, ProviderWebhookRefusal.PayloadUnreadable).ShouldBeTrue(result.Error);
     }
+
+    /// <summary>
+    /// A vector this test suite did not sign. The key, the body, the timestamp
+    /// and the signature were produced once by OpenSSL and pinned here, so
+    /// nothing about the provider's scheme is asserted by the same code that
+    /// implements it.
+    /// <para>
+    /// The tests above sign at test time, so they prove the verifier agrees
+    /// with whatever this file believes the scheme to be. Change the framing,
+    /// the hash or the signature encoding on one side alone and they do catch
+    /// it. What they cannot catch is the edit that touches both, which is the
+    /// shape a refactor actually takes: measured here, inverting the order of
+    /// the signed parts in the verifier and in the helper together leaves
+    /// twenty four of them green while every real callback would be refused.
+    /// This vector cannot be re-signed, so it is the one that fails.
+    /// </para>
+    /// <para>
+    /// It is independent of this codebase, not of the provider: only SendGrid
+    /// can supply a vector that also proves the scheme was read correctly from
+    /// their documentation. What this pins is the byte framing, the key format,
+    /// the hash and the signature encoding, against an implementation that
+    /// shares no code with the verifier.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_pinned_vector_from_an_independent_signer_verifies_without_signing_anything_here()
+    {
+        SendGridWebhookInterpreter interpreter = Build(new SendGridWebhookOptions
+        {
+            PublicKey = VectorPublicKey,
+        });
+
+        Result<VerifiedProviderWebhook> result = interpreter.Verify(VectorRequest());
+
+        result.IsSuccess.ShouldBeTrue(result.Error);
+        result.Value!.ProviderKey.ShouldBe("sendgrid");
+    }
+
+    [Fact]
+    public void The_pinned_vector_is_refused_when_one_byte_of_the_body_changes()
+    {
+        SendGridWebhookInterpreter interpreter = Build(new SendGridWebhookOptions
+        {
+            PublicKey = VectorPublicKey,
+        });
+        ProviderWebhookRequest altered = VectorRequest() with
+        {
+            Body = Encoding.UTF8.GetBytes(
+                VectorBody.Replace("evt-fixed", "evt-fixeD", StringComparison.Ordinal)),
+        };
+
+        ProviderWebhookRefusal.Is(
+                interpreter.Verify(altered), ProviderWebhookRefusal.SignatureInvalid)
+            .ShouldBeTrue();
+    }
+
+    [Fact]
+    public void The_pinned_vector_is_refused_when_the_signed_timestamp_changes()
+    {
+        SendGridWebhookInterpreter interpreter = Build(new SendGridWebhookOptions
+        {
+            PublicKey = VectorPublicKey,
+        });
+
+        // One second later: still inside the replay window, so the refusal can
+        // only come from the signature, which covers the timestamp.
+        ProviderWebhookRefusal.Is(
+                interpreter.Verify(VectorRequest(timestamp: "1787572801")),
+                ProviderWebhookRefusal.SignatureInvalid)
+            .ShouldBeTrue();
+    }
+
+    private static ProviderWebhookRequest VectorRequest(string? timestamp = null)
+        => new(
+            "sendgrid",
+            "https://hub.example/webhooks/sendgrid",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["X-Twilio-Email-Event-Webhook-Timestamp"] = timestamp ?? VectorTimestamp,
+                ["X-Twilio-Email-Event-Webhook-Signature"] = VectorSignature,
+            },
+            null,
+            Encoding.UTF8.GetBytes(VectorBody));
 
     private static SendGridWebhookInterpreter Build(SendGridWebhookOptions options)
         => new(

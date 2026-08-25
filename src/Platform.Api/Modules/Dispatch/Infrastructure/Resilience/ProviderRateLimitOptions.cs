@@ -41,7 +41,7 @@ public sealed record ProviderRateLimit
 /// limit is the only control of this module backed by it; a second one would
 /// earn a connection section of its own.
 /// </summary>
-public sealed class ProviderRateLimitOptions
+public sealed class ProviderRateLimitOptions : IValidatableObject
 {
     public const string SectionName = "Modules:Dispatch:RateLimits";
 
@@ -66,4 +66,37 @@ public sealed class ProviderRateLimitOptions
     /// <summary>The rate contracted for one provider, or null when it has none.</summary>
     internal ProviderRateLimit? For(string providerKey)
         => _byProvider.Value.GetValueOrDefault(providerKey);
+
+    /// <summary>
+    /// Validates every entry of the map, which the registration of this type
+    /// does not reach: the ranges on a dictionary value are never evaluated, so
+    /// a contracted rate of zero reads as enforced in the source and arrives at
+    /// the bucket script at runtime. There the failure compounds, because the
+    /// limiter degrades to fail-open when the store misbehaves, and the control
+    /// an operator believes is in force stops existing without saying so.
+    /// <para>
+    /// An entry with no key is refused for the same reason: it is a rate nobody
+    /// can look up, so it is a contracted limit that silently applies to
+    /// nothing.
+    /// </para>
+    /// </summary>
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        foreach (KeyValuePair<string, ProviderRateLimit> entry in PerProvider)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Key))
+            {
+                yield return new ValidationResult(
+                    "Há um limite de taxa sem chave de provedor; nenhum envio o encontraria.",
+                    [nameof(PerProvider)]);
+                continue;
+            }
+
+            foreach (ValidationResult result in NestedOptionsValidation.Validate(
+                entry.Value, $"{nameof(PerProvider)}:{entry.Key}"))
+            {
+                yield return result;
+            }
+        }
+    }
 }
