@@ -41,5 +41,10 @@ internal static class Program
                 configuration.GraphTenantId,
                 configuration.GraphApplicationId,
                 configuration.GraphServicePrincipalId),
+            new CriticalPlanWithoutFallbackSource(
+                new NpgsqlCountQueryExecutor(),
+                configuration.TemplateManagementConnectionString,
+                NotificationClasses.Critical,
+                ClassPolicyVersionStatuses.Published),
             timeProvider);
 }

@@ -79,6 +79,7 @@ internal static class GoLiveCheckApplication
                     [
                         new GoLiveSourceReceipt(GoLiveSourceIdentifiers.TemplateManagement, null),
                         new GoLiveSourceReceipt(GoLiveSourceIdentifiers.MicrosoftGraph, null),
+                        new GoLiveSourceReceipt(GoLiveSourceIdentifiers.CriticalPlans, null),
                     ],
                     [GoLiveReasons.ConfigurationUnavailable]);
                 await receiptWriter.WriteAsync(receiptPath, errorReceipt, cancellationToken);

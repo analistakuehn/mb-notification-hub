@@ -21,6 +21,7 @@ using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Dispatch.Domain;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Events;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
@@ -39,8 +40,15 @@ namespace NotificationHub.IntegrationTests.Notifications;
 /// side (core consumer, contacts-changed consumer, relay), all pointing at
 /// the same stores and sharing one envelope master key so what one side
 /// seals the other opens.
+/// <para>
+/// Open for derivation rather than sealed, and only for that: a suite whose
+/// scans read the whole table cannot share these stores with anyone, and
+/// deriving gives it a set of containers of its own without a second copy of
+/// this composition. Every collection that names a distinct fixture type gets
+/// a distinct instance, which is the isolation such a suite needs.
+/// </para>
 /// </summary>
-public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetime
+public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private const string Issuer = "integration-tests";
     private const string Audience = "notification-hub";
@@ -48,11 +56,17 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
 
     public const string RedisKeyPrefix = "it-core:";
 
-    /// <summary>Queues the fixture provisions; queue creation belongs to infrastructure, never to code under test.</summary>
+    /// <summary>
+    /// Queues the fixture provisions; queue creation belongs to infrastructure,
+    /// never to code under test. The delivery feedback queue is here because a
+    /// provider callback announces its evidence through the outbox, and a relay
+    /// pass with nowhere to put that row fails for every test sharing this
+    /// environment, including the ones that never touched a callback.
+    /// </summary>
     private static readonly string[] Queues =
     [
         "core-auth", "core-critical", "core-transactional", "core-operational",
-        "contacts-changed",
+        "contacts-changed", "delivery-events",
         "dispatch-push-auth", "dispatch-sms-auth", "dispatch-email-auth",
         "dispatch-push-critical", "dispatch-sms-critical", "dispatch-email-critical",
         "dispatch-push-transactional", "dispatch-sms-transactional", "dispatch-email-transactional",
@@ -198,6 +212,11 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
     /// <summary>Runs one receive-and-settle pass of the dispatch consumer over one queue.</summary>
     internal static async Task<SqsConsumePassResult> RunDispatchPassAsync(ServiceProvider provider, string queue)
         => await BuildConsumer<DispatchMessageProcessor>(provider, queue).RunPassAsync(CancellationToken.None);
+
+    /// <summary>Runs one receive-and-settle pass of the delivery-feedback consumer.</summary>
+    internal static async Task<SqsConsumePassResult> RunDeliveryEventPassAsync(ServiceProvider provider)
+        => await BuildConsumer<DeliveryEventMessageProcessor>(provider, "delivery-events")
+            .RunPassAsync(CancellationToken.None);
 
     internal static async Task<OutboxRelayPassResult> RunRelayPassAsync(ServiceProvider provider)
     {

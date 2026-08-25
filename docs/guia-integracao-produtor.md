@@ -22,19 +22,20 @@ partir da política publicada, resolve o contato e o consentimento, renderiza e
 entrega pelo provedor. O produtor **não** envia texto, não envia endereço de
 e-mail, não envia telefone e não escolhe canal.
 
-Classes entregues nesta versão: `critical` e `transactional`. O vocabulário
-aceito pela ingestão também inclui `operational`, mas a versão atual não
-entrega nenhum caminho pensado para essa classe (sem janela de silêncio
-efetiva, sem liberação de adiamento). Trate `operational` como indisponível, e
-saiba o motivo exato: nenhum componente desta versão lê o instante de
-liberação, então uma notificação que a política adiar fica parada
-indefinidamente, sem envio, sem falha e sem alarme. A contenção é
-administrativa e dupla: o papel `Notifications.Send.Operational` não é
-concedido e nenhum template dessa classe é publicado.
+Classes entregues nesta versão: `critical`, `transactional` e `operational`. A
+classe `operational` tem janela de silêncio, e é a única que tem: uma
+notificação pedida dentro da janela não é recusada nem perdida, ela é adiada
+até o fim da janela no fuso do destinatário e sai sozinha depois disso, sem que
+o produtor peça de novo. Conte com esse atraso ao escolher a classe: uma
+mensagem que não pode esperar o amanhecer não é `operational`. A classe
+`critical` e os templates de finalidade `authentication` nunca são adiados pela
+janela, seja qual for a política publicada.
 
-Canais entregues nesta versão: `email` e `push`. Uma política publicada que
-liste `sms` ou `whatsapp` faz a notificação terminar em falha, porque não
-existe adaptador hospedado para esses canais.
+Canais entregues nesta versão: `email`, `push` e `sms`. O `sms` é reservado à
+classe `critical`; liberá-lo para outra classe é mudança de política aprovada,
+não decisão de solicitação. Uma política publicada que liste `whatsapp` faz a
+notificação terminar em falha, porque não existe adaptador hospedado para esse
+canal.
 
 ## 2. Como pedir uma notificação
 
@@ -360,9 +361,12 @@ contatos (seção 7).
 **`scheduledAt`**: aceito, armazenado e sem efeito. A notificação é enfileirada
 imediatamente e processada assim que o pipeline a pegar. Além disso, o prazo de
 expiração é calculado como instante de aceite mais `ttlSeconds`, sem considerar
-o agendamento. Não existe liberador de agendamento nesta versão. *Critério de
-retorno*: a entrega do liberador de adiamento, que é o mesmo componente de que
-a janela de silêncio depende.
+o agendamento. O liberador de adiamento passou a existir com a janela de
+silêncio, e é ele que devolve ao pipeline o que a política adiou; o que não
+existe é quem transforme o seu `scheduledAt` no instante de liberação que esse
+liberador lê. *Critério de retorno*: um produtor com necessidade demonstrada de
+agendar, que é o que justificaria escrever esse instante a partir da
+solicitação.
 
 Consequência direta: **não use o hub para agendar**. Peça a notificação no
 instante em que ela deve sair.
@@ -580,8 +584,10 @@ Esta é a parte que mais gera engano, então ela está escrita sem rodeio.
 retorno chega por webhook, é guardado como evidência e move a tentativa. O que
 a consulta devolve continua sendo o estado agregado: a resposta **não declara**
 membro de evento de entrega, e ele não vem como lista vazia, porque lista vazia
-afirmaria que não houve evento. Não existe reconciliação: quando o provedor não
-chama de volta, nada preenche a lacuna nesta versão.
+afirmaria que não houve evento. Quando o provedor não chama de volta, um job
+diário consulta o provedor sobre tentativa parada há mais de seis horas e aplica
+a resposta pelo mesmo caminho do webhook. Onde o provedor não oferece consulta
+posterior, como no push, a lacuna permanece por limitação da plataforma.
 
 **`sent` afirma aceitação pelo provedor, nunca entrega.** Os campos `sentAt` e
 `providerMessageId` de uma tentativa dizem que o provedor assumiu
@@ -605,10 +611,14 @@ provedor é a tentativa em `sent`, na consulta, e o que afirma entrega é o
 evento. Um e-mail continua **não** produzindo `delivered` por aceitação; ele só
 alcança `delivered` com confirmação do provedor.
 
-**Tentativa em `unknown` não progride.** Quando o provedor responde com
-timeout ou erro de servidor, sem veredito conclusivo, a tentativa fica em
-`unknown` e permanece assim: sem reconciliação, nada a resolve nesta versão.
-Trate `unknown` como indeterminado, não como falha e não como sucesso.
+**Tentativa em `unknown` é indeterminada, e pode ser resolvida depois.** Quando
+o provedor responde com timeout ou erro de servidor, sem veredito conclusivo, a
+tentativa fica em `unknown`. Três coisas podem tirá-la de lá: um retorno tardio
+do provedor por webhook, a reconciliação diária, ou, em fluxo `critical` e de
+autenticação, o fallback imediato que o hub dispara depois de sessenta segundos
+sem veredito, preferindo o risco raro de duplicata ao risco de código de uso
+único perdido. Enquanto `unknown` durar, trate como indeterminado: não é falha e
+não é sucesso.
 
 **Não existe stream de mudanças de status.** Não há assinatura por evento
 enviado pelo servidor. O que existe é o tópico de saída e a consulta.

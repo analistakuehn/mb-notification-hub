@@ -279,9 +279,9 @@ Status observado no repositório na revisão de 2026-08-24:
 | F2-7 | Adapter SMS completo | F2-1, F2-2 | Concluída (commit `b2a885e`), com o pool de sender por aplicação transferido para a F2-8 |
 | F2-8 | Rate limit por provedor e kill switch automático de canal | F2-7 | Concluída (commit `8132cbf`), ampliada com o pool de sender por aplicação e o motivo de segurança no fallback |
 | F2-9 | Reconciliação por canal | F2-2, F2-5, F2-7 | Concluída (commit `6850637`) |
-| F2-10 | Relatório mensal de evidências | F2-2 | Concluída |
-| F2-11 | Ativação do fallback push para SMS | F2-5, F2-7 | Pendente |
-| F2-12 | Ativação da classe `operational` com janela de silêncio | F2-5 | Pendente |
+| F2-10 | Relatório mensal de evidências | F2-2 | Concluída (commit `e74fdfa`) |
+| F2-11 | Ativação do fallback push para SMS | F2-5, F2-7 | Concluída |
+| F2-12 | Ativação da classe `operational` com janela de silêncio | F2-5 | Concluída |
 | I2 | Unidade bloqueante de infraestrutura da fase | F2-2, F2-5, F2-7 | Pendente, fora de código |
 
 Três achados que a implementação confirmou e que não estavam previstos nesta decomposição:

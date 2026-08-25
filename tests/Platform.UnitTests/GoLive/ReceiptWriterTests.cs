@@ -44,8 +44,9 @@ public sealed class ReceiptWriterTests
             [
                 new GoLiveSourceReceipt(GoLiveSourceIdentifiers.TemplateManagement, 3),
                 new GoLiveSourceReceipt(GoLiveSourceIdentifiers.MicrosoftGraph, 0),
+                new GoLiveSourceReceipt(GoLiveSourceIdentifiers.CriticalPlans, 1),
             ],
-            [GoLiveReasons.PublishedOperationalTemplatesPresent]);
+            [GoLiveReasons.CriticalPlansWithoutFallbackPresent]);
 
         try
         {
@@ -65,10 +66,14 @@ public sealed class ReceiptWriterTests
                     {
                       "identifier": "microsoft-graph.operational-role-assignments",
                       "count": 0
+                    },
+                    {
+                      "identifier": "template-management.critical-plans-without-fallback",
+                      "count": 1
                     }
                   ],
                   "reasons": [
-                    "published-operational-templates-present"
+                    "critical-plans-without-fallback-present"
                   ]
                 }
 

@@ -13,6 +13,7 @@
 
   <ItemGroup Label="Test Visibility">
     <InternalsVisibleTo Include="NotificationHub.UnitTests" />
+    <InternalsVisibleTo Include="NotificationHub.IntegrationTests" />
   </ItemGroup>
 
 </Project>

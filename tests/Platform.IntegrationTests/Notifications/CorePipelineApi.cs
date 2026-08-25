@@ -13,7 +13,10 @@ namespace NotificationHub.IntegrationTests.Notifications;
 internal static class CorePipelineApi
 {
     private static readonly string[] RequiredCode = ["code"];
-    private static readonly string[] PushAndSms = ["push", "sms"];
+
+    /// <summary>The plan of the critical class: push with a deadline, then SMS.</summary>
+    private static readonly (string Channel, string? Timeout)[] PushThenSms =
+        [("push", "30s"), ("sms", null)];
 
     internal static string NewApplication() => $"app-{Guid.NewGuid():N}";
 
@@ -26,7 +29,8 @@ internal static class CorePipelineApi
         string application,
         string @class,
         string purpose,
-        string[]? sensitiveVariables = null)
+        string[]? sensitiveVariables = null,
+        string legalBasis = "execucao-de-contrato")
     {
         HttpClient author = fixture.CreateAuthorClient("template-author");
         HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
@@ -39,7 +43,7 @@ internal static class CorePipelineApi
             @class,
             ownerTeam = "growth-squad",
             purpose,
-            legalBasis = "execucao-de-contrato",
+            legalBasis,
             defaultLocale = "pt-BR",
             sensitiveVariables,
         });
@@ -65,26 +69,33 @@ internal static class CorePipelineApi
         return (key, version);
     }
 
-    /// <summary>Publishes a class policy through the same four-eyes flow the humans use.</summary>
+    /// <summary>
+    /// Publishes a class policy through the same four-eyes flow the humans
+    /// use. The plan defaults to the two steps of the critical class; a caller
+    /// that names its own steps gets exactly those, and the allowed channels
+    /// are read from them so the two halves of the policy cannot disagree.
+    /// </summary>
     internal static async Task<int> CreatePublishedPolicyAsync(
         CorePipelineFixture fixture,
         string application,
         string @class,
         object? quietHours = null,
         string? consentPurpose = null,
-        string dedupeWindow = "60s")
+        string dedupeWindow = "60s",
+        (string Channel, string? Timeout)[]? deliveryPlan = null)
     {
         HttpClient author = fixture.CreateAuthorClient("policy-author");
         HttpClient publisher = fixture.CreatePublisherClient("policy-publisher");
+        (string Channel, string? Timeout)[] steps = deliveryPlan ?? PushThenSms;
         await ClassPolicyApi.CreateDraftAsync(author, application, @class, new
         {
             schemaVersion = 1,
-            channelsAllowed = PushAndSms,
-            deliveryPlan = new object[]
-            {
-                new { channel = "push", timeout = "30s" },
-                new { channel = "sms" },
-            },
+            channelsAllowed = steps.Select(step => step.Channel).Distinct().ToArray(),
+            deliveryPlan = steps
+                .Select(step => step.Timeout is null
+                    ? (object)new { channel = step.Channel }
+                    : new { channel = step.Channel, timeout = step.Timeout })
+                .ToArray(),
             defaultTtl = "300s",
             dedupeWindow,
             quietHours,
@@ -93,11 +104,17 @@ internal static class CorePipelineApi
         return await ClassPolicyApi.PublishAsync(publisher, application, @class);
     }
 
-    /// <summary>Registers a recipient with an sms contact point and, optionally, a push device.</summary>
+    /// <summary>
+    /// Registers a recipient with an sms contact point and, optionally, a push
+    /// device. A null timezone leaves the profile on the default of the
+    /// contact context; a named one is how a test reaches a rule that decides
+    /// in the recipient's own hours.
+    /// </summary>
     internal static async Task<string> RegisterRecipientAsync(
         CorePipelineFixture fixture,
         bool withSmsContact = true,
         bool withDevice = true,
+        string? timezone = null,
         params object[] consents)
     {
         HttpClient contacts = fixture.CreateContactsClient("contacts-writer");
@@ -106,7 +123,7 @@ internal static class CorePipelineApi
             ? [ContactConsentApi.ContactPoint("sms", "+5511999990000")]
             : [];
         HttpResponseMessage declared = await ContactConsentApi.PutContactPointsAsync(
-            contacts, recipientId, ContactConsentApi.ContactPointsBody(contactPoints));
+            contacts, recipientId, ContactConsentApi.ContactPointsBody(contactPoints, timezone));
         declared.EnsureSuccessStatusCode();
         if (withDevice)
         {

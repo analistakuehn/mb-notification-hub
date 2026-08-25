@@ -13,10 +13,12 @@ public sealed class GoLiveGateTests
         MicrosoftGraphOperationalRoleSource.OperationalRole);
 
     [Fact]
-    public async Task Zero_templates_and_zero_role_assignments_pass()
+    public async Task Every_critical_plan_carrying_a_later_step_passes()
     {
-        GoLiveGate gate = CreateGate(new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
-            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0, VerifiedGraphIdentity));
+        GoLiveGate gate = CreateGate(
+            new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
+            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0, VerifiedGraphIdentity),
+            new StubSource(GoLiveSourceIdentifiers.CriticalPlans, 0));
 
         GateRunResult result = await gate.RunAsync(CancellationToken.None);
 
@@ -29,15 +31,35 @@ public sealed class GoLiveGateTests
                 GoLiveSourceIdentifiers.MicrosoftGraph,
                 0,
                 VerifiedGraphIdentity),
+            new GoLiveSourceReceipt(GoLiveSourceIdentifiers.CriticalPlans, 0),
         ]);
         result.Receipt.Reasons.ShouldBeEmpty();
     }
 
     [Fact]
+    public async Task A_published_critical_plan_without_a_later_step_fails_the_gate()
+    {
+        GoLiveGate gate = CreateGate(
+            new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
+            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0, VerifiedGraphIdentity),
+            new StubSource(GoLiveSourceIdentifiers.CriticalPlans, 1));
+
+        GateRunResult result = await gate.RunAsync(CancellationToken.None);
+
+        result.ExitCode.ShouldBe(GoLiveExitCodes.Violation);
+        result.Receipt.Status.ShouldBe(GoLiveStatuses.Fail);
+        result.Receipt.Sources.Single(source =>
+            source.Identifier == GoLiveSourceIdentifiers.CriticalPlans).Count.ShouldBe(1);
+        result.Receipt.Reasons.ShouldBe([GoLiveReasons.CriticalPlansWithoutFallbackPresent]);
+    }
+
+    [Fact]
     public async Task Zero_graph_assignments_without_verified_identity_fails_closed()
     {
-        GoLiveGate gate = CreateGate(new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
-            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0));
+        GoLiveGate gate = CreateGate(
+            new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
+            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0),
+            new StubSource(GoLiveSourceIdentifiers.CriticalPlans, 0));
 
         GateRunResult result = await gate.RunAsync(CancellationToken.None);
 
@@ -50,41 +72,42 @@ public sealed class GoLiveGateTests
         ]);
     }
 
+    /// <summary>
+    /// The two counts of the operational activation are evidence in the
+    /// receipt and nothing more. They refused a release while no component
+    /// read the release instant of a deferred notification; the scheduler
+    /// reads it, and a gate that still refused them would keep a delivered
+    /// capability switched off for a reason that no longer exists.
+    /// </summary>
     [Fact]
-    public async Task A_published_operational_template_fails_the_gate()
+    public async Task A_published_operational_template_and_a_granted_role_reach_the_receipt_and_pass()
     {
-        GoLiveGate gate = CreateGate(new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 1),
-            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0, VerifiedGraphIdentity));
+        GoLiveGate gate = CreateGate(
+            new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 3),
+            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 2, VerifiedGraphIdentity),
+            new StubSource(GoLiveSourceIdentifiers.CriticalPlans, 0));
 
         GateRunResult result = await gate.RunAsync(CancellationToken.None);
 
-        result.ExitCode.ShouldBe(GoLiveExitCodes.Violation);
-        result.Receipt.Status.ShouldBe(GoLiveStatuses.Fail);
+        result.ExitCode.ShouldBe(
+            GoLiveExitCodes.Pass,
+            "a classe operational entrou em regime com o liberador de adiamento; "
+            + "reprovar por ela mantém desligada uma capacidade entregue.");
+        result.Receipt.Status.ShouldBe(GoLiveStatuses.Pass);
+        result.Receipt.Reasons.ShouldBeEmpty();
         result.Receipt.Sources.Single(source =>
-            source.Identifier == GoLiveSourceIdentifiers.TemplateManagement).Count.ShouldBe(1);
-        result.Receipt.Reasons.ShouldBe([GoLiveReasons.PublishedOperationalTemplatesPresent]);
-    }
-
-    [Fact]
-    public async Task An_operational_role_assignment_fails_the_gate()
-    {
-        GoLiveGate gate = CreateGate(new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
-            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 2, VerifiedGraphIdentity));
-
-        GateRunResult result = await gate.RunAsync(CancellationToken.None);
-
-        result.ExitCode.ShouldBe(GoLiveExitCodes.Violation);
-        result.Receipt.Status.ShouldBe(GoLiveStatuses.Fail);
+            source.Identifier == GoLiveSourceIdentifiers.TemplateManagement).Count.ShouldBe(3);
         result.Receipt.Sources.Single(source =>
             source.Identifier == GoLiveSourceIdentifiers.MicrosoftGraph).Count.ShouldBe(2);
-        result.Receipt.Reasons.ShouldBe([GoLiveReasons.OperationalRoleAssignmentsPresent]);
     }
 
     [Fact]
     public async Task An_unavailable_template_source_fails_closed()
     {
-        GoLiveGate gate = CreateGate(new ThrowingSource(GoLiveSourceIdentifiers.TemplateManagement),
-            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0, VerifiedGraphIdentity));
+        GoLiveGate gate = CreateGate(
+            new ThrowingSource(GoLiveSourceIdentifiers.TemplateManagement),
+            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0, VerifiedGraphIdentity),
+            new StubSource(GoLiveSourceIdentifiers.CriticalPlans, 0));
 
         GateRunResult result = await gate.RunAsync(CancellationToken.None);
 
@@ -100,8 +123,10 @@ public sealed class GoLiveGateTests
     [Fact]
     public async Task An_unavailable_graph_source_fails_closed()
     {
-        GoLiveGate gate = CreateGate(new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
-            new ThrowingSource(GoLiveSourceIdentifiers.MicrosoftGraph));
+        GoLiveGate gate = CreateGate(
+            new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
+            new ThrowingSource(GoLiveSourceIdentifiers.MicrosoftGraph),
+            new StubSource(GoLiveSourceIdentifiers.CriticalPlans, 0));
 
         GateRunResult result = await gate.RunAsync(CancellationToken.None);
 
@@ -114,8 +139,31 @@ public sealed class GoLiveGateTests
         ]);
     }
 
-    private static GoLiveGate CreateGate(IGoLiveCheckSource templates, IGoLiveCheckSource graph)
-        => new(templates, graph, new FixedTimeProvider(CheckedAt));
+    [Fact]
+    public async Task An_unavailable_plan_source_fails_closed_instead_of_passing()
+    {
+        GoLiveGate gate = CreateGate(
+            new StubSource(GoLiveSourceIdentifiers.TemplateManagement, 0),
+            new StubSource(GoLiveSourceIdentifiers.MicrosoftGraph, 0, VerifiedGraphIdentity),
+            new ThrowingSource(GoLiveSourceIdentifiers.CriticalPlans));
+
+        GateRunResult result = await gate.RunAsync(CancellationToken.None);
+
+        result.ExitCode.ShouldBe(
+            GoLiveExitCodes.Error,
+            "um plano ilegível não é um plano conforme: passar aqui liberaria o go-live "
+            + "sem nunca ter olhado a única violação que este portão ainda nomeia.");
+        result.Receipt.Status.ShouldBe(GoLiveStatuses.Error);
+        result.Receipt.Reasons.ShouldBe([
+            GoLiveReasons.SourceUnavailable(GoLiveSourceIdentifiers.CriticalPlans),
+        ]);
+    }
+
+    private static GoLiveGate CreateGate(
+        IGoLiveCheckSource templates,
+        IGoLiveCheckSource graph,
+        IGoLiveCheckSource criticalPlans)
+        => new(templates, graph, criticalPlans, new FixedTimeProvider(CheckedAt));
 
     private sealed class StubSource(
         string identifier,

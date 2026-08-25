@@ -46,6 +46,7 @@ internal static class GoLiveSourceIdentifiers
 {
     public const string TemplateManagement = "template-management.published-operational-templates";
     public const string MicrosoftGraph = "microsoft-graph.operational-role-assignments";
+    public const string CriticalPlans = "template-management.critical-plans-without-fallback";
 }
 
 internal static class GoLiveStatuses
@@ -64,8 +65,14 @@ internal static class GoLiveExitCodes
 
 internal static class GoLiveReasons
 {
-    public const string PublishedOperationalTemplatesPresent = "published-operational-templates-present";
-    public const string OperationalRoleAssignmentsPresent = "operational-role-assignments-present";
+    /// <summary>
+    /// The one violation this gate still names. A published critical policy
+    /// whose plan stops at its first step has no second channel to reach the
+    /// person with, so the fleet cannot claim every critical notification
+    /// carries a fallback while one of them exists.
+    /// </summary>
+    public const string CriticalPlansWithoutFallbackPresent = "critical-plans-without-fallback-present";
+
     public const string ConfigurationUnavailable = "configuration-unavailable";
 
     public static string SourceUnavailable(string identifier) => $"source-unavailable:{identifier}";

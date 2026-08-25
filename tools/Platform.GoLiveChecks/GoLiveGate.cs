@@ -2,26 +2,40 @@ using System.Globalization;
 
 namespace NotificationHub.Platform.GoLiveChecks;
 
+/// <summary>
+/// One run of the gate over its sources. Two of the three sources are read for
+/// the receipt alone: the published operational templates and the granted send
+/// role used to be violations, because nothing in the fleet read the release
+/// instant of a deferred notification and a notification of that class would
+/// have stayed parked forever. The scheduler reads it now, so the counts stay
+/// in the receipt as evidence of what is switched on and stop deciding the
+/// exit code.
+/// <para>
+/// What still refuses a release is a published critical policy whose delivery
+/// plan has no step after the first: that is the shape a critical notification
+/// with no fallback takes, and the fleet cannot claim otherwise while one
+/// exists. An unreadable source remains an error rather than a pass, in every
+/// source, because a receipt missing its evidence proves nothing.
+/// </para>
+/// </summary>
 internal sealed class GoLiveGate(
     IGoLiveCheckSource templateSource,
     IGoLiveCheckSource graphSource,
+    IGoLiveCheckSource criticalPlanSource,
     TimeProvider timeProvider)
 {
     public async Task<GateRunResult> RunAsync(CancellationToken cancellationToken)
     {
         GoLiveSourceReceipt templateResult = await ReadSourceAsync(templateSource, cancellationToken);
         GoLiveSourceReceipt graphResult = await ReadSourceAsync(graphSource, cancellationToken);
-        IReadOnlyList<GoLiveSourceReceipt> sources = [templateResult, graphResult];
+        GoLiveSourceReceipt planResult = await ReadSourceAsync(criticalPlanSource, cancellationToken);
+        IReadOnlyList<GoLiveSourceReceipt> sources = [templateResult, graphResult, planResult];
         List<string> reasons = [];
 
-        if (templateResult.Count is > 0)
+        var hasViolation = planResult.Count is > 0;
+        if (hasViolation)
         {
-            reasons.Add(GoLiveReasons.PublishedOperationalTemplatesPresent);
-        }
-
-        if (graphResult.Count is > 0)
-        {
-            reasons.Add(GoLiveReasons.OperationalRoleAssignmentsPresent);
+            reasons.Add(GoLiveReasons.CriticalPlansWithoutFallbackPresent);
         }
 
         foreach (GoLiveSourceReceipt source in sources.Where(source => source.Count is null))
@@ -30,7 +44,6 @@ internal sealed class GoLiveGate(
         }
 
         var hasError = sources.Any(source => source.Count is null);
-        var hasViolation = sources.Any(source => source.Count is > 0);
         var status = hasError
             ? GoLiveStatuses.Error
             : hasViolation

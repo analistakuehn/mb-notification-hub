@@ -192,20 +192,24 @@ internal static class DeliveryTrackingApi
     /// <summary>
     /// Builds one Twilio status callback and signs it as the provider does:
     /// HMAC-SHA1 over the full request URL followed by every form field, name
-    /// then value, ordered by name.
+    /// then value, ordered by name. The token defaults to the one this
+    /// environment mints, and a host that verifies with another one passes its
+    /// own, because a callback is only authentic against the secret the
+    /// receiver holds.
     /// </summary>
     internal static HttpRequestMessage TwilioCallback(
         IReadOnlyList<KeyValuePair<string, string>> form,
         string? query = null,
         string signedBaseUrl = "http://localhost",
-        bool tamper = false)
+        bool tamper = false,
+        string authToken = DeliveryTrackingFixture.TwilioAuthToken)
     {
         var path = $"/webhooks/{TwilioProvider}{query}";
         var body = string.Join(
             '&',
             form.Select(field =>
                 $"{Uri.EscapeDataString(field.Key)}={Uri.EscapeDataString(field.Value)}"));
-        var signature = TwilioSignature($"{signedBaseUrl}{path}", form);
+        var signature = TwilioSignature($"{signedBaseUrl}{path}", form, authToken);
         if (tamper) signature[^1] ^= 0xFF;
 
         var request = new HttpRequestMessage(HttpMethod.Post, path)
@@ -221,7 +225,8 @@ internal static class DeliveryTrackingApi
 
     private static byte[] TwilioSignature(
         string requestUrl,
-        IReadOnlyList<KeyValuePair<string, string>> form)
+        IReadOnlyList<KeyValuePair<string, string>> form,
+        string authToken)
     {
         List<KeyValuePair<string, string>> ordered = [.. form];
         ordered.Sort(static (left, right) =>
@@ -235,7 +240,7 @@ internal static class DeliveryTrackingApi
 
 #pragma warning disable CA5350 // The provider dictates the algorithm of its own signature.
         return HMACSHA1.HashData(
-            Encoding.UTF8.GetBytes(DeliveryTrackingFixture.TwilioAuthToken),
+            Encoding.UTF8.GetBytes(authToken),
             Encoding.UTF8.GetBytes(payload.ToString()));
 #pragma warning restore CA5350
     }

@@ -157,13 +157,14 @@ Duração: 4 a 6 semanas, conforme o roadmap (§15). Este documento fixa o desen
 - **Extração do Delivery Tracking como módulo próprio**: adiada; acontece nesta fase somente com evidência concreta de atrito de fronteira, senão o tracker permanece no módulo Notifications (decisão de fronteira do arquiteto na 1b).
 - **Contratação do add-on Email Activity do SendGrid**: não decidida aqui; registrada como dependência externa com impacto direto no alcance da reconciliação de e-mail (§8; ADR-0008).
 - **Forma final do sender por operadora**: não decidida aqui; aguarda a verificação nas country guidelines da Twilio e o teste por operadora (§2.3; §16 risco 9).
+- **Rodízio 3:1 entre `transactional` e `operational` no consumo de filas**: não introduzido nesta fase. O §4.2 marca a ativação da classe `operational` como gatilho de reavaliação, e a reavaliação foi feita agora, na fatia F2-12, com este resultado: fica o que já existe. O comportamento atual não é rodízio nenhum, é prioridade estrita na alocação de vaga de processamento, e a evidência está no código: cada fila entra no consumidor com o posto fixo da sua banda (`auth` 0, `critical` 1, `transactional` 2, `operational` 3, em `OutboxBand`), e quando uma vaga é liberada ela vai para o pretendente de menor posto, o que o teste unitário `A_freed_slot_goes_to_the_highest_priority_waiter_not_the_first_in_line` afirma. Cada fila faz long polling próprio, então uma classe nunca deixa de ser lida; o que ela pode não conseguir é vaga, enquanto houver pretendente de banda superior. O risco declarado é esse: sob pressão sustentada das bandas superiores, `operational` fica sem vaga por tempo indeterminado. Trocar prioridade estrita por rodízio com peso é decisão de calibração e exige medição, não julgamento: sem número de starvation observado em carga real não há como escolher o peso, e um rodízio mal calibrado devolve vaga a `operational` na frente de `critical`. A medição pertence ao gate de carga (§11.6), o outro gatilho que o §4.2 já nomeia, e a mudança só entra depois dela.
 - Nenhum desvio das ADRs relacionadas (0001, 0008, 0011): o adapter SMS é plugin, a entrega permanece at-least-once com idempotência em camadas e a política segue como configuração de classe.
 
 ## Status de implementação
 
 A decomposição em fatias prometida no fim da seção de implantação foi produzida e aceita em [fase-2-decomposicao.md](fase-2-decomposicao.md), que fixa as sete decisões de fronteira que este design deixou para o kickoff e carrega a tabela de status por fatia. O acompanhamento por fatia vive lá; este documento registra apenas o estado das entregas.
 
-| Entrega deste design | Estado em 2026-08-24 |
+| Entrega deste design | Estado em 2026-08-25 |
 |---|---|
 | Delivery Tracker com webhooks assinados e replay protection | Concluída (fatias F2-1 e F2-2, commit `7af6e32`) |
 | Fallback declarativo, unicidade do avanço de plano | Concluída (fatia F2-4, commit `7af6e32`) |
@@ -171,8 +172,9 @@ A decomposição em fatias prometida no fim da seção de implantação foi prod
 | Adapter SMS (Twilio) | Concluída (fatias F2-7 e F2-8, commits `b2a885e` e `8132cbf`), incluindo rate limit por provedor, kill switch automático de canal e pool de sender por aplicação |
 | Supressão automática, reversível e auditada | Concluída (fatia F2-6, commit `47ab335`) |
 | Reconciliação por canal | Concluída (fatia F2-9, commit `6850637`) |
-| Classe `operational` com janela de silêncio | Pendente (fatia F2-12) |
-| Relatório mensal de evidências | Concluída (fatia F2-10) |
+| Classe `operational` com janela de silêncio | Concluída (fatia F2-12) |
+| Relatório mensal de evidências | Concluída (fatia F2-10, commit `e74fdfa`) |
+| Cenário de ponta a ponta do §5.1 (push aceito sem evento, prazo vencido, SMS, webhook encerrando) | Concluída (fatia F2-11) |
 
 Duas correções que a implementação obrigou e que este design não previa, ambas registradas na decomposição e a segunda também em [ADR-0014](../ADR-0014-confirmacao-de-entrega-e-gatilhos-de-fallback.md):
 

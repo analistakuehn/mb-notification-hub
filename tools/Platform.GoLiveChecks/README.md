@@ -2,7 +2,9 @@
 
 A equipe de Engenharia de Release é responsável por este comando. A equipe de SRE o executa durante o processo anterior à entrada em produção.
 
-Execute o comando com `dotnet run --project tools/Platform.GoLiveChecks`. O comando retorna `0` somente quando não há nenhum modelo operacional publicado nem atribuição de `Notifications.Send.Operational`. Violações resultam no código de saída `1`; a indisponibilidade da configuração, do banco de dados, do Graph ou do armazenamento do registro resulta no código de saída `2`.
+Execute o comando com `dotnet run --project tools/Platform.GoLiveChecks`. O comando retorna `0` somente quando nenhuma política `critical` publicada tem plano de entrega sem passo posterior. Violações resultam no código de saída `1`; a indisponibilidade da configuração, do banco de dados, do Graph ou do armazenamento do registro resulta no código de saída `2`.
+
+As contagens de modelos operacionais publicados e de atribuições de `Notifications.Send.Operational` continuam sendo lidas e gravadas no registro, agora como evidência do que está ligado, e não decidem mais o código de saída. Elas reprovavam enquanto nenhum componente lia o instante de liberação de uma notificação adiada, o que deixaria uma notificação dessa classe parada sem envio e sem alarme; o scheduler passou a lê-lo. Uma fonte ilegível continua sendo erro em qualquer das três, porque um registro sem a evidência não prova nada.
 
 Configure o comando somente por meio de variáveis de ambiente:
 
@@ -13,4 +15,4 @@ Configure o comando somente por meio de variáveis de ambiente:
 
 O token e a string de conexão nunca aparecem no registro nem na saída do console. O token do Graph precisa de acesso de leitura à entidade de serviço de destino e às atribuições de funções de aplicativo dela.
 
-O adaptador de banco de dados usa SQL parametrizado deliberadamente no esquema fixo TemplateManagement. Ele relaciona `templatemanagement.template.key` a `templatemanagement.template_version.template_key`, filtra `template.class` e filtra `template_version.status`. Se esse esquema sob responsabilidade da equipe mudar, atualize o adaptador e os testes de contrato em conjunto.
+O adaptador de banco de dados usa SQL parametrizado deliberadamente no esquema fixo TemplateManagement. A consulta de modelos relaciona `templatemanagement.template.key` a `templatemanagement.template_version.template_key`, filtra `template.class` e filtra `template_version.status`. A consulta de planos lê `templatemanagement.class_policy_version`, filtra `class` e `status` e mede o tamanho do plano dentro da coluna `definition`, que guarda o documento publicado como texto submetido para que o hash de conteúdo continue conferindo. Se esse esquema sob responsabilidade da equipe mudar, atualize o adaptador e os testes de contrato em conjunto.
