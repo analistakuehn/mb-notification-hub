@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
-using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.ContactConsent.Domain;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Auditing;
