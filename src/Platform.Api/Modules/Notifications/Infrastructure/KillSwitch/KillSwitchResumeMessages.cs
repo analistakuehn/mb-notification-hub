@@ -12,7 +12,7 @@ internal static class KillSwitchResumeMessages
         Notification notification,
         DateTimeOffset now)
     {
-        using JsonDocument document = JsonDocument.Parse(hold.PayloadJson);
+        using var document = JsonDocument.Parse(hold.PayloadJson);
         JsonElement payload = document.RootElement;
         if (hold.WorkKind == KillSwitchWorkKinds.Dispatch && hold.ExpiresAt <= now)
         {
@@ -20,6 +20,7 @@ internal static class KillSwitchResumeMessages
             return DispatchMessages.BuildFallbackRequested(
                 notification.RecipientId,
                 notification.Class,
+                notification.AuthFlow,
                 notification.Id,
                 attemptId,
                 now,

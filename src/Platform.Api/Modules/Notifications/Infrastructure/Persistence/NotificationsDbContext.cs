@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 
@@ -44,6 +45,12 @@ public class NotificationsDbContext : DbContext
     public DbSet<KillSwitchState> KillSwitches => Set<KillSwitchState>();
 
     public DbSet<KillSwitchHold> KillSwitchHolds => Set<KillSwitchHold>();
+
+    /// <summary>Provider feedback as received, partitioned by month on its reception instant.</summary>
+    internal DbSet<DeliveryEvent> DeliveryEvents => Set<DeliveryEvent>();
+
+    /// <summary>Deduplication ledger of provider callbacks; unpartitioned so its unique key can exist.</summary>
+    internal DbSet<ProviderEventDedupe> ProviderEventDedupes => Set<ProviderEventDedupe>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

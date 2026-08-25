@@ -2,9 +2,10 @@ namespace NotificationHub.Api.Modules.Notifications.Domain;
 
 /// <summary>
 /// Attempt states this context writes. The Core pipeline only ever writes the
-/// first one; the dispatcher owns every later transition through its
-/// optimistic lock over the stored status, so two concurrent claims of the
-/// same attempt can never both send.
+/// first one; the dispatcher owns every transition up to a provider verdict
+/// through its optimistic lock over the stored status, so two concurrent
+/// claims of the same attempt can never both send. The states past the
+/// verdict are written by delivery feedback alone, never by a sender.
 /// </summary>
 public static class NotificationAttemptStatuses
 {
@@ -24,6 +25,23 @@ public static class NotificationAttemptStatuses
     /// arrived is unknown, and reconciliation of a later phase resolves it.
     /// </summary>
     public const string Unknown = "unknown";
+
+    /// <summary>
+    /// The provider confirmed the message reached the destination. Only
+    /// delivery feedback writes it, because acceptance by a provider is not
+    /// delivery on any channel that reports one.
+    /// </summary>
+    public const string Delivered = "delivered";
+
+    /// <summary>The recipient opened the message, which is delivery plus proof of reading.</summary>
+    public const string Read = "read";
+
+    /// <summary>
+    /// The destination rejected the message. Separate from
+    /// <see cref="Failed"/> because the accusation is against the destination
+    /// itself, which is what a suppression decision reads.
+    /// </summary>
+    public const string Bounced = "bounced";
 }
 
 /// <summary>
@@ -88,6 +106,48 @@ public sealed class NotificationAttempt
     /// <summary>Instant after which the tracker requests the fallback step; null on the last step.</summary>
     public DateTimeOffset? FallbackDeadline { get; private set; }
 
+    /// <summary>
+    /// Instant the plan step this attempt belongs to was advanced, stamped on
+    /// every attempt of the step by the single claim that won it. Null while
+    /// the step has not advanced. The claim is per step and not per attempt on
+    /// purpose: a push fan-out creates siblings that share the step's absolute
+    /// deadline, so two expired siblings would otherwise each ask for the same
+    /// next step and the recipient would get two messages.
+    /// </summary>
+    public DateTimeOffset? PlanAdvancedAt { get; private set; }
+
+    /// <summary>
+    /// Instant this attempt last entered its current status, stamped by every
+    /// writer of a transition. It answers how long the attempt has been where
+    /// it is, which is the only question an age-driven scan can ask: the
+    /// creation instant answers a different one, and a row that changed status
+    /// three times would read as young or old by accident.
+    /// <para>
+    /// Null on every row written before the column existed. Those rows never
+    /// match an age predicate, which is deliberate: a scan must not act on an
+    /// age it cannot compute, and the reconciliation of a later slice is what
+    /// resolves the ones that were already parked when this column arrived.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? StatusChangedAt { get; private set; }
+
+    /// <summary>
+    /// Instant the deadline scan last wrote a fallback trigger for this
+    /// attempt, and the whole of what keeps that scan from writing one per
+    /// round. The plan claim cannot serve here: it belongs to the handler, and
+    /// a scan that stamped it would make the handler read the step as already
+    /// advanced and drop the very trigger the scan just asked for.
+    /// <para>
+    /// It is a window and not a permanent flag on purpose. A trigger that
+    /// never reaches the handler (a poisoned message, a dead letter) would
+    /// otherwise park the step forever with no one left to ask; letting the
+    /// stamp age out puts the attempt back in front of the scan. Duplication
+    /// is not the risk that trade buys, because the single claim in the
+    /// handler is what decides the advance, whatever asked for it.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? FallbackRequestedAt { get; private set; }
+
     public DateTimeOffset? SentAt { get; private set; }
 
     public DateTimeOffset? DeliveredAt { get; private set; }
@@ -124,6 +184,9 @@ public sealed class NotificationAttempt
             ErrorCode = null,
             FallbackDeadline = draft.FallbackDeadline
                 ?? (draft.FallbackTimeout is { } timeout ? draft.QueuedAt + timeout : null),
+            PlanAdvancedAt = null,
+            StatusChangedAt = draft.QueuedAt,
+            FallbackRequestedAt = null,
             SentAt = null,
             DeliveredAt = null,
             CreatedAt = draft.QueuedAt,

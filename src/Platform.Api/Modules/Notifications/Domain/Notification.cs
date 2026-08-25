@@ -15,9 +15,10 @@ public static class NotificationStatuses
     public const string Deferred = "deferred";
 
     /// <summary>
-    /// Delivery succeeded. For push this is stamped when the first sibling
-    /// attempt reaches sent, because acceptance by the push provider is the
-    /// delivery signal the design defines for that channel.
+    /// Delivery is confirmed. Provider feedback writes it whenever the channel
+    /// reports one; a push acceptance writes it only on the last plan step,
+    /// where no later step can ever run and acceptance is the strongest signal
+    /// this hub will ever hold.
     /// </summary>
     public const string Delivered = "delivered";
 
@@ -56,6 +57,14 @@ public sealed class Notification
     public string Class { get; private set; }
 
     public string TemplateKey { get; private set; }
+
+    /// <summary>
+    /// Whether the template that governs this notification serves an
+    /// authentication flow. Materialized at acceptance so no producer of a
+    /// queue message has to reach the published catalog on the hot path just
+    /// to learn which band its message drains in.
+    /// </summary>
+    public bool AuthFlow { get; private set; }
 
     /// <summary>Published version the ingestion validated against; the render stage re-reads it.</summary>
     public int TemplateVersion { get; private set; }
@@ -129,6 +138,37 @@ public sealed class Notification
     }
 
     /// <summary>
+    /// Releases a parked notification back to the pipeline once the release
+    /// instant has passed: the state returns to accepted, which is the only
+    /// state the pipeline stages accept, and the queue message the release
+    /// writes is read exactly like the one the ingestion wrote.
+    /// <para>
+    /// This transition has to commit inside the transaction that claims the
+    /// release. The Core reads any state other than accepted as a redelivery
+    /// and answers it with a duplicate trail and no effect, so a release that
+    /// only enqueued the message and left the row deferred would park the
+    /// notification forever while looking, from every queue metric, like work
+    /// that was done.
+    /// </para>
+    /// <para>
+    /// The release instant is kept, not cleared: it is the evidence of why the
+    /// notification waited, and the index the release scan reads is filtered
+    /// by the deferred state, so the row leaves that index by moving instead
+    /// of by losing its instant.
+    /// </para>
+    /// </summary>
+    public void MarkReleased()
+    {
+        if (Status != NotificationStatuses.Deferred)
+        {
+            throw new InvalidOperationException(
+                $"A notificação {Id} está em '{Status}' e não aceita a retomada de um adiamento.");
+        }
+
+        Status = NotificationStatuses.Accepted;
+    }
+
+    /// <summary>
     /// Re-stamps the template version when the published version moved
     /// between ingestion and render: the notification always records exactly
     /// the version whose content it rendered.
@@ -140,8 +180,9 @@ public sealed class Notification
     }
 
     /// <summary>
-    /// Records the delivery success: for push, the first sibling attempt the
-    /// provider accepted. Only the first success transitions; later sibling
+    /// Records the confirmed delivery: provider feedback on the channels that
+    /// report one, and the acceptance of a push attempt whose step is the last
+    /// of the plan. Only the first confirmation transitions; later sibling
     /// verdicts leave the state untouched.
     /// </summary>
     public void MarkDelivered()
@@ -199,15 +240,9 @@ public sealed class Notification
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.TemplateKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.VariablesMaskedJson);
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.RequestedBy);
-        if (!NotificationClasses.IsCanonical(draft.Class))
-        {
-            throw new ArgumentException($"Classe de notificação desconhecida: '{draft.Class}'.", nameof(draft));
-        }
+        if (!NotificationClasses.IsCanonical(draft.Class)) throw new ArgumentException($"Classe de notificação desconhecida: '{draft.Class}'.", nameof(draft));
 
-        if (draft.TtlSeconds <= 0)
-        {
-            throw new ArgumentException("O TTL da notificação deve ser positivo.", nameof(draft));
-        }
+        if (draft.TtlSeconds <= 0) throw new ArgumentException("O TTL da notificação deve ser positivo.", nameof(draft));
 
         return new Notification
         {
@@ -217,6 +252,7 @@ public sealed class Notification
             RecipientId = draft.RecipientId,
             Class = draft.Class,
             TemplateKey = draft.TemplateKey,
+            AuthFlow = draft.AuthFlow,
             TemplateVersion = draft.TemplateVersion,
             PolicyVersion = null,
             VariablesMaskedJson = draft.VariablesMaskedJson,
@@ -243,6 +279,12 @@ public sealed record NotificationDraft
     public required string Class { get; init; }
 
     public required string TemplateKey { get; init; }
+
+    /// <summary>
+    /// Whether the published template serves an authentication flow. Read from
+    /// the catalog once, at acceptance, and stored with the notification.
+    /// </summary>
+    public bool AuthFlow { get; init; }
 
     public required int TemplateVersion { get; init; }
 

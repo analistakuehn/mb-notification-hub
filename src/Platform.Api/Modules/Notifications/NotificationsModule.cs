@@ -1,9 +1,11 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Webhooks;
 using NotificationHub.Api.Modules.Notifications.Features.Mutations;
 using NotificationHub.Api.Modules.Notifications.Features.Queries;
 using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Authentication;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Idempotency;
@@ -28,6 +30,7 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         services.AddNotificationsPersistence(configuration);
         services.AddNotificationsPartitioning(configuration);
         services.AddNotificationsAuthorization();
+        services.AddNotificationsProviderSignature(configuration);
         services.AddNotificationsKillSwitch();
         services.AddNotificationsRateLimiting();
         services.TryAddSingleton(TimeProvider.System);
@@ -85,6 +88,13 @@ public sealed class NotificationsModule : IModule, IEndpointModule
         // Reconstruction surface: the projected policy evidence and the stored
         // render, opened inside this module and never handed over encrypted.
         services.AddScoped<INotificationEvidence, NotificationEvidenceReader>();
+
+        // Delivery-feedback ingestion: the transactional write of the evidence
+        // and the use case behind the provider webhook route. The application
+        // of what the feedback means lives in the delivery-tracker role, never
+        // in this host.
+        services.AddScoped<DeliveryEventWriter>();
+        services.AddScoped<ReceiveProviderWebhook.Handler>();
     }
 
     public static void MapEndpoints(IEndpointRouteBuilder app)
@@ -99,5 +109,11 @@ public sealed class NotificationsModule : IModule, IEndpointModule
 
         RouteGroupBuilder killSwitch = notifications.MapGroup("/kill-switch");
         KillSwitchAdministration.MapEndpoint(killSwitch);
+
+        // Outside the versioned surface on purpose: the address is given to a
+        // provider and quoted in its console, so it never carries a version
+        // this hub would have to keep answering forever.
+        RouteGroupBuilder webhooks = app.MapGroup("/webhooks");
+        ReceiveProviderWebhook.MapEndpoint(webhooks);
     }
 }

@@ -102,10 +102,7 @@ internal sealed class DispatchMessageProcessor(
 
         Notification? notification = await db.Notifications
             .FirstOrDefaultAsync(candidate => candidate.Id == notificationId, cancellationToken);
-        if (notification is null)
-        {
-            return new MessageDisposition.Discard(ReasonNotificationNotFound);
-        }
+        if (notification is null) return new MessageDisposition.Discard(ReasonNotificationNotFound);
 
         if (attempt.Status != NotificationAttemptStatuses.Queued)
         {
@@ -117,17 +114,11 @@ internal sealed class DispatchMessageProcessor(
         }
 
         Result<Channel> channel = Channel.Create(attempt.Channel);
-        if (channel.IsFailure)
-        {
-            return new MessageDisposition.Discard($"channel-unknown:{attempt.Channel}");
-        }
+        if (channel.IsFailure) return new MessageDisposition.Discard($"channel-unknown:{attempt.Channel}");
 
         MessageDisposition? stopped = await channelKillSwitchGate.EvaluateAsync(
             notification, attempt, envelope, claimed: false, cancellationToken);
-        if (stopped is not null)
-        {
-            return stopped;
-        }
+        if (stopped is not null) return stopped;
 
         Result<IChannelProvider> provider = await channelKillSwitchGate.ResolveProviderAsync(
             channel.Value!, cancellationToken);
@@ -192,10 +183,7 @@ internal sealed class DispatchMessageProcessor(
             var errorCode = isPush ? ErrorDeviceTokenInactive : ErrorContactPointUnavailable;
             var settled = await writer.RecordFailureAsync(
                 attempt, notification, errorCode, envelope.MessageId, cancellationToken);
-            if (settled)
-            {
-                logger.DispatchAttemptFailed(attempt.Id, notification.Id, errorCode);
-            }
+            if (settled) logger.DispatchAttemptFailed(attempt.Id, notification.Id, errorCode);
 
             return settled ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
         }
@@ -209,10 +197,7 @@ internal sealed class DispatchMessageProcessor(
 
         stopped = await channelKillSwitchGate.EvaluateAsync(
             notification, attempt, envelope, claimed: true, cancellationToken);
-        if (stopped is not null)
-        {
-            return stopped;
-        }
+        if (stopped is not null) return stopped;
 
         ProviderResult result = await provider.Value!.SendAsync(request, cancellationToken);
         var settlement = new DispatchSettlementContext(
@@ -222,6 +207,23 @@ internal sealed class DispatchMessageProcessor(
             deviceTokenId,
             envelope.MessageId);
         return await SettleVerdictAsync(settlement, result, cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether the provider's acceptance of this attempt is itself the
+    /// delivery of the notification. Only push says yes, because it is the
+    /// channel whose provider reports nothing after taking the message, and
+    /// only on the last step of the plan: a stamped fallback deadline is
+    /// exactly the proof that a later step exists, so declaring delivery on
+    /// acceptance there would end the notification and the step that was meant
+    /// to rescue it would never run.
+    /// </summary>
+    internal static bool DeliversOnAcceptance(NotificationAttempt attempt)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        return string.Equals(
+                attempt.Channel, AttemptDispatchWriter.PushChannel, StringComparison.Ordinal)
+            && attempt.FallbackDeadline is null;
     }
 
     /// <summary>Maps the normalized provider outcome to the attempt transition it commands.</summary>
@@ -247,7 +249,9 @@ internal sealed class DispatchMessageProcessor(
             case DispatchVerdict.Sent:
                 var sent = await writer.RecordSentAsync(
                     context.Attempt, context.Notification, context.ProviderKey, result.ProviderMessageId,
-                    context.MessageId, deliveredOnAcceptance: context.IsPush, cancellationToken);
+                    context.MessageId,
+                    deliveredOnAcceptance: DeliversOnAcceptance(context.Attempt),
+                    cancellationToken);
                 if (sent)
                 {
                     logger.DispatchAttemptSent(
@@ -333,10 +337,7 @@ internal sealed class DispatchMessageProcessor(
                     : RecipientReadFallback.None;
         Result<RecipientSnapshot> snapshot = await recipientDirectory.FindAsync(
             notification.RecipientId, fallback, cancellationToken);
-        if (snapshot.IsFailure)
-        {
-            return [];
-        }
+        if (snapshot.IsFailure) return [];
 
         return [.. snapshot.Value!.Devices
             .OrderByDescending(device => device.LastSeenAt)
@@ -358,10 +359,7 @@ internal sealed class DispatchMessageProcessor(
     {
         if (isPush)
         {
-            if (deviceTokenId is not { } tokenId)
-            {
-                return Result.NotFound<DeliveryTarget>("O attempt de push não carrega um token de dispositivo.");
-            }
+            if (deviceTokenId is not { } tokenId) return Result.NotFound<DeliveryTarget>("O attempt de push não carrega um token de dispositivo.");
 
             Result<string> token = await recipientDirectory.RevealDeviceTokenAsync(
                 notification.RecipientId, tokenId, cancellationToken);
@@ -370,10 +368,7 @@ internal sealed class DispatchMessageProcessor(
                 : Result.Success<DeliveryTarget>(new PushDeliveryTarget(token.Value!));
         }
 
-        if (attempt.ContactPointId is not { } contactPointId)
-        {
-            return Result.NotFound<DeliveryTarget>("O attempt não referencia um ponto de contato.");
-        }
+        if (attempt.ContactPointId is not { } contactPointId) return Result.NotFound<DeliveryTarget>("O attempt não referencia um ponto de contato.");
 
         Result<string> value = await recipientDirectory.RevealContactValueAsync(
             notification.RecipientId, contactPointId, cancellationToken);
@@ -400,10 +395,7 @@ internal sealed class DispatchMessageProcessor(
         {
             Result invalidated = await deviceTokenLifecycle.InvalidateDeviceTokenAsync(
                 recipientId, deviceTokenId, providerCode, cancellationToken);
-            if (invalidated.IsFailure)
-            {
-                logger.DispatchTokenInvalidationFailed(deviceTokenId, invalidated.Error ?? providerCode);
-            }
+            if (invalidated.IsFailure) logger.DispatchTokenInvalidationFailed(deviceTokenId, invalidated.Error ?? providerCode);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

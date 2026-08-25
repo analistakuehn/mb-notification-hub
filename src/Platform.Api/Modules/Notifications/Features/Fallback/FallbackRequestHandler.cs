@@ -25,6 +25,11 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Fallback;
 /// and dedupe mark in one database transaction or not at all. TTL expiry
 /// ends the notification on expired; a plan without a next usable step ends
 /// it on failed.
+/// <para>
+/// The handler is the single point where the triggers of one step meet, so it
+/// is where the step is claimed. Whatever produced the trigger, only the
+/// transaction that wins the claim queues the next attempt.
+/// </para>
 /// </summary>
 internal sealed class FallbackRequestHandler(
     NotificationsDbContext db,
@@ -63,18 +68,12 @@ internal sealed class FallbackRequestHandler(
 
         Notification? notification = await db.Notifications
             .FirstOrDefaultAsync(candidate => candidate.Id == notificationId, cancellationToken);
-        if (notification is null)
-        {
-            return new MessageDisposition.Discard(ReasonNotificationNotFound);
-        }
+        if (notification is null) return new MessageDisposition.Discard(ReasonNotificationNotFound);
 
         NotificationAttempt? failedAttempt = await db.NotificationAttempts
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == failedAttemptId, cancellationToken);
-        if (failedAttempt is null)
-        {
-            return new MessageDisposition.Discard(ReasonFailedAttemptNotFound);
-        }
+        if (failedAttempt is null) return new MessageDisposition.Discard(ReasonFailedAttemptNotFound);
 
         if (notification.Status != NotificationStatuses.Dispatched)
         {
@@ -182,12 +181,7 @@ internal sealed class FallbackRequestHandler(
     internal static DeliveryPlanStep? NextStep(IReadOnlyList<DeliveryPlanStep> plan, string failedChannel)
     {
         for (var index = 0; index < plan.Count - 1; index++)
-        {
-            if (string.Equals(plan[index].Channel.Value, failedChannel, StringComparison.Ordinal))
-            {
-                return plan[index + 1];
-            }
-        }
+            if (string.Equals(plan[index].Channel.Value, failedChannel, StringComparison.Ordinal)) return plan[index + 1];
 
         return null;
     }
@@ -221,8 +215,19 @@ internal sealed class FallbackRequestHandler(
             PipelineCommitWriter.DedupeMessageId(envelope.MessageId, notification.Id),
             PipelineCommitWriter.ConsumerName,
             cancellationToken);
-        if (!marked)
+        if (!marked) return new MessageDisposition.Duplicate();
+
+        if (!await NotificationPlanOutcome.TryClaimStepAdvanceAsync(
+                db, notification, failedAttempt.Channel, now, cancellationToken))
         {
+            // Another trigger already bought the advance of this step. The
+            // reactive trigger and the deadline trigger are two queue rows with
+            // two message identities, so the dedupe mark of each one passes and
+            // only this claim can tell them apart; letting both through would
+            // queue the same next step twice, which the recipient reads as two
+            // messages.
+            await transaction.RollbackAsync(cancellationToken);
+            logger.FallbackStepAlreadyAdvanced(notification.Id, failedAttempt.Channel);
             return new MessageDisposition.Duplicate();
         }
 
@@ -296,10 +301,7 @@ internal sealed class FallbackRequestHandler(
             PipelineCommitWriter.DedupeMessageId(envelope.MessageId, notification.Id),
             PipelineCommitWriter.ConsumerName,
             cancellationToken);
-        if (!marked)
-        {
-            return new MessageDisposition.Duplicate();
-        }
+        if (!marked) return new MessageDisposition.Duplicate();
 
         string action;
         if (terminal == PipelineResult.Expired)
@@ -356,14 +358,11 @@ internal sealed class FallbackRequestHandler(
         Notification notification,
         CancellationToken cancellationToken)
     {
-        if (notification.VariablesEncrypted is not { Length: > 0 } sealedVariables)
-        {
-            return null;
-        }
+        if (notification.VariablesEncrypted is not { Length: > 0 } sealedVariables) return null;
 
         var plaintext = await cipher.DecryptAsync(
             notification.Application, sealedVariables, cancellationToken);
-        using JsonDocument document = JsonDocument.Parse(plaintext);
+        using var document = JsonDocument.Parse(plaintext);
         return document.RootElement.Clone();
     }
 

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -9,7 +8,6 @@ using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
-using NotificationHub.Api.Modules.Notifications.Infrastructure.Events;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
@@ -73,12 +71,14 @@ internal sealed class AttemptDispatchWriter(
         string providerKey,
         CancellationToken cancellationToken)
     {
+        DateTimeOffset now = timeProvider.GetUtcNow();
         var claimed = await db.NotificationAttempts
             .Where(candidate => candidate.Id == attempt.Id
                 && candidate.Status == NotificationAttemptStatuses.Queued)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Sending)
+                    .SetProperty(candidate => candidate.StatusChangedAt, now)
                     .SetProperty(candidate => candidate.ProviderKey, providerKey),
                 cancellationToken);
         return claimed == 1 ? AttemptClaimOutcome.Claimed : AttemptClaimOutcome.NotQueued;
@@ -111,13 +111,11 @@ internal sealed class AttemptDispatchWriter(
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Sending)
+                    .SetProperty(candidate => candidate.StatusChangedAt, now)
                     .SetProperty(candidate => candidate.ProviderKey, providerKey)
                     .SetProperty(candidate => candidate.DeviceTokenId, stampedToken),
                 cancellationToken);
-        if (claimed == 0)
-        {
-            return AttemptClaimOutcome.NotQueued;
-        }
+        if (claimed == 0) return AttemptClaimOutcome.NotQueued;
 
         var nextSequence = await db.NotificationAttempts
             .Where(candidate => candidate.NotificationId == notification.Id)
@@ -176,10 +174,7 @@ internal sealed class AttemptDispatchWriter(
             DedupeMessageId(envelopeMessageId, attempt.Id),
             ConsumerName,
             cancellationToken);
-        if (!marked)
-        {
-            return false;
-        }
+        if (!marked) return false;
 
         var failed = await db.NotificationAttempts
             .Where(candidate => candidate.Id == attempt.Id
@@ -189,6 +184,7 @@ internal sealed class AttemptDispatchWriter(
                 {
                     setters
                         .SetProperty(candidate => candidate.Status, NotificationAttemptStatuses.Failed)
+                        .SetProperty(candidate => candidate.StatusChangedAt, now)
                         .SetProperty(candidate => candidate.ErrorCode, ErrorNoActiveDeviceToken);
                     DiscardCompleteForm(setters, durableContent);
                 },
@@ -199,17 +195,17 @@ internal sealed class AttemptDispatchWriter(
             return false;
         }
 
-        await AdvancePlanAsync(
-            transaction, notification, attempt, ErrorNoActiveDeviceToken, now, cancellationToken);
+        await NotificationPlanOutcome.AdvanceAsync(
+            Scope(transaction), notification, attempt, ErrorNoActiveDeviceToken, now, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return true;
     }
 
     /// <summary>
-    /// Records the provider acceptance: the attempt reaches sent, and a push
-    /// notification whose first sibling just succeeded reaches delivered,
-    /// because acceptance by the push provider is that channel's delivery
-    /// signal. Only the first success transitions the notification.
+    /// Records the provider acceptance: the attempt reaches sent, and the
+    /// notification reaches delivered only when the caller proved that
+    /// acceptance is all this hub will ever learn about this message. Only the
+    /// first confirmation transitions the notification.
     /// </summary>
     public async Task<bool> RecordSentAsync(
         NotificationAttempt attempt,
@@ -229,10 +225,7 @@ internal sealed class AttemptDispatchWriter(
             DedupeMessageId(envelopeMessageId, attempt.Id),
             ConsumerName,
             cancellationToken);
-        if (!marked)
-        {
-            return false;
-        }
+        if (!marked) return false;
 
         await TransitionFromSendingAsync(
             attempt.Id,
@@ -243,41 +236,21 @@ internal sealed class AttemptDispatchWriter(
                 .SetProperty(candidate => candidate.SentAt, now),
             cancellationToken);
 
-        if (deliveredOnAcceptance && notification.Status == NotificationStatuses.Dispatched)
+        if (deliveredOnAcceptance)
         {
-            notification.MarkDelivered();
-            await db.SaveChangesAsync(cancellationToken);
-
-            // Before the audit append on purpose: the append takes the
-            // partition chain lock and holds it until the transaction ends, so
-            // every write queued after it stretches the window concurrent
-            // ingestion waits on.
-            await outboxWriter.AppendAsync(
-                transaction.GetDbTransaction(),
-                NotificationEvents.Delivered(new NotificationDelivered
+            await NotificationPlanOutcome.ConcludeDeliveredAsync(
+                Scope(transaction),
+                notification,
+                attempt,
+                deliveredAt: now,
+                new
                 {
-                    RecipientId = notification.RecipientId,
-                    Class = notification.Class,
-                    NotificationId = notification.Id,
-                    Channel = attempt.Channel,
-                    DeliveredAt = now,
-                    CorrelationId = notification.CorrelationId,
-                    Traceparent = Activity.Current?.Id,
-                }),
-                cancellationToken);
-            await auditTrail.AppendAsync(
-                transaction.GetDbTransaction(),
-                BuildAuditEntry(
-                    DispatchingAuditVocabulary.NotificationDelivered,
-                    notification,
-                    new
-                    {
-                        attemptId = attempt.Id,
-                        channel = attempt.Channel,
-                        providerKey,
-                        providerMessageId,
-                    },
-                    now),
+                    attemptId = attempt.Id,
+                    channel = attempt.Channel,
+                    providerKey,
+                    providerMessageId,
+                },
+                now,
                 cancellationToken);
         }
 
@@ -307,10 +280,7 @@ internal sealed class AttemptDispatchWriter(
             DedupeMessageId(envelopeMessageId, attempt.Id),
             ConsumerName,
             cancellationToken);
-        if (!marked)
-        {
-            return false;
-        }
+        if (!marked) return false;
 
         await TransitionFromSendingAsync(
             attempt.Id,
@@ -320,9 +290,10 @@ internal sealed class AttemptDispatchWriter(
                 .SetProperty(candidate => candidate.ErrorCode, errorCode),
             cancellationToken);
 
-        if (await StepExhaustedAsync(attempt, notification, cancellationToken))
+        if (await NotificationPlanOutcome.IsStepExhaustedAsync(db, attempt, cancellationToken))
         {
-            await AdvancePlanAsync(transaction, notification, attempt, errorCode, now, cancellationToken);
+            await NotificationPlanOutcome.AdvanceAsync(
+                Scope(transaction), notification, attempt, errorCode, now, cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -366,10 +337,7 @@ internal sealed class AttemptDispatchWriter(
             DedupeMessageId(envelopeMessageId, attempt.Id),
             ConsumerName,
             cancellationToken);
-        if (!marked)
-        {
-            return false;
-        }
+        if (!marked) return false;
 
         await TransitionFromSendingAsync(
             attempt.Id,
@@ -383,113 +351,30 @@ internal sealed class AttemptDispatchWriter(
     }
 
     /// <summary>
-    /// Whether this failure exhausted the current plan step: always for a
-    /// single-target channel; for push, only when no sibling succeeded and
-    /// every other sibling already failed. A sibling still queued, sending or
-    /// unknown keeps the step open.
+    /// This writer's binding to the shared plan outcomes: the dispatcher is
+    /// the actor of every trail entry written from here.
     /// </summary>
-    private async Task<bool> StepExhaustedAsync(
-        NotificationAttempt attempt,
-        Notification notification,
-        CancellationToken cancellationToken)
-    {
-        // Channel decides, never the in-memory token id: the claim stamps the
-        // token through a guarded UPDATE the change tracker does not see.
-        if (!string.Equals(attempt.Channel, PushChannel, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        List<string> siblingStatuses = await db.NotificationAttempts
-            .AsNoTracking()
-            .Where(candidate => candidate.NotificationId == notification.Id
-                && candidate.Channel == attempt.Channel
-                && candidate.Id != attempt.Id)
-            .Select(candidate => candidate.Status)
-            .ToListAsync(cancellationToken);
-        return siblingStatuses.All(status => status == NotificationAttemptStatuses.Failed);
-    }
-
-    /// <summary>
-    /// Advances the plan inside the caller's transaction: a step with a
-    /// fallback deadline asks the Core for the next one; the last step (null
-    /// deadline) exhausts the plan and fails the notification.
-    /// </summary>
-    private async Task AdvancePlanAsync(
-        IDbContextTransaction transaction,
-        Notification notification,
-        NotificationAttempt attempt,
-        string reason,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        if (attempt.FallbackDeadline is not null)
-        {
-            await outboxWriter.AppendAsync(
-                transaction.GetDbTransaction(),
-                DispatchMessages.BuildFallbackRequested(
-                    notification.RecipientId,
-                    notification.Class,
-                    notification.Id,
-                    attempt.Id,
-                    now,
-                    Activity.Current?.Id),
-                cancellationToken);
-            await auditTrail.AppendAsync(
-                transaction.GetDbTransaction(),
-                BuildAuditEntry(
-                    DispatchingAuditVocabulary.FallbackTriggered,
-                    notification,
-                    new
-                    {
-                        failedAttemptId = attempt.Id,
-                        channel = attempt.Channel,
-                        reason,
-                    },
-                    now),
-                cancellationToken);
-            return;
-        }
-
-        notification.MarkFailedAfterDispatch();
-        await db.SaveChangesAsync(cancellationToken);
-
-        // Before the audit append on purpose: the append takes the partition
-        // chain lock and holds it until the transaction ends, so every write
-        // queued after it stretches the window concurrent ingestion waits on.
-        await outboxWriter.AppendAsync(
+    private PlanOutcomeScope Scope(IDbContextTransaction transaction)
+        => new(
+            db,
+            outboxWriter,
+            auditTrail,
             transaction.GetDbTransaction(),
-            NotificationEvents.Failed(new NotificationFailed
-            {
-                RecipientId = notification.RecipientId,
-                Class = notification.Class,
-                NotificationId = notification.Id,
-                Reason = reason,
-                LastChannel = attempt.Channel,
-                CorrelationId = notification.CorrelationId,
-                OccurredAt = now,
-                Traceparent = Activity.Current?.Id,
-            }),
-            cancellationToken);
-        await auditTrail.AppendAsync(
-            transaction.GetDbTransaction(),
-            BuildAuditEntry(
-                DispatchingAuditVocabulary.NotificationFailed,
-                notification,
-                new
-                {
-                    failedAttemptId = attempt.Id,
-                    channel = attempt.Channel,
-                    reason,
-                },
-                now),
-            cancellationToken);
-    }
+            new PlanOutcomeActor(
+                DispatchingAuditVocabulary.ActorTypeSystem,
+                DispatchingAuditVocabulary.ActorIdDispatcher));
 
     /// <summary>
     /// Applies one guarded transition from sending, together with the durable
     /// rendered content when the verdict settles one. Zero affected rows is a
     /// defect, not a race: only the claim owner ever settles the attempt.
+    /// <para>
+    /// The instant of the change is stamped here rather than by each caller,
+    /// because every path through this helper is a transition and the age of
+    /// the resulting state is what the scheduler's scan of parked attempts
+    /// reads. A caller that forgot the stamp would leave an attempt invisible
+    /// to that scan, which is the failure mode of a signal nobody can see.
+    /// </para>
     /// </summary>
     private async Task TransitionFromSendingAsync(
         Guid attemptId,
@@ -497,6 +382,7 @@ internal sealed class AttemptDispatchWriter(
         Action<UpdateSettersBuilder<NotificationAttempt>> setters,
         CancellationToken cancellationToken)
     {
+        DateTimeOffset now = timeProvider.GetUtcNow();
         var affected = await db.NotificationAttempts
             .Where(candidate => candidate.Id == attemptId
                 && candidate.Status == NotificationAttemptStatuses.Sending)
@@ -504,6 +390,7 @@ internal sealed class AttemptDispatchWriter(
                 builder =>
                 {
                     setters(builder);
+                    builder.SetProperty(candidate => candidate.StatusChangedAt, now);
                     DiscardCompleteForm(builder, durableContent);
                 },
                 cancellationToken);
@@ -535,26 +422,6 @@ internal sealed class AttemptDispatchWriter(
         UpdateSettersBuilder<NotificationAttempt> setters,
         byte[]? durableContent)
     {
-        if (durableContent is not null)
-        {
-            setters.SetProperty(candidate => candidate.RenderedContentEncrypted, durableContent);
-        }
+        if (durableContent is not null) setters.SetProperty(candidate => candidate.RenderedContentEncrypted, durableContent);
     }
-
-    private static AuditEntry BuildAuditEntry(
-        string action,
-        Notification notification,
-        object details,
-        DateTimeOffset now)
-        => new()
-        {
-            ActorType = DispatchingAuditVocabulary.ActorTypeSystem,
-            ActorId = DispatchingAuditVocabulary.ActorIdDispatcher,
-            Application = notification.Application,
-            Action = action,
-            EntityType = DispatchingAuditVocabulary.EntityTypeNotification,
-            EntityId = notification.Id.ToString(),
-            DetailsJson = JsonSerializer.Serialize(details),
-            OccurredAt = now,
-        };
 }

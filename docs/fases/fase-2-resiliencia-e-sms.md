@@ -5,7 +5,7 @@ language: pt-BR
 # Fase 2: Resiliência e SMS
 
 **Tipo**: design técnico (technical-design)
-**Status**: PROPOSED
+**Status**: ACCEPTED, em implementação
 **Audiência**: engenharia do Notification Hub, Compliance e Produto (participantes do rito mensal, §9.7 do design de sistema)
 **Propósito**: fixar o desenho técnico das entregas da fase 2 do roadmap do Notification Hub, com fronteiras, dependências e critérios de saída
 **Fontes**: [Design de Sistema](../notification-hub-system-design.md) (§2.1, §2.3, §3, §4.2, §4.3, §5.1, §5.2, §7.3, §8, §9.3, §9.6, §9.7, §10.2, §10.3, §11.3, §15, §16); [ADR-0008](../ADR-0008-at-least-once-com-idempotencia.md); [ADR-0011](../ADR-0011-politica-como-configuracao-de-classe.md); contratos publicados em [`ClassPolicyDefinition.cs`](../../src/Platform.Api/Modules/TemplateManagement/Integration/V1/ClassPolicyDefinition.cs); decisão de fronteira registrada pelo arquiteto no fechamento da fase 1b (mapa de módulos)
@@ -158,6 +158,26 @@ Duração: 4 a 6 semanas, conforme o roadmap (§15). Este documento fixa o desen
 - **Contratação do add-on Email Activity do SendGrid**: não decidida aqui; registrada como dependência externa com impacto direto no alcance da reconciliação de e-mail (§8; ADR-0008).
 - **Forma final do sender por operadora**: não decidida aqui; aguarda a verificação nas country guidelines da Twilio e o teste por operadora (§2.3; §16 risco 9).
 - Nenhum desvio das ADRs relacionadas (0001, 0008, 0011): o adapter SMS é plugin, a entrega permanece at-least-once com idempotência em camadas e a política segue como configuração de classe.
+
+## Status de implementação
+
+A decomposição em fatias prometida no fim da seção de implantação foi produzida e aceita em [fase-2-decomposicao.md](fase-2-decomposicao.md), que fixa as sete decisões de fronteira que este design deixou para o kickoff e carrega a tabela de status por fatia. O acompanhamento por fatia vive lá; este documento registra apenas o estado das entregas.
+
+| Entrega deste design | Estado em 2026-08-24 |
+|---|---|
+| Delivery Tracker com webhooks assinados e replay protection | Concluída (fatias F2-1 e F2-2) |
+| Fallback declarativo, unicidade do avanço de plano | Concluída (fatia F2-4) |
+| Scheduler DB-backed | Concluída (fatia F2-5) |
+| Adapter SMS (Twilio) | Pendente (fatias F2-7 e F2-8) |
+| Supressão automática, reversível e auditada | Pendente (fatia F2-6) |
+| Reconciliação por canal | Pendente (fatia F2-9) |
+| Classe `operational` com janela de silêncio | Pendente (fatia F2-12) |
+| Relatório mensal de evidências | Pendente (fatia F2-10) |
+
+Duas correções que a implementação obrigou e que este design não previa, ambas registradas na decomposição e a segunda também em [ADR-0014](../ADR-0014-confirmacao-de-entrega-e-gatilhos-de-fallback.md):
+
+1. **Os dois gatilhos de fallback precisavam de unicidade no banco.** A deduplicação por mensagem não cobre dois produtores distintos, e o gatilho reativo e o gatilho por prazo geram identificadores de mensagem distintos: sem a correção, o cenário do §5.1 entregaria dois SMS ao mesmo cliente, contra a ADR-0008. A unicidade passou a ser claim de estado por passo do plano.
+2. **A aceitação do push encerrava a notificação e matava o fallback.** Enquanto o push aceito pelo FCM declarasse a notificação entregue, o cenário do §5.1 seria descartado em silêncio e o critério de saída de 100 % de `critical` com fallback seria inatingível. A aceitação passou a declarar entrega somente no passo sem prazo, isto é, no último passo do plano. Consequência observável: `araia.notification.delivered.v1` deixa de ser emitido na aceitação do push quando o plano tem passo posterior, o que exige comunicação aos produtores antes do deploy.
 
 ## Critérios de saída
 

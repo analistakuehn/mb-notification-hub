@@ -66,6 +66,15 @@ internal sealed class NotificationAttemptConfiguration : IEntityTypeConfiguratio
         builder.Property(attempt => attempt.FallbackDeadline)
             .HasColumnName("fallback_deadline");
 
+        builder.Property(attempt => attempt.PlanAdvancedAt)
+            .HasColumnName("plan_advanced_at");
+
+        builder.Property(attempt => attempt.StatusChangedAt)
+            .HasColumnName("status_changed_at");
+
+        builder.Property(attempt => attempt.FallbackRequestedAt)
+            .HasColumnName("fallback_requested_at");
+
         builder.Property(attempt => attempt.SentAt)
             .HasColumnName("sent_at");
 
@@ -78,10 +87,46 @@ internal sealed class NotificationAttemptConfiguration : IEntityTypeConfiguratio
         builder.HasIndex(attempt => attempt.NotificationId)
             .HasDatabaseName("ix_notification_attempt_notification");
 
-        // The tracker scans for overdue fallbacks; the filter keeps the index
-        // to the attempts that still carry a deadline.
+        // The scheduler scans for overdue fallbacks. The filter keeps the index
+        // to the attempts that can still produce one: a deadline is stamped,
+        // the step has not advanced, and no trigger is in flight for this row.
+        // All three conjuncts earn their place by removing rows the scan can
+        // never act on, so an attempt whose step moved and an attempt whose
+        // trigger is already on the queue both leave the index instead of
+        // being read and discarded once every round for the rest of the
+        // partition's life.
         builder.HasIndex(nameof(NotificationAttempt.Status), nameof(NotificationAttempt.FallbackDeadline))
-            .HasDatabaseName("ix_notification_attempt_fallback")
-            .HasFilter("fallback_deadline IS NOT NULL");
+            .HasDatabaseName("ix_notification_attempt_fallback_due")
+            .HasFilter(
+                "fallback_deadline IS NOT NULL AND plan_advanced_at IS NULL "
+                + "AND fallback_requested_at IS NULL");
+
+        // The same scan, asking a different question: an attempt parked on an
+        // inconclusive verdict for longer than the grace period. Age is the
+        // ordering key here, because the predicate on the status is an equality
+        // the filter already carries.
+        builder.HasIndex(nameof(NotificationAttempt.StatusChangedAt))
+            .HasDatabaseName("ix_notification_attempt_unknown_due")
+            .HasFilter(
+                "status = 'unknown' AND fallback_deadline IS NOT NULL "
+                + "AND plan_advanced_at IS NULL AND fallback_requested_at IS NULL");
+
+        // The complement of the two above: the triggers currently in flight.
+        // The round that ages a stale request out reads only this index, and
+        // it is small by construction, because a request leaves it as soon as
+        // the handler claims the step it asked for.
+        builder.HasIndex(nameof(NotificationAttempt.FallbackRequestedAt))
+            .HasDatabaseName("ix_notification_attempt_fallback_inflight")
+            .HasFilter(
+                "fallback_deadline IS NOT NULL AND plan_advanced_at IS NULL "
+                + "AND fallback_requested_at IS NOT NULL");
+
+        // Delivery feedback that echoes no correlation is joined back to its
+        // attempt by the provider's own message identity. Only a claimed
+        // attempt carries one, so the filter keeps the index to the fraction
+        // of rows the lookup can ever match.
+        builder.HasIndex(attempt => attempt.ProviderMessageId)
+            .HasDatabaseName("ix_notification_attempt_provider_message")
+            .HasFilter("provider_message_id IS NOT NULL");
     }
 }

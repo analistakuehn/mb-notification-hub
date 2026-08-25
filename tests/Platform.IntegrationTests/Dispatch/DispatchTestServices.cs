@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.ProviderConfig;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Webhooks;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 
 namespace NotificationHub.IntegrationTests.Dispatch;
@@ -44,11 +45,21 @@ internal static class DispatchTestServices
         services.AddSingleton(timeProvider);
         services.AddDispatchPersistence(configuration);
         services.AddDispatchProviderResolution(configuration);
-        foreach (IChannelProvider provider in hostedProviders)
-        {
-            services.AddSingleton(provider);
-        }
+        foreach (IChannelProvider provider in hostedProviders) services.AddSingleton(provider);
 
+        return services.BuildServiceProvider();
+    }
+
+    public static ServiceProvider BuildWebhookHost(IEnumerable<KeyValuePair<string, string?>> settings)
+    {
+        IConfigurationRoot configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings)
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
+        services.AddDispatchWebhookInterpreters(configuration);
         return services.BuildServiceProvider();
     }
 

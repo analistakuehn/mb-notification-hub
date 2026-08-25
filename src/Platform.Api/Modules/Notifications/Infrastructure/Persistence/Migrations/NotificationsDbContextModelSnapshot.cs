@@ -197,6 +197,12 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                         .HasColumnType("character varying(100)")
                         .HasColumnName("application");
 
+                    b.Property<bool>("AuthFlow")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("auth_flow");
+
                     b.Property<string>("Class")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -269,8 +275,8 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                         .HasDatabaseName("ix_notification_correlation");
 
                     b.HasIndex("ReleaseAt")
-                        .HasDatabaseName("ix_notification_release")
-                        .HasFilter("release_at IS NOT NULL");
+                        .HasDatabaseName("ix_notification_release_due")
+                        .HasFilter("status = 'deferred'");
 
                     b.HasIndex("RecipientId", "CreatedAt")
                         .IsDescending(false, true)
@@ -328,9 +334,17 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fallback_deadline");
 
+                    b.Property<DateTimeOffset?>("FallbackRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fallback_requested_at");
+
                     b.Property<Guid>("NotificationId")
                         .HasColumnType("uuid")
                         .HasColumnName("notification_id");
+
+                    b.Property<DateTimeOffset?>("PlanAdvancedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("plan_advanced_at");
 
                     b.Property<string>("ProviderKey")
                         .HasMaxLength(50)
@@ -361,14 +375,30 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                         .HasColumnType("character varying(30)")
                         .HasColumnName("status");
 
+                    b.Property<DateTimeOffset?>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("status_changed_at");
+
                     b.HasKey("Id", "CreatedAt");
+
+                    b.HasIndex("FallbackRequestedAt")
+                        .HasDatabaseName("ix_notification_attempt_fallback_inflight")
+                        .HasFilter("fallback_deadline IS NOT NULL AND plan_advanced_at IS NULL AND fallback_requested_at IS NOT NULL");
 
                     b.HasIndex("NotificationId")
                         .HasDatabaseName("ix_notification_attempt_notification");
 
+                    b.HasIndex("ProviderMessageId")
+                        .HasDatabaseName("ix_notification_attempt_provider_message")
+                        .HasFilter("provider_message_id IS NOT NULL");
+
+                    b.HasIndex("StatusChangedAt")
+                        .HasDatabaseName("ix_notification_attempt_unknown_due")
+                        .HasFilter("status = 'unknown' AND fallback_deadline IS NOT NULL AND plan_advanced_at IS NULL AND fallback_requested_at IS NULL");
+
                     b.HasIndex("Status", "FallbackDeadline")
-                        .HasDatabaseName("ix_notification_attempt_fallback")
-                        .HasFilter("fallback_deadline IS NOT NULL");
+                        .HasDatabaseName("ix_notification_attempt_fallback_due")
+                        .HasFilter("fallback_deadline IS NOT NULL AND plan_advanced_at IS NULL AND fallback_requested_at IS NULL");
 
                     b.ToTable("notification_attempt", "notifications");
                 });
@@ -441,6 +471,102 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence.M
                     b.HasKey("Principal", "Application", "Class");
 
                     b.ToTable("producer_registry", "notifications");
+                });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.DeliveryEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<DateTimeOffset?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("applied_at");
+
+                    b.Property<Guid?>("AttemptId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attempt_id");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("notification_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<byte[]>("PayloadEncrypted")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("payload_enc");
+
+                    b.Property<string>("ProviderEventId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_event_id");
+
+                    b.Property<string>("ProviderKey")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("provider_key");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_message_id");
+
+                    b.HasKey("Id", "ReceivedAt");
+
+                    b.HasIndex("AttemptId")
+                        .HasDatabaseName("ix_delivery_event_attempt")
+                        .HasFilter("attempt_id IS NOT NULL");
+
+                    b.HasIndex("NotificationId")
+                        .HasDatabaseName("ix_delivery_event_notification")
+                        .HasFilter("notification_id IS NOT NULL");
+
+                    b.ToTable("delivery_event", "notifications");
+                });
+
+            modelBuilder.Entity("NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.ProviderEventDedupe", b =>
+                {
+                    b.Property<string>("Provider")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderEventId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_event_id");
+
+                    b.Property<DateTimeOffset>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.HasKey("Provider", "ProviderEventId");
+
+                    b.HasIndex("ProcessedAt")
+                        .HasDatabaseName("ix_provider_event_dedupe_processed");
+
+                    b.ToTable("provider_event_dedupe", "notifications");
                 });
 #pragma warning restore 612, 618
         }

@@ -43,6 +43,17 @@ public static class NotificationsPartitioningSetup
                 table: "policy_evaluation",
                 minimumFutureDays: serviceProvider => serviceProvider
                     .GetRequiredService<IOptions<NotificationsPartitionOptions>>()
+                    .Value.FutureWindowMinimumDays)
+            // Delivery feedback is the one partitioned table this module does
+            // not control the arrival rate of: the provider decides when it
+            // calls, so a missing future partition refuses evidence the hub
+            // has no right to refuse.
+            .AddMonthlyPartitionCoverageCheck<NotificationsDbContext>(
+                name: "notifications-delivery-event-partitions",
+                schema: "notifications",
+                table: "delivery_event",
+                minimumFutureDays: serviceProvider => serviceProvider
+                    .GetRequiredService<IOptions<NotificationsPartitionOptions>>()
                     .Value.FutureWindowMinimumDays);
         return services;
     }

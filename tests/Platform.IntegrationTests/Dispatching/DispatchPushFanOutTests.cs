@@ -20,7 +20,7 @@ public sealed class DispatchPushFanOutTests(CorePipelineFixture fixture)
         """;
 
     [RequiresDockerFact]
-    public async Task The_fan_out_expands_on_claim_caps_at_five_tokens_and_the_first_acceptance_delivers()
+    public async Task The_fan_out_expands_on_claim_caps_at_five_tokens_and_keeps_the_notification_open()
     {
         var application = DispatchApi.NewApplication();
         (var templateKey, _) = await DispatchApi.CreatePublishedTemplateAsync(
@@ -72,16 +72,20 @@ public sealed class DispatchPushFanOutTests(CorePipelineFixture fixture)
             attempts[index].ContentHashMasked.ShouldBe(attempts[0].ContentHashMasked);
         }
 
-        // The first acceptance delivered the notification.
+        // The plan has a later step, so the acceptance is not the delivery:
+        // the notification stays open until a confirmation arrives or the plan
+        // concludes. Closing it here would make the deadline trigger read the
+        // notification as already settled and the step that exists to rescue
+        // an undelivered push would never run.
         Notification notification = await fixture.QueryNotificationsDbAsync(db => db.Notifications
             .AsNoTracking()
             .SingleAsync(candidate => candidate.Id == notificationId));
-        notification.Status.ShouldBe(NotificationStatuses.Delivered);
+        notification.Status.ShouldBe(NotificationStatuses.Dispatched);
         (await fixture.QueryAuditDbAsync(db => db.AuditEvents
             .AsNoTracking()
             .CountAsync(auditEvent => auditEvent.Action == "notification.delivered"
                 && auditEvent.EntityId == notificationId.ToString())))
-            .ShouldBe(1);
+            .ShouldBe(0);
 
         // Each sibling was announced to the same queue and follows the
         // normal claim-and-send path; every revealed token reached the
@@ -140,8 +144,11 @@ public sealed class DispatchPushFanOutTests(CorePipelineFixture fixture)
         (await CorePipelineFixture.RunDispatchPassAsync(dispatcher, "dispatch-push-auth"))
             .Processed.ShouldBeGreaterThanOrEqualTo(1);
 
-        // The push attempt failed with the stable code and the trigger left
-        // in the same transaction, addressed to the class core queue.
+        // The push attempt failed with the stable code and the trigger left in
+        // the same transaction. The template serves an authentication flow, so
+        // the trigger is addressed to the authentication core queue: the relay
+        // reads the band off the destination, and the next step of a code has
+        // to keep the band the first step already had.
         NotificationAttempt pushAttempt = await fixture.QueryNotificationsDbAsync(
             db => db.NotificationAttempts
                 .AsNoTracking()
@@ -154,15 +161,16 @@ public sealed class DispatchPushFanOutTests(CorePipelineFixture fixture)
                 && auditEvent.EntityId == notificationId.ToString())))
             .ShouldBe(1);
         List<string> triggers = await DispatchApi.ReadOutboxPayloadsAsync(
-            fixture, "core-critical", notificationId);
-        triggers.ShouldHaveSingleItem().ShouldContain("fallback.requested");
+            fixture, "core-auth", notificationId);
+        triggers.Count(payload => payload.Contains("fallback.requested", StringComparison.Ordinal))
+            .ShouldBe(1);
 
         // The Core consumes the trigger and queues the next plan step through
         // the same commit invariant, with the auth routing of the template.
         await using ServiceProvider relay = fixture.BuildRelayProvider();
         (await CorePipelineFixture.RunRelayPassAsync(relay)).Published.ShouldBeGreaterThanOrEqualTo(1);
         await using ServiceProvider core = fixture.BuildCoreWorkerProvider();
-        (await CorePipelineFixture.RunCorePassAsync(core, "core-critical"))
+        (await CorePipelineFixture.RunCorePassAsync(core, "core-auth"))
             .Processed.ShouldBeGreaterThanOrEqualTo(1);
 
         NotificationAttempt emailAttempt = await fixture.QueryNotificationsDbAsync(
@@ -222,8 +230,8 @@ public sealed class DispatchPushFanOutTests(CorePipelineFixture fixture)
 
         // First failure: the sibling is still queued, so no trigger yet, and
         // the dead token is already invalidated at the source of truth.
-        (await DispatchApi.ReadOutboxPayloadsAsync(fixture, "core-critical", notificationId))
-            .ShouldBeEmpty();
+        (await DispatchApi.ReadOutboxPayloadsAsync(fixture, "core-auth", notificationId))
+            .ShouldAllBe(payload => !payload.Contains("fallback.requested"));
         Dictionary<string, DateTimeOffset?> invalidatedByToken = await fixture.QueryContactConsentDbAsync(
             db => db.DeviceTokens
                 .AsNoTracking()
@@ -238,8 +246,9 @@ public sealed class DispatchPushFanOutTests(CorePipelineFixture fixture)
         await CorePipelineFixture.RunRelayPassAsync(relay);
         (await CorePipelineFixture.RunDispatchPassAsync(dispatcher, "dispatch-push-auth"))
             .Processed.ShouldBeGreaterThanOrEqualTo(1);
-        (await DispatchApi.ReadOutboxPayloadsAsync(fixture, "core-critical", notificationId))
-            .ShouldHaveSingleItem().ShouldContain("fallback.requested");
+        (await DispatchApi.ReadOutboxPayloadsAsync(fixture, "core-auth", notificationId))
+            .Count(payload => payload.Contains("fallback.requested", StringComparison.Ordinal))
+            .ShouldBe(1);
         (await fixture.QueryAuditDbAsync(db => db.AuditEvents
             .AsNoTracking()
             .CountAsync(auditEvent => auditEvent.Action == "fallback.triggered"
@@ -325,7 +334,7 @@ public sealed class DispatchPushFanOutTests(CorePipelineFixture fixture)
         await using ServiceProvider relay = fixture.BuildRelayProvider();
         await CorePipelineFixture.RunRelayPassAsync(relay);
         await using ServiceProvider core = fixture.BuildCoreWorkerProvider();
-        (await CorePipelineFixture.RunCorePassAsync(core, "core-critical"))
+        (await CorePipelineFixture.RunCorePassAsync(core, "core-auth"))
             .Processed.ShouldBeGreaterThanOrEqualTo(1);
 
         Notification notification = await fixture.QueryNotificationsDbAsync(db => db.Notifications

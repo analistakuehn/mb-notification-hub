@@ -24,7 +24,8 @@ for queue in \
   dispatch-whatsapp-auth \
   dispatch-whatsapp-critical \
   dispatch-whatsapp-transactional \
-  dispatch-whatsapp-operational
+  dispatch-whatsapp-operational \
+  delivery-events
 do
   awslocal sqs create-queue --queue-name "$queue" >/dev/null 2>&1 || true
 done

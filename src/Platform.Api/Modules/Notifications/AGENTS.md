@@ -8,7 +8,10 @@
   declarados em `Modules:Notifications:KafkaIngress:Bindings`, o pipeline Core
   que consome as queues `core-*`, a slice de dispatch (os consumers
   `dispatch-*`, a máquina de estados das tentativas a partir de `queued`, o
-  fan-out de push e o handler de fallback), os eventos de resultado de saída em
+  fan-out de push e o handler de fallback), o rastreamento de entrega em
+  `Features/DeliveryTracking/` (a rota `POST /webhooks/{provider}`, a
+  deduplicação e a evidência do feedback do provedor, e a aplicação assíncrona
+  da máquina de estados do attempt), os eventos de resultado de saída em
   `notifications.events.v1` e a API de consulta somente leitura protegida por
   `Notifications.Read`. A API de auditoria (`/v1/audit/*`) permanece fora desta
   unidade: o conteúdo renderizado e o contato completo saem por ela, nunca pela
@@ -22,7 +25,8 @@
   variáveis, renderer e contrato de regra de política),
   `Modules.ContactConsent.Integration.V1` (diretório de destinatários, revelação
   de contato e token, ciclo de vida do token do dispositivo),
-  `Modules.Dispatch.Integration.V1` (providers de canais e sua resolução) e
+  `Modules.Dispatch.Integration.V1` (providers de canais e sua resolução, mais
+  a verificação de assinatura e a normalização de feedback de provedor) e
   `Modules.Audit.Integration.V1` (acréscimo transacional de auditoria). Nunca
   acesse o armazenamento de dados nem os tipos internos de outro contexto.
 - A Infrastructure da plataforma é uma dependência, não um contexto irmão: o
@@ -38,18 +42,20 @@
 | Caminho | Responsabilidade |
 |---|---|
 | `src/Platform.Api/Modules/Notifications/Domain/` | entidades de notificação, tentativa, avaliação de política e idempotência, vocabulário de classes, JSON canônico, mascaramento de variáveis e forma pública do id |
-| `src/Platform.Api/Modules/Notifications/Features/` | slices verticais deste contexto: o pipeline Core em `Features/Pipeline/`, o consumer de dispatch em `Features/Dispatching/`, o handler de fallback em `Features/Fallback/`, a administração e os gates do kill switch em `Features/KillSwitch/` e as slices de consulta em `Features/Queries/` |
-| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistência (schema `notifications`, contextos de escrita e somente leitura), controles Redis, gate de template, privacidade, cache do kill switch e ciclo de vida dos holds, gerenciador de partições, job de purge, writer de commit do pipeline, writer de dispatch de tentativas, poison sinks, auxiliares de transporte para consultas e leitor de histórico |
+| `src/Platform.Api/Modules/Notifications/Features/` | slices verticais deste contexto: o pipeline Core em `Features/Pipeline/`, o consumer de dispatch em `Features/Dispatching/`, o handler de fallback em `Features/Fallback/`, a administração e os gates do kill switch em `Features/KillSwitch/`, o rastreamento de entrega em `Features/DeliveryTracking/` e as slices de consulta em `Features/Queries/` |
+| `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistência (schema `notifications`, contextos de escrita e somente leitura), controles Redis, gate de template, privacidade, cache do kill switch e ciclo de vida dos holds, gerenciador de partições, jobs de purge, writer de commit do pipeline, writer de dispatch de tentativas, writer da evidência de entrega, esquema de autenticação por assinatura de provedor, poison sinks, auxiliares de transporte para consultas e leitor de histórico |
 | `src/Platform.Api/Modules/Notifications/NotificationsModule.cs` | registro de serviços e mapeamento de endpoints deste contexto |
 | `src/Platform.Api/Modules/Notifications/Integration/V1/` | contrato publicado deste contexto: o catálogo canônico de motivos de rejeição |
 | `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs` | composição da função de worker `core`, descoberta pelo host de workers |
 | `src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs` | composição da função de worker `dispatcher`, descoberta pelo host de workers |
 | `src/Platform.Api/Modules/Notifications/KafkaIngressWorkerRole.cs` | composição da função de worker `kafka-ingress`, descoberta pelo host de workers |
 | `src/Platform.Api/Modules/Notifications/NotificationsMaintenanceWorkerRole.cs` | composição da função de worker `notifications-maintenance`, descoberta pelo host de workers |
+| `src/Platform.Api/Modules/Notifications/DeliveryTrackerWorkerRole.cs` | composição da função de worker `delivery-tracker`, descoberta pelo host de workers |
 
-Estado sob responsabilidade: `notification`, `notification_attempt` e
-`policy_evaluation` (tabelas-pai particionadas mensalmente), `idempotency_key`,
-`producer_registry`, `kill_switch` e `kill_switch_hold`. A `outbox` e
+Estado sob responsabilidade: `notification`, `notification_attempt`,
+`policy_evaluation` e `delivery_event` (tabelas-pai particionadas mensalmente),
+`idempotency_key`, `producer_registry`, `provider_event_dedupe`, `kill_switch`
+e `kill_switch_hold`. A `outbox` e
 `processed_messages` da plataforma pertencem à Infrastructure de mensageria;
 este módulo apenas escreve por meio dos contratos correspondentes, em sua
 própria transação.
@@ -230,16 +236,24 @@ curta própria.
   aqui: o barramento de saída é um contrato de transporte, e ContactConsent
   publica `consent_changed` no mesmo tópico. O módulo é responsável pelos tipos
   de evento e pelas formas dos payloads: `rejected` na ingestão e no pipeline,
-  `failed` quando o plano se esgota e na expiração e `delivered` na aceitação do
-  push. A aceitação não anuncia nada (o producer já tem seu 202), assim como uma
-  rejeição pelo orçamento do principal, pois um evento por requisição recusada
-  é exatamente a tempestade que o controle existe para impedir.
+  `failed` quando o plano se esgota e na expiração e `delivered` quando a
+  entrega é confirmada. A aceitação não anuncia nada (o producer já tem seu
+  202), assim como uma rejeição pelo orçamento do principal, pois um evento por
+  requisição recusada é exatamente a tempestade que o controle existe para
+  impedir.
+- **`delivered` afirma entrega confirmada, e não aceitação.** A única exceção
+  declarada é o push na última etapa do plano: aquele provedor não reporta nada
+  depois de aceitar, e ali nenhuma etapa posterior poderia socorrer a mensagem,
+  então a aceitação é o desfecho mais forte que este hub vai conhecer. Um
+  `fallback_deadline` gravado é a prova de que existe etapa posterior. Encerrar
+  a notificação antes disso mataria o fallback por prazo, porque o handler de
+  fallback trata qualquer estado diferente de `dispatched` como duplicata.
 - Cada evento é escrito pela outbox dentro da transação do efeito que relata e
   **antes** do acréscimo por `IAuditTrail`, pois esse acréscimo mantém o bloqueio
   da cadeia de partições até o término da transação, e qualquer item colocado
   na queue depois dele amplia a janela de espera da ingestão concorrente. Isso
-  se aplica a `IngestionWriter`, `PipelineCommitWriter` e
-  `AttemptDispatchWriter`.
+  se aplica a `IngestionWriter`, `PipelineCommitWriter`, `AttemptDispatchWriter`
+  e `NotificationPlanOutcome`.
 - A faixa de um evento de saída é a classe de sua notificação, nunca `auth`: a
   faixa `auth` protege a latência de entrega de um código de autenticação, e um
   evento de resultado não é uma entrega.
@@ -326,27 +340,198 @@ curta própria.
   pela outbox. `sequence` é a ordem monotônica de criação por notificação. A
   ausência de tokens ativos no claim falha a tentativa com
   `no-active-device-token`.
-- Resultados: `Accepted` leva a `sent` (em push, o primeiro item irmão aceito
-  também leva a notificação a `delivered`); `Rejected` leva a `failed` e, quando
-  a falha esgota a etapa (em push, nenhum item irmão teve sucesso e todos os
-  outros já falharam), avança o plano na mesma transação: uma etapa com prazo
-  emite `FallbackRequested` para `core-{class}` junto com a trilha
-  `fallback.triggered`, e a última etapa falha a notificação; `Throttled` e um
-  circuito aberto revertem para `queued` e adiam a mensagem respeitando
-  `RetryAfter`; qualquer outro erro transitório estaciona a tentativa em
-  `unknown`, que não avança nesta fase.
+- Resultados: `Accepted` leva a `sent` (em push **sem prazo de fallback**, ou
+  seja na última etapa do plano, também leva a notificação a `delivered`);
+  `Rejected` leva a `failed` e, quando a falha esgota a etapa (em push, nenhum
+  item irmão teve sucesso e todos os outros já falharam ou sofreram bounce),
+  avança o plano na mesma transação: uma etapa com prazo emite
+  `FallbackRequested` junto com a trilha `fallback.triggered`, e a última etapa
+  falha a notificação; `Throttled` e um circuito aberto revertem para `queued` e
+  adiam a mensagem respeitando `RetryAfter`; qualquer outro erro transitório
+  estaciona a tentativa em `unknown`, que não avança nesta fase.
+- O destino de um `FallbackRequested` é `core-auth` quando `notification
+  .auth_flow` é verdadeiro e `core-{class}` no restante, porque a banda de
+  drenagem do relay é decidida pelo destino e a segunda metade de um código de
+  autenticação precisa manter a banda que a primeira teve. O sinal é gravado na
+  aceitação, onde o template publicado já está em mãos, para que nenhum produtor
+  consulte o catálogo no caminho quente.
+- Os desfechos terminais do plano vivem em `NotificationPlanOutcome`, e não em
+  cada caminho que os alcança: se a etapa se esgotou, o pedido do próximo passo,
+  o encerramento em `delivered` e o encerramento em `failed`. O veredito
+  síncrono do dispatcher e o feedback assíncrono do provedor chamam esse mesmo
+  código, para que a mesma conclusão nunca exista escrita duas vezes.
 - O handler de fallback é executado dentro da função core: ele verifica o TTL
   (a expiração encerra a notificação em `expired`), encontra no plano publicado
   a etapa posterior ao canal que falhou, renderiza o próximo canal e coloca a
   próxima tentativa na queue com a invariante transacional do pipeline. Uma
   próxima etapa sem conteúdo, contato ou entrada no plano falha a notificação
   com um motivo estável.
+- **O avanço do plano é reivindicado no banco, e não deduplicado por mensagem.**
+  Existem vários produtores do mesmo gatilho (veredito definitivo do dispatcher,
+  liberação de hold de kill switch vencido e, adiante, varredura de prazo) e
+  cada um escreve uma linha de outbox com identidade de mensagem própria, então
+  as marcas em `processed_messages` passam todas. Dentro da transação que
+  enfileira a próxima tentativa, o handler carimba `plan_advanced_at` em toda
+  tentativa da etapa com `UPDATE ... WHERE notification_id = ? AND channel = ?
+  AND plan_advanced_at IS NULL`; zero linhas afetadas devolve `Duplicate` sem
+  efeito. O claim é **por etapa e não por tentativa**, porque o fan-out de push
+  cria irmãos que compartilham um único prazo absoluto. O predicado poda
+  partição pela janela de `created_at` da notificação, senão a escrita varre
+  todas as partições de `notification_attempt`. Produtor novo de gatilho não
+  precisa de nada: o ponto de encontro é o handler.
 - PII somente no momento do envio: a renderização selada é aberta em memória, o
   endereço de e-mail vem de `RevealContactValueAsync`, e o token de push vem de
   `RevealDeviceTokenAsync`, ambos transitórios. Os resultados FCM `UNREGISTERED`
   e `INVALID_ARGUMENT` relatam o token inativo pelo contrato de ciclo de vida do
   ContactConsent após a confirmação do resultado; o relato é best effort e
   idempotente no lado responsável.
+
+## Rastreamento de entrega
+
+- O webhook tem duas metades e elas vivem em módulos diferentes. O
+  conhecimento de provedor (assinatura, janela de timestamp, allowlist de
+  origem, extração do identificador de evento, tradução do vocabulário e sinal
+  de supressão) pertence ao Dispatch e chega por
+  `Modules.Dispatch.Integration.V1`. O conhecimento de notificação (rota,
+  autenticação, deduplicação, evidência, correlação e máquina de estados) vive
+  em `Features/DeliveryTracking/`.
+- A rota `POST /webhooks/{provider}` é autenticada, nunca anônima. A assinatura
+  do provedor entra como esquema de autenticação (`ProviderSignature`): o
+  handler do esquema lê o corpo cru com buffer e rebobina, chama `Verify` pelo
+  resolver, publica um principal com a claim `provider_key` e deixa o callback
+  provado em `HttpContext.Items`. O corpo é verificado uma única vez, e o
+  endpoint declara `RequireAuthorization` e `RequireRateLimiting` como qualquer
+  outra rota que muda estado. Uma recusa de origem
+  (`origin-not-allowed`) gera evento de log de segurança próprio, distinto do
+  de assinatura inválida: o primeiro é sinal de forjação, o segundo é também o
+  sintoma corriqueiro de um segredo rotacionado.
+- **A URL assinada vem de uma base pública configurável**
+  (`Modules:Notifications:ProviderWebhooks:PublicBaseUrl`), caindo para a URL
+  da requisição quando a base não está configurada. A assinatura da Twilio
+  cobre a URL completa com query string, e atrás de balanceador o endereço que
+  este processo observa é o interno enquanto o provedor assinou o público. Sem
+  a base configurável, toda assinatura válida seria recusada em produção e
+  ainda assim passaria em teste.
+- **Invariante transacional da recepção**: por evento, três escritas em uma
+  única transação ou nenhuma: a marca em `provider_event_dedupe`, a linha
+  `delivery_event` com o payload bruto selado pela cifra de envelope, e a
+  mensagem `delivery.event_received` na outbox para `delivery-events`. Uma
+  chave já existente é ignorada sem erro. **Nenhum `IAuditTrail.AppendAsync`
+  entra nessa transação**: o acréscimo segura o bloqueio da cadeia até o fim da
+  transação e serializaria o callback contra a ingestão, e quem decide o ritmo
+  do callback é o provedor. A trilha é escrita pelo consumidor assíncrono.
+- Lista vazia de eventos é sucesso sem escrita. Um lote de eventos de
+  engajamento é tráfego comum, e responder erro compraria reentrega infinita de
+  um callback que nunca teve nada para este hub.
+- O payload do provedor carrega contato em claro, então é selado com a cifra de
+  envelope em escopo próprio do tracker
+  (`notifications-delivery-evidence`), e não no escopo da aplicação: a
+  aplicação dona da notificação pode ainda não ser conhecida no instante do
+  insert, e a consulta que a resolveria estouraria o orçamento de latência do
+  callback. Um lote sela uma vez e compartilha o texto cifrado entre suas
+  linhas.
+- **Correlação**: o evento canônico traz a correlação quando o provedor a
+  ecoa. Quando não traz, a rota aceita `notificationId` e `attemptId` como
+  parâmetros de query e preenche a correlação com eles. Correlação é
+  conhecimento deste módulo, e o endereço de callback é deste módulo; o
+  contrato do Dispatch permanece sem a URL.
+- A aplicação roda no papel `delivery-tracker`, que consome `delivery-events`,
+  carrega a evidência, resolve o attempt (pela correlação e, na falta dela,
+  pelo `provider_message_id` com o índice parcial) e aplica a transição
+  carimbando `applied_at`, a correlação resolvida e a trilha na mesma
+  transação. `DeliveryStateApplier.ApplyAsync` é o único escritor dessa metade
+  da máquina de estados; a reconciliação de fase posterior chama o mesmo
+  aplicador com o mesmo `ProviderDeliveryEvent`, para que as duas fontes não
+  virem duas máquinas.
+- Transições alimentadas por feedback, em `DeliveryStateMachine`: `sent ->
+  delivered` (carimba `delivered_at` com o instante do provedor), `delivered ->
+  read`, `sending -> failed`, `sending -> bounced` e `sent -> bounced`.
+  Qualquer outro par é registrado e ignorado, sem erro: o feedback nunca anda
+  para trás.
+- O que a transição significa para a notificação **não** é decidido no
+  aplicador. Ele chama `NotificationPlanOutcome` dentro da própria transação:
+  `delivered` encerra a notificação em `delivered` e publica o evento de
+  entrega; `failed` ou `bounced` que esgota a etapa avança o plano exatamente
+  como o veredito síncrono avançaria. Reescrever a regra ali criaria duas
+  máquinas para a mesma conclusão, que é o defeito que a máquina de estados
+  única existe para evitar.
+- Um evento cujo attempt ainda não existe fica armazenado e não aplicado, sem
+  erro. O provedor pode entregar o callback antes de a transação do envio
+  confirmar, então a mensagem volta por uma janela limitada
+  (`Modules:Notifications:DeliveryTracking`) e depois é descartada com registro,
+  em vez de circular pela retenção inteira da fila.
+- `provider_event_dedupe` é purgada por idade
+  (`Modules:Notifications:ProviderEventDedupePurge`, trinta dias por padrão) no
+  próprio papel; a evidência não é tocada pela purga.
+
+## Scheduler do papel `delivery-tracker`
+
+- `Features/DeliveryTracking/Scheduling/` varre o banco a cada
+  `Modules:Notifications:SchedulerScan:Interval` (cinco segundos por padrão) e
+  grava a próxima ação na outbox. Três varreduras: prazo de fallback vencido,
+  veredito inconclusivo prolongado e `release_at` vencido. O intervalo, o
+  tamanho do lote, a tolerância do veredito inconclusivo e a janela de
+  reemissão são configuração; nenhum deles é contrato.
+- **O scheduler não reivindica o avanço do plano.** Ele só pede. O ponto de
+  encontro de todos os gatilhos de um passo continua sendo
+  `FallbackRequestHandler`, e uma varredura que carimbasse `plan_advanced_at`
+  faria o handler ler o passo como já avançado e descartar exatamente o
+  gatilho que ela acabou de escrever.
+- **Nada de estado fora do banco.** Cada rodada lê o que precisa saber no
+  momento em que roda, então o papel roda com mais de uma réplica e uma
+  réplica pode morrer no meio de uma rodada sem levar consigo trabalho que só
+  ela conhecia.
+- As duas varreduras de fallback reivindicam por `FOR UPDATE SKIP LOCKED`:
+  elas precisam ler os candidatos e juntar as notificações antes de escrever
+  qualquer coisa, e um lote de pedidos não acrescenta trilha, então segurar o
+  lote inteiro em uma transação não faz ninguém esperar. A varredura de
+  liberação faz o oposto e por isso mesmo: ela termina em acréscimo de
+  auditoria, que segura o bloqueio da cadeia até o fim da transação, então
+  reivindica uma notificação por transação.
+- **Pedir não deixa trilha.** O pedido é uma linha de fila, a decisão é do
+  handler, e o handler já registra tanto o gatilho quanto a tentativa
+  enfileirada. Uma entrada de trilha por pedido tomaria o bloqueio da cadeia
+  uma vez por rodada, pela mesma razão que mantém o acréscimo fora da
+  transação do callback. A liberação é diferente em natureza: ela muda o
+  estado de uma notificação, e mudança de estado sem trilha é mudança que
+  ninguém reconstrói.
+- **A liberação transita `deferred` para `accepted` dentro da transação do
+  claim.** `CoreMessageProcessor` lê qualquer estado diferente de `accepted`
+  como reentrega e responde com trilha de duplicata e nenhum efeito, então uma
+  liberação que apenas enfileirasse deixaria a notificação parada para sempre
+  parecendo, por toda métrica de fila, um scheduler funcionando. A expiração
+  não é redecidida ali: quem resolve TTL vencido é o estágio do pipeline para
+  onde a notificação está voltando.
+- `notification_attempt.status_changed_at` é carimbada por **todo** escritor de
+  transição (`AttemptDispatchWriter` e `DeliveryStateApplier`) e responde há
+  quanto tempo a tentativa está onde está. Linha anterior à coluna fica nula e
+  nunca casa com predicado de idade, o que é leitura desejada: varredura não
+  age sobre idade que ninguém consegue calcular. Esse passivo pertence à
+  reconciliação.
+- `notification_attempt.fallback_requested_at` é o que impede a varredura de
+  prazo de escrever um gatilho por rodada para a mesma tentativa. Ela entra no
+  predicado do índice parcial, então a tentativa com pedido em voo sai do
+  índice; e ela é janela, não bandeira permanente, para que um gatilho que
+  nunca chegue ao handler não estacione o passo para sempre. Quem garante
+  unicidade continua sendo o claim do handler, nunca a contagem de pedidos.
+- O `unknown` prolongado só gera fallback em `critical` e em fluxo de
+  autenticação, e a elegibilidade é predicado da consulta, não filtro em
+  código, para que a tentativa inelegível nunca ocupe vaga do lote. Ele exige
+  prazo gravado, que é a prova de que existe passo posterior: um último passo
+  sem resposta fica para a reconciliação em vez de virar notificação falha.
+- **Predicado literal.** As três varreduras escrevem o predicado do índice
+  parcial que as atende palavra por palavra na própria consulta. Índice
+  parcial só atende consulta cujas cláusulas o planejador consegue provar que
+  implicam o predicado dele, e predicado escrito como parâmetro não se prova.
+  Trocar qualquer um deles por bind transforma a rodada em varredura
+  sequencial de todas as partições, em silêncio.
+- Integridade própria: `notifications-scheduler-scan` responde se as rodadas
+  continuam acontecendo. É a única pergunta que um scheduler parado responde
+  errado sozinho, porque o processo continua de pé, consumindo a fila e
+  relatando sucesso em todas as outras probes. A idade da linha vencida mais
+  antiga sai em log estruturado a cada rodada que encontra trabalho; o alarme
+  sobre ela pertence à Infrastructure.
+
 
 ## Superfície de consulta
 
@@ -451,21 +636,37 @@ curta própria.
   compensação. No Kafka, a revogação da ACL do broker permanece como parada
   rígida independente. A política nomeada do ASP.NET no endpoint é apenas uma
   proteção rudimentar dentro do processo.
+- A rota de webhook tem política própria (`notifications-provider-webhook`),
+  particionada pelo provedor provado pela assinatura e, quando ele não existe,
+  pelo provedor endereçado na rota. O teto é generoso de propósito: quem decide
+  o ritmo do callback é o provedor, e um callback recusado volta em retentativa.
+  A partição por provedor impede que a tempestade de eventos de um provedor
+  afame o feedback de outro.
 
 ## Particionamento
 
-- `notification` (por `created_at`), `notification_attempt` (por `created_at`) e
-  `policy_evaluation` (por `evaluated_at`) são particionadas por mês; cada
-  migração de criação provisiona as partições iniciais, e o agendador do módulo
+- `notification` (por `created_at`), `notification_attempt` (por `created_at`),
+  `policy_evaluation` (por `evaluated_at`) e `delivery_event` (por
+  `received_at`) são particionadas por mês; cada migração de criação provisiona
+  as partições iniciais, e o agendador do módulo
   (`Modules:Notifications:PartitionManager`) mantém meses futuros provisionados
-  para as três tabelas por meio do provisionador da plataforma.
+  para as quatro tabelas por meio do provisionador da plataforma.
   Verificações de integridade: `notifications-partitions`,
-  `notifications-attempt-partitions` e
-  `notifications-policy-evaluation-partitions`.
+  `notifications-attempt-partitions`,
+  `notifications-policy-evaluation-partitions` e
+  `notifications-delivery-event-partitions`.
+- `delivery_event` particiona por `received_at`, o instante em que este hub
+  recebeu o callback, e nunca por `occurred_at`: o provedor data o próprio
+  evento e pode datá-lo para trás, o que colocaria a linha fora de toda
+  partição provisionada e faria falhar o insert de um callback que este hub não
+  tem o direito de recusar.
 - Nunca revogue escritas nas partições deste módulo: a revogação de escrita é
   uma semântica de fechamento exclusiva da trilha de Audit.
-- `idempotency_key` permanece fora do particionamento para que sua chave única
-  possa existir.
+- `idempotency_key` e `provider_event_dedupe` permanecem fora do
+  particionamento para que suas chaves únicas possam existir. No caso do livro
+  de deduplicação isso é o ponto: um callback reentregue dias depois precisa
+  colidir com a primeira entrega, e uma chave única sobre tabela particionada
+  teria de carregar a coluna de partição.
 
 ## Vocabulário de auditoria
 
@@ -483,7 +684,11 @@ acrescenta `fallback.triggered`, `notification.delivered`,
 para as decisões do próprio dispatcher e `core-worker` para o handler de
 fallback (`Infrastructure/Auditing/DispatchingAuditVocabulary.cs`). As
 constantes permanecem locais ao módulo; promovê-las para o vocabulário
-`Integration/V1` de Audit é uma decisão pendente entre módulos.
+`Integration/V1` de Audit é uma decisão pendente entre módulos. O rastreamento
+de entrega acrescenta `delivery.event_applied`, com tipo de ator `system` e id
+de ator `delivery-tracker`: uma única ação com a transição nos detalhes, porque
+quem lê uma trilha de evidência pergunta o que o provedor relatou e o que mudou,
+e as duas respostas pertencem ao mesmo registro.
 
 ## Eixo de erros
 
@@ -518,6 +723,10 @@ constantes permanecem locais ao módulo; promovê-las para o vocabulário
 
 - A rota exige uma função de envio; a verificação no nível da classe é executada
   sobre o recurso no caso de uso porque a classe chega no corpo.
+- A rota de webhook é autenticada pelo esquema `ProviderSignature` e por
+  nenhuma outra identidade: o token de portador que autentica o resto do host
+  nunca satisfaz o gate dela, e a assinatura do provedor nunca satisfaz o gate
+  das demais.
 - A administração do kill switch exige `Platform.Admin` e um `oid` ou `sub`
   estável; o acesso operacional a essa função passa pelo PIM. Nunca separe a
   escrita do estado de seu acréscimo de auditoria.

@@ -10,4 +10,7 @@ internal static partial class FallbackRequestHandlerLogger
 
     [LoggerMessage(EventId = 7142, Level = LogLevel.Information, Message = "Gatilho de fallback ignorado: a notificação {NotificationId} está em '{Status}'.")]
     internal static partial void FallbackDuplicateSkipped(this ILogger logger, Guid notificationId, string status);
+
+    [LoggerMessage(EventId = 7143, Level = LogLevel.Information, Message = "Gatilho de fallback ignorado: a etapa '{Channel}' da notificação {NotificationId} já havia avançado.")]
+    internal static partial void FallbackStepAlreadyAdvanced(this ILogger logger, Guid notificationId, string channel);
 }

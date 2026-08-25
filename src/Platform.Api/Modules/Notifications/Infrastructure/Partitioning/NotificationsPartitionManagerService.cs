@@ -20,7 +20,7 @@ internal sealed class NotificationsPartitionManagerService(
 
     /// <summary>Every partitioned table this module owns, provisioned together.</summary>
     internal static readonly string[] PartitionedTables =
-        ["notification", "notification_attempt", "policy_evaluation"];
+        ["notification", "notification_attempt", "policy_evaluation", "delivery_event"];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -35,10 +35,7 @@ internal sealed class NotificationsPartitionManagerService(
         {
             await RunRoundAsync(stoppingToken);
             using var timer = new PeriodicTimer(options.Value.Interval);
-            while (await timer.WaitForNextTickAsync(stoppingToken))
-            {
-                await RunRoundAsync(stoppingToken);
-            }
+            while (await timer.WaitForNextTickAsync(stoppingToken)) await RunRoundAsync(stoppingToken);
         }
         catch (OperationCanceledException)
         {
@@ -54,10 +51,7 @@ internal sealed class NotificationsPartitionManagerService(
             NotificationsDbContext db = scope.ServiceProvider.GetRequiredService<NotificationsDbContext>();
             TimeProvider timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
             var provisioner = new MonthlyPartitionProvisioner(db.Database, Schema, timeProvider, logger);
-            foreach (var table in PartitionedTables)
-            {
-                await provisioner.EnsureMonthlyPartitionsAsync(table, options.Value.MonthsAhead, cancellationToken);
-            }
+            foreach (var table in PartitionedTables) await provisioner.EnsureMonthlyPartitionsAsync(table, options.Value.MonthsAhead, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

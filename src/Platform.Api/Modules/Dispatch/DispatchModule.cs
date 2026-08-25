@@ -3,6 +3,7 @@ using NotificationHub.Api.Composition;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.ProviderConfig;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Webhooks;
 
 namespace NotificationHub.Api.Modules.Dispatch;
 
@@ -15,6 +16,7 @@ public sealed class DispatchModule : IModule
         services.AddDispatchPersistence(configuration);
         services.AddDispatchProviders(configuration);
         services.AddDispatchProviderResolution(configuration);
+        services.AddDispatchWebhookInterpreters(configuration);
         services.TryAddSingleton(TimeProvider.System);
     }
 }

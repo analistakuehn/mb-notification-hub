@@ -42,6 +42,12 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
         builder.Property(notification => notification.TemplateVersion)
             .HasColumnName("template_version");
 
+        // Written false by default so a row created before this column existed
+        // reads exactly like a notification outside an authentication flow.
+        builder.Property(notification => notification.AuthFlow)
+            .HasColumnName("auth_flow")
+            .HasDefaultValue(false);
+
         builder.Property(notification => notification.PolicyVersion)
             .HasColumnName("policy_version");
 
@@ -80,10 +86,15 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
         builder.HasIndex(nameof(Notification.CorrelationId))
             .HasDatabaseName("ix_notification_correlation");
 
-        // The release job scans deferred notifications; the filter keeps the
-        // index to the rows that actually carry a release instant.
+        // The release scan reads deferred notifications, so the deferred state
+        // is what the filter names, not the mere presence of a release instant.
+        // The distinction is the whole point: a released notification keeps its
+        // instant as evidence of why it waited, and an index filtered on the
+        // instant would hold every notification that was ever deferred, growing
+        // without bound while the scan is only ever interested in the ones
+        // still waiting.
         builder.HasIndex(nameof(Notification.ReleaseAt))
-            .HasDatabaseName("ix_notification_release")
-            .HasFilter("release_at IS NOT NULL");
+            .HasDatabaseName("ix_notification_release_due")
+            .HasFilter("status = 'deferred'");
     }
 }

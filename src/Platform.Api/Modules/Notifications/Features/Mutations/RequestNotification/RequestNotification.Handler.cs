@@ -137,10 +137,7 @@ internal static partial class RequestNotification
                 return Result.Success<Outcome>(new Outcome.ProducerDisabled());
             }
 
-            if (admissionDecision is AdmissionDecision.KillSwitchUnavailable)
-            {
-                return Result.Success<Outcome>(new Outcome.KillSwitchUnavailable());
-            }
+            if (admissionDecision is AdmissionDecision.KillSwitchUnavailable) return Result.Success<Outcome>(new Outcome.KillSwitchUnavailable());
 
             if (admissionDecision is AdmissionDecision.RateLimited limited)
             {
@@ -197,6 +194,7 @@ internal static partial class RequestNotification
                 RecipientId = command.RecipientId,
                 Class = canonicalClass,
                 TemplateKey = command.TemplateKey,
+                AuthFlow = IsAuthenticationFlow(template),
                 TemplateVersion = template.Version,
                 VariablesMaskedJson = protectedVariables.MaskedJson,
                 VariablesEncrypted = protectedVariables.Encrypted,
@@ -212,7 +210,7 @@ internal static partial class RequestNotification
             PersistOutcome persisted = await sink.PersistAcceptedAsync(
                 notification,
                 registration,
-                BuildOutboxMessage(notification, template, acceptedAt),
+                BuildOutboxMessage(notification, acceptedAt),
                 AcceptedEntry(notification, producer, origin, template.Version),
                 cancellationToken);
             if (persisted is PersistOutcome.ExistingRegistration existing)
@@ -407,12 +405,20 @@ internal static partial class RequestNotification
             OccurredAt = timeProvider.GetUtcNow(),
         };
 
+        /// <summary>
+        /// Whether this template's purpose puts the notification in an
+        /// authentication flow. Read here, once, because this is the only
+        /// point of the lifecycle that already holds the published template:
+        /// every later producer reads the stored answer instead.
+        /// </summary>
+        private static bool IsAuthenticationFlow(PublishedTemplate template)
+            => string.Equals(template.Purpose, AuthenticationPurpose, StringComparison.Ordinal);
+
         private static OutboxAppend BuildOutboxMessage(
             Notification notification,
-            PublishedTemplate template,
             DateTimeOffset acceptedAt)
         {
-            var destination = string.Equals(template.Purpose, AuthenticationPurpose, StringComparison.Ordinal)
+            var destination = notification.AuthFlow
                 ? AuthenticationDestination
                 : $"core-{notification.Class}";
             var traceparent = Activity.Current?.Id;

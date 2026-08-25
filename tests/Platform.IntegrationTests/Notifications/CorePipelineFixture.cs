@@ -160,6 +160,12 @@ public sealed class CorePipelineFixture : WebApplicationFactory<Program>, IAsync
         Action<IServiceCollection>? replaceServices = null)
         => BuildProvider(DispatcherWorkerRole.ConfigureServices, overrides, loggerProvider, replaceServices);
 
+    /// <summary>The delivery-tracker role composed exactly as the worker host would compose it.</summary>
+    public ServiceProvider BuildDeliveryTrackerProvider(
+        IDictionary<string, string?>? overrides = null,
+        Action<IServiceCollection>? replaceServices = null)
+        => BuildProvider(DeliveryTrackerWorkerRole.ConfigureServices, overrides, replaceServices: replaceServices);
+
     /// <summary>The notifications-maintenance role composed exactly as the worker host would compose it.</summary>
     public ServiceProvider BuildMaintenanceWorkerProvider(
         IDictionary<string, string?>? overrides = null,

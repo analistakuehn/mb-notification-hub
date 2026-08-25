@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Threading.RateLimiting;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Authentication;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
 
@@ -29,9 +30,28 @@ public static class NotificationsRateLimitingSetup
     /// </summary>
     public const string KillSwitchAdminPolicyName = "notifications-kill-switch-admin";
 
+    /// <summary>
+    /// Policy of the provider webhook route, partitioned by the provider the
+    /// callback is addressed to rather than by the caller: the callers are the
+    /// provider's own hosts, so an address partition would either be one
+    /// bucket for a whole provider fleet or a new bucket per node. Partitioning
+    /// by provider also contains the blast radius, since one provider's event
+    /// storm cannot starve another provider's feedback.
+    /// </summary>
+    public const string ProviderWebhookPolicyName = "notifications-provider-webhook";
+
     private const int PermitLimit = 2000;
     private const int QueryPermitLimit = 120;
     private const int KillSwitchAdminPermitLimit = 30;
+
+    /// <summary>
+    /// Deliberately generous: a provider decides its own callback rate, a
+    /// batch of feedback is cheap to store, and a refused callback is
+    /// redelivered by the provider until it is accepted. The ceiling is a
+    /// backstop against a runaway loop, not a business limit.
+    /// </summary>
+    private const int ProviderWebhookPermitLimit = 6000;
+
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     public static IServiceCollection AddNotificationsRateLimiting(this IServiceCollection services)
@@ -66,7 +86,35 @@ public static class NotificationsRateLimitingSetup
                         Window = Window,
                         QueueLimit = 0,
                     }));
+
+            options.AddPolicy(ProviderWebhookPolicyName, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    ProviderPartitionKey(httpContext),
+                    static _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = ProviderWebhookPermitLimit,
+                        Window = Window,
+                        QueueLimit = 0,
+                    }));
         });
+
+    /// <summary>
+    /// Partition of the webhook route: the proven provider identity when the
+    /// signature scheme published one, and the addressed provider otherwise,
+    /// so a flood of unauthenticated callbacks still lands in a bucket instead
+    /// of sharing one with authenticated traffic.
+    /// </summary>
+    private static string ProviderPartitionKey(HttpContext httpContext)
+    {
+        var proven = httpContext.User.FindFirstValue(ProviderSignatureDefaults.ProviderKeyClaimType);
+        if (proven is not null) return $"provider:{proven}";
+
+        return httpContext.Request.RouteValues
+                   .TryGetValue(ProviderSignatureDefaults.ProviderRouteValue, out var addressed)
+               && addressed is string providerKey
+                ? $"unverified:{providerKey}"
+                : $"unverified:{httpContext.Connection.RemoteIpAddress}";
+    }
 
     private static string ActorPartitionKey(HttpContext httpContext)
     {

@@ -129,6 +129,35 @@ services:
       localstack:
         condition: service_healthy
 
+  delivery-tracker:
+    build:
+      context: .
+      dockerfile: src/Platform.Worker/Dockerfile
+    # Two replicas on purpose, and this is the only place a developer sees it.
+    # The role carries the scheduler, whose scans claim every row they act on
+    # in the database; running two locally is what turns "several replicas are
+    # safe" from a sentence in a design document into something that breaks
+    # here first if it stops being true.
+    deploy:
+      replicas: 2
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      Worker__Role: delivery-tracker
+      Platform__Messaging__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Platform__Messaging__Sqs__ServiceUrl: http://localstack:4566
+      Platform__Messaging__Sqs__Region: us-east-1
+      Platform__Messaging__Sqs__AccessKey: test
+      Platform__Messaging__Sqs__SecretKey: test
+      Modules__Notifications__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+      Modules__Audit__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
+    volumes:
+      *user-secrets-volume
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redis-data:

@@ -383,7 +383,7 @@ carrega conteúdo renderizado nem dado de contato.
 |---|---|---|
 | `araia.notification.rejected.v1` | A ingestão ou a política recusou | O hub recusou a solicitação, pelo motivo do catálogo canônico |
 | `araia.notification.failed.v1` | O plano de entrega se esgotou, ou a notificação expirou | A entrega não aconteceu |
-| `araia.notification.delivered.v1` | Um envio por **push** foi aceito pelo provedor | Apenas push, e apenas aceitação pelo provedor |
+| `araia.notification.delivered.v1` | O provedor confirmou a entrega, ou um push foi aceito na **última** etapa do plano | Entrega confirmada; em push sem etapa posterior, aceitação pelo provedor |
 | `araia.notification.consent_changed.v1` | O ledger de consentimento registrou uma mudança | Estado de consentimento por finalidade e canal |
 
 ```json
@@ -536,7 +536,8 @@ e as tentativas:
 
 Estados possíveis da notificação: `accepted`, `dispatched`, `delivered`,
 `rejected`, `failed`, `expired` e `deferred`. Estados possíveis da tentativa:
-`queued`, `sending`, `sent`, `failed` e `unknown`.
+`queued`, `sending`, `sent`, `failed`, `unknown`, `delivered`, `read` e
+`bounced`. Os três últimos só aparecem com retorno de provedor.
 
 A consulta não devolve conteúdo renderizado em forma alguma, nem as variáveis.
 Da tentativa saem apenas os dois hashes do conteúdo. Em canal de contato o alvo
@@ -547,23 +548,34 @@ registro de dispositivo, nunca o token.
 
 Esta é a parte que mais gera engano, então ela está escrita sem rodeio.
 
-**Confirmação de entrega pelo provedor não existe.** O hub não coleta eventos
-de retorno de provedor nesta versão. Não há webhook, não há reconciliação e não
-há tabela de eventos de entrega. A resposta da consulta **não declara** membro
-de evento de entrega: ele não vem como lista vazia, porque lista vazia
-afirmaria que não houve evento, e a versão atual não pode afirmar isso.
+**O hub já coleta retorno de provedor, e a consulta ainda não o mostra.** O
+retorno chega por webhook, é guardado como evidência e move a tentativa. O que
+a consulta devolve continua sendo o estado agregado: a resposta **não declara**
+membro de evento de entrega, e ele não vem como lista vazia, porque lista vazia
+afirmaria que não houve evento. Não existe reconciliação: quando o provedor não
+chama de volta, nada preenche a lacuna nesta versão.
 
 **`sent` afirma aceitação pelo provedor, nunca entrega.** Os campos `sentAt` e
 `providerMessageId` de uma tentativa dizem que o provedor assumiu
 responsabilidade pela mensagem. Não dizem que ela chegou ao aparelho, à caixa
 de entrada nem aos olhos do cliente.
 
-**`delivered` existe apenas para push.** Para push, aceitação pelo provedor é o
-sinal de entrega que o desenho define, então a notificação transita para
-`delivered` e o evento `araia.notification.delivered.v1` é publicado. Para
-e-mail isso não acontece: a notificação permanece em `dispatched` e a tentativa
-em `sent`, e nenhum evento de entrega é publicado. Um e-mail bem-sucedido
-**nunca** produz `delivered` nesta versão.
+**`delivered` afirma entrega confirmada, e mudou de significado.** Uma
+notificação alcança `delivered` quando o provedor confirma a entrega da
+tentativa. Em push existe uma exceção declarada: o provedor de push não confirma
+nada depois de aceitar, então a aceitação vale como entrega **somente quando a
+tentativa é a última etapa do plano**, onde nenhuma etapa posterior poderia
+socorrê-la.
+
+**A mudança que quebra suposição antiga.** Um push aceito numa etapa que **tem**
+etapa posterior não produz mais `delivered` e não publica mais
+`araia.notification.delivered.v1` no instante da aceitação. A notificação
+permanece em `dispatched` e a tentativa fica em `sent`, à espera de confirmação
+real ou da conclusão do plano. Se o seu consumidor usava esse evento como
+"o push saiu do hub", troque a leitura: o que afirma que o hub entregou ao
+provedor é a tentativa em `sent`, na consulta, e o que afirma entrega é o
+evento. Um e-mail continua **não** produzindo `delivered` por aceitação; ele só
+alcança `delivered` com confirmação do provedor.
 
 **Tentativa em `unknown` não progride.** Quando o provedor responde com
 timeout ou erro de servidor, sem veredito conclusivo, a tentativa fica em
@@ -575,9 +587,8 @@ O evento `araia.notification.contact_suppressed.v1` não é publicado nesta
 versão. Não é que o hub ignore o fato: um token de push revogado pelo provedor
 já é registrado na trilha, na mesma transação do veredito do envio, e o
 dispositivo deixa de ser alcançável a partir dali. O que falta é o anúncio no
-barramento, mais os gatilhos que dependem de retorno de provedor, bounce de
-e-mail e número inválido. A entrega do evento é de versão futura, na mesma
-ressalva do `delivered` de e-mail.
+barramento e a decisão automática de supressão a partir dele. A entrega do
+evento é de versão futura.
 
 **Não existe stream de mudanças de status.** Não há assinatura por evento
 enviado pelo servidor. O que existe é o tópico de saída e a consulta.
