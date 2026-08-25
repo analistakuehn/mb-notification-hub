@@ -35,6 +35,7 @@ internal static class PolicyEvidenceProjection
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
         {
             [ConsentGateRule.RuleName] = Keys("basis", "purpose", "granted", "denied"),
+            [SuppressionGateRule.RuleName] = Keys("remaining", "suppressed", "surviving"),
             [QuietHoursRule.RuleName] = Keys("guard", "window", "timezone", "localTime", "releaseAt"),
             [DedupeWindowRule.RuleName] = Keys(
                 "windowSeconds", "acquired", "heldByThisNotification", "failOpen", "risk"),

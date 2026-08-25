@@ -2,11 +2,11 @@
 language: pt-BR
 ---
 
-# Notification Hub — Registro de Decisões de Arquitetura (ADRs)
+# Notification Hub: registro de decisões de arquitetura (ADRs)
 
 Formato: MADR (Markdown Architectural Decision Records), em pt-BR. Uma decisão por arquivo, numeração sequencial, nunca reescrita após aceita: mudanças viram nova ADR que substitui a anterior.
 
-Documento-mãe: *Notification Hub — Design de Sistema*.
+Documento-mãe: *Notification Hub, design de sistema*.
 
 | ADR | Título | Status | Substitui / Relacionadas |
 |---|---|---|---|
@@ -23,6 +23,8 @@ Documento-mãe: *Notification Hub — Design de Sistema*.
 | [0011](ADR-0011-politica-como-configuracao-de-classe.md) | Política como configuração de classe | Proposta | 0003, 0005, 0006 |
 | [0012](ADR-0012-contact-consent-fonte-da-verdade.md) | Contact & Consent: hub como fonte da verdade com ingestão dedicada | Proposta | 0004, 0006, 0010 |
 | [0013](ADR-0013-scriban-engine-de-templates.md) | Scriban como engine de templates | Proposta | 0005 |
+| [0014](ADR-0014-confirmacao-de-entrega-e-gatilhos-de-fallback.md) | Confirmação de entrega e convivência dos gatilhos de fallback | Proposta | 0008, 0011 |
+| [0015](ADR-0015-regra-de-supressao-no-estagio-policy.md) | Regra de supressão no estágio Policy | Proposta | 0011, 0012 |
 
 ## Convenções
 
@@ -36,7 +38,7 @@ Planos completos das fases pendentes do roadmap (§15 do documento-mãe), com ev
 
 - [Fase 0: Governança](fases/fase-0-governanca.md)
 - [Fase 1b: Fundação](fases/fase-1b-fundacao.md)
-- [Fase 2: Resiliência e SMS](fases/fase-2-resiliencia-e-sms.md)
+- [Fase 2: Resiliência e SMS](fases/fase-2-resiliencia-e-sms.md), decomposta em fatias de implementação em [Fase 2: decomposição](fases/fase-2-decomposicao.md), que carrega o status por fatia
 - [Fase 3: WhatsApp](fases/fase-3-whatsapp.md)
 
 ## Guias

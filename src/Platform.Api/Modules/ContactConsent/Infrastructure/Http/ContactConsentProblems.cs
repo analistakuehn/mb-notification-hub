@@ -10,6 +10,7 @@ internal static class ContactConsentProblems
     internal const string RecipientIdInvalidType = "recipient-id-invalid";
     internal const string RecipientNotFoundType = "recipient-not-found";
     internal const string NoContactPointForChannelType = "no-contact-point-for-channel";
+    internal const string ContactPointNotFoundType = "contact-point-not-found";
     internal const string WriterIdentityRequiredType = "writer-identity-required";
     internal const string ConcurrentUpdateConflictType = "concurrent-update-conflict";
 
@@ -24,6 +25,12 @@ internal static class ContactConsentProblems
             StatusCodes.Status404NotFound,
             RecipientNotFoundType,
             $"O destinatário '{recipientId}' não possui cadastro de contatos.");
+
+    internal static IResult ContactPointNotFound()
+        => Problem(
+            StatusCodes.Status404NotFound,
+            ContactPointNotFoundType,
+            "O ponto de contato não existe ou pertence a outro destinatário.");
 
     internal static IResult NoContactPointForChannel(string channel)
         => Problem(

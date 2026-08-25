@@ -46,6 +46,12 @@ public sealed class DeliveryTrackerWorkerRole : IWorkerRoleModule
         services.AddAuditTrailSurface();
         services.AddNotificationsPersistence(configuration);
 
+        // The write side of the contact suppression ledger, behind its
+        // published contract: this role observes that a provider refused a
+        // destination, and the context that owns contacts decides what that
+        // costs the recipient.
+        services.AddContactConsentSuppressionLedger(configuration);
+
         services.AddOptions<DeliveryTrackingOptions>()
             .Bind(configuration.GetSection(DeliveryTrackingOptions.SectionName))
             .ValidateDataAnnotations()

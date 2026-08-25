@@ -24,7 +24,8 @@
   `Modules.TemplateManagement.Integration.V1` (catálogo publicado, validação de
   variáveis, renderer e contrato de regra de política),
   `Modules.ContactConsent.Integration.V1` (diretório de destinatários, revelação
-  de contato e token, ciclo de vida do token do dispositivo),
+  de contato e token, ciclo de vida do token do dispositivo, ledger de
+  supressão),
   `Modules.Dispatch.Integration.V1` (providers de canais e sua resolução, mais
   a verificação de assinatura e a normalização de feedback de provedor) e
   `Modules.Audit.Integration.V1` (acréscimo transacional de auditoria). Nunca
@@ -301,11 +302,24 @@ curta própria.
   `rejected` e `expired`; `deferred` o mantém selado porque o pipeline é retomado
   a partir desse ponto.
 - Estágio Policy: implementações de `IPolicyRule<NotificationContext>` em
-  `Features/Pipeline/Rules/`, na ordem fixa da v1: `ConsentGate`, `QuietHours`,
-  `DedupeWindow` e `ChannelSelection`. Cada regra registra uma linha
-  `policy_evaluation` com evidência JSON compacta; motivos canônicos de rejeição:
-  `no-consent`, `duplicate-window` e `no-valid-contact`. Uma proteção rígida no
-  código impede o adiamento de fluxos críticos e de autenticação.
+  `Features/Pipeline/Rules/`, na ordem fixa `ConsentGate`, `SuppressionGate`,
+  `QuietHours`, `DedupeWindow` e `ChannelSelection`. Cada regra registra uma
+  linha `policy_evaluation` com evidência JSON compacta; motivos canônicos de
+  rejeição: `no-consent`, `channel-suppressed`, `duplicate-window` e
+  `no-valid-contact`. Uma proteção rígida no código impede o adiamento de
+  fluxos críticos e de autenticação.
+- `SuppressionGate` retira os canais cujos endereços ativos estão todos
+  suprimidos, lendo `RecipientSnapshot.Suppressions`, que o estágio Resolve já
+  carregou. A posição é decisão de política: depois do consentimento, porque
+  quem nunca autorizou o canal é recusado por um motivo mais forte, e antes da
+  janela de silêncio, porque adiar por horas para recusar de manhã é trabalho
+  que ninguém pediu. Um canal só cai quando todos os seus endereços ativos
+  estão suprimidos; um destinatário com um segundo endereço vivo no mesmo canal
+  continua alcançável. A ordem das regras vive em `CoreWorkerRole.RulesInOrder`
+  e mudá-la é decisão de política, não refatoração. Toda chave de evidência
+  nova precisa entrar na lista de divulgação de
+  `Infrastructure/Auditing/PolicyEvidenceProjection.cs`, que um teste de
+  completude cobra.
 - A barreira de deduplicação é o `SET NX` do Redis com chave
   `(application, templateKey, recipientId)`, a janela da política como TTL e o
   id da notificação como valor, de modo que uma reentrega reconheça a própria
@@ -463,6 +477,23 @@ curta própria.
 - `provider_event_dedupe` é purgada por idade
   (`Modules:Notifications:ProviderEventDedupePurge`, trinta dias por padrão) no
   próprio papel; a evidência não é tocada pela purga.
+- **O sinal de supressão é gravado, nunca reclassificado aqui.**
+  `delivery_event.suppression_signal` guarda a classificação que os adaptadores
+  de provedor fizeram na ingestão, na grafia durável (`none`, `hard-bounce`,
+  `invalid-destination`). Quais códigos são definitivos é vocabulário
+  configurável do provedor, e uma segunda leitura desse vocabulário deste lado
+  seria um segundo classificador livre para divergir. Linha anterior à coluna
+  lê `none`, que é o que a ausência já significava.
+- Depois de confirmar a transição, e nunca antes, o consumidor relata o destino
+  recusado ao contexto dono dos contatos por
+  `ContactConsent.Integration.V1.ISuppressionLedger`, no mesmo regime best
+  effort e idempotente do token de dispositivo: a transição já foi commitada e
+  uma reentrega resolve como duplicata, então uma falha do relato fica
+  registrada e é a reconciliação que a socorre. O `sourceEventId` é o id da
+  linha de evidência, e o instante relatado é o `received_at` deste hub, nunca
+  o que o provedor declara: a janela de acúmulo do ledger não pode ser aberta
+  de fora. Um attempt sem ponto de contato (push) não relata nada aqui, porque
+  token morto viaja pelo contrato de ciclo de vida do dispositivo.
 
 ## Scheduler do papel `delivery-tracker`
 

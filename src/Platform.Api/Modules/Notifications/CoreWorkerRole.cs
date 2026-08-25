@@ -73,6 +73,7 @@ public sealed class CoreWorkerRole : IWorkerRoleModule
         services.AddScoped<ValidateStage>();
         services.AddScoped<ResolveStage>();
         services.AddScoped<ConsentGateRule>();
+        services.AddScoped<SuppressionGateRule>();
         services.AddScoped<QuietHoursRule>();
         services.AddScoped<DedupeWindowRule>();
         services.AddScoped<ChannelSelectionRule>();
@@ -91,10 +92,17 @@ public sealed class CoreWorkerRole : IWorkerRoleModule
         services.AddSqsQueueConsumer<CoreMessageProcessor>(QueueBindings(configuration));
     }
 
-    /// <summary>The rule order of the version-1 policy; changing it is a policy decision, not a refactor.</summary>
-    private static IPolicyRule<NotificationContext>[] RulesInOrder(IServiceProvider serviceProvider) =>
+    /// <summary>
+    /// The rule order of the policy stage; changing it is a policy decision,
+    /// not a refactor. The suppression gate sits after consent, because a
+    /// recipient who never allowed the channel is refused for a stronger
+    /// reason, and before the silence window, because deferring a notification
+    /// for hours to reject it in the morning is work nobody asked for.
+    /// </summary>
+    internal static IPolicyRule<NotificationContext>[] RulesInOrder(IServiceProvider serviceProvider) =>
     [
         serviceProvider.GetRequiredService<ConsentGateRule>(),
+        serviceProvider.GetRequiredService<SuppressionGateRule>(),
         serviceProvider.GetRequiredService<QuietHoursRule>(),
         serviceProvider.GetRequiredService<DedupeWindowRule>(),
         serviceProvider.GetRequiredService<ChannelSelectionRule>(),

@@ -4,6 +4,25 @@ using NotificationHub.Api.Infrastructure.Messaging;
 
 namespace NotificationHub.Api.Modules.ContactConsent.Infrastructure.Events;
 
+/// <summary>
+/// One suppression as the corporate bus sees it. The contact point id stays
+/// out: a domain that wants to know which address stopped working asks this
+/// module, and an event crossing the company carries the least it can while
+/// staying actionable.
+/// </summary>
+internal sealed record ContactSuppressedFact
+{
+    /// <summary>Subject of the event and record key; keeps per-recipient order on the topic.</summary>
+    public required string RecipientId { get; init; }
+
+    public required string Channel { get; init; }
+
+    /// <summary>Stable classification of the refusal that reached the threshold.</summary>
+    public required string Reason { get; init; }
+
+    public required DateTimeOffset OccurredAt { get; init; }
+}
+
 /// <summary>One consent record as the corporate bus sees it.</summary>
 internal sealed record ConsentChangedFact
 {
@@ -30,9 +49,10 @@ internal sealed record ConsentChangedFact
 /// is a claim check that never leaves the hub: only the recipient id and, when
 /// one row was affected, the contact point id, so contact values, tokens and
 /// profile data never enter a queue and consumers re-read state through the
-/// published contract. The outgoing consent event tells the domains that a
-/// recipient's stance on a purpose changed, and carries no contact value and
-/// no evidence beyond the origin that recorded it.
+/// published contract. The outgoing events tell the domains that a
+/// recipient's stance on a purpose changed, or that the hub stopped
+/// addressing one of their channels, and carry no contact value and no
+/// evidence beyond the origin that recorded it.
 /// </summary>
 internal static class ContactConsentEvents
 {
@@ -43,6 +63,9 @@ internal static class ContactConsentEvents
 
     /// <summary>Outgoing event type of a consent change on the corporate bus.</summary>
     internal const string ConsentChangedEventType = "araia.notification.consent_changed.v1";
+
+    /// <summary>Outgoing event type of a contact point the hub stopped addressing.</summary>
+    internal const string ContactSuppressedEventType = "araia.notification.contact_suppressed.v1";
 
     internal static OutboxAppend Build(
         string eventType,
@@ -97,6 +120,33 @@ internal static class ContactConsentEvents
                 purpose = fact.Purpose,
                 granted = fact.Granted,
                 source = fact.Source,
+            }),
+        });
+    }
+
+    /// <summary>
+    /// Announces one suppression on the outgoing topic of the hub, next to the
+    /// internal invalidation message of the same write. Only a write that
+    /// really suppressed appends it, so the announcement happens once per
+    /// decision and never once per reported refusal.
+    /// </summary>
+    internal static OutboxAppend BuildContactSuppressed(ContactSuppressedFact fact)
+    {
+        ArgumentNullException.ThrowIfNull(fact);
+        return CloudEventOutbox.Build(new CloudEventAppend
+        {
+            Destination = OutgoingEventBus.Topic,
+            Source = OutgoingEventBus.Source,
+            Type = ContactSuppressedEventType,
+            Subject = fact.RecipientId,
+            Time = fact.OccurredAt,
+            PriorityClass = PriorityClass,
+            Traceparent = Activity.Current?.Id,
+            Data = JsonSerializer.SerializeToElement(new
+            {
+                recipientId = fact.RecipientId,
+                channel = fact.Channel,
+                reason = fact.Reason,
             }),
         });
     }

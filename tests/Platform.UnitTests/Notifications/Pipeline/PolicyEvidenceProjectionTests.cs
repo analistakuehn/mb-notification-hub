@@ -169,6 +169,11 @@ public sealed class PolicyEvidenceProjectionTests
             Collect(keys, ConsentGateRule.RuleName, result);
         }
 
+        foreach (PolicyRuleResult result in await SuppressionGateBranchesAsync())
+        {
+            Collect(keys, SuppressionGateRule.RuleName, result);
+        }
+
         foreach (PolicyRuleResult result in await QuietHoursBranchesAsync())
         {
             Collect(keys, QuietHoursRule.RuleName, result);
@@ -228,6 +233,49 @@ public sealed class PolicyEvidenceProjectionTests
             await rule.EvaluateAsync(
                 PipelineTestData.Context(recipient: PipelineTestData.Recipient()),
                 PipelineTestData.Policy(consentPurpose: ConsentPurpose),
+                CancellationToken.None),
+        ];
+    }
+
+    private static async Task<PolicyRuleResult[]> SuppressionGateBranchesAsync()
+    {
+        var rule = new SuppressionGateRule(new FrozenTimeProvider(InsideQuietWindowUtc));
+        var smsPoint = Guid.NewGuid();
+        var emailPoint = Guid.NewGuid();
+        ContactPointSnapshot[] points =
+        [
+            new(smsPoint, "sms", Verified: true),
+            new(emailPoint, "email", Verified: true),
+        ];
+        SuppressionState[] smsSuppressed =
+            [new(smsPoint, "sms", "hard-bounce", InsideQuietWindowUtc, null)];
+        SuppressionState[] bothSuppressed =
+        [
+            new(smsPoint, "sms", "hard-bounce", InsideQuietWindowUtc, null),
+            new(emailPoint, "email", "hard-bounce", InsideQuietWindowUtc, null),
+        ];
+
+        return
+        [
+            await rule.EvaluateAsync(
+                PipelineTestData.Context(
+                    recipient: PipelineTestData.Recipient(contactPoints: points),
+                    remainingChannels: ["sms", "email"]),
+                PipelineTestData.Policy(),
+                CancellationToken.None),
+            await rule.EvaluateAsync(
+                PipelineTestData.Context(
+                    recipient: PipelineTestData.Recipient(
+                        contactPoints: points, suppressions: smsSuppressed),
+                    remainingChannels: ["sms", "email"]),
+                PipelineTestData.Policy(),
+                CancellationToken.None),
+            await rule.EvaluateAsync(
+                PipelineTestData.Context(
+                    recipient: PipelineTestData.Recipient(
+                        contactPoints: points, suppressions: bothSuppressed),
+                    remainingChannels: ["sms", "email"]),
+                PipelineTestData.Policy(),
                 CancellationToken.None),
         ];
     }

@@ -84,6 +84,25 @@ internal sealed class RecipientDirectory(
                 device.Id, device.Platform, device.AppVersion, device.LastSeenAt))
             .ToListAsync(cancellationToken);
 
+        // Only the suppressions of contact points this snapshot lists: a
+        // suppression of a point already removed answers a question nobody
+        // asks here, and leaving it in would put a channel in the suppression
+        // list that is not in the contact list.
+        List<SuppressionState> suppressions = await db.Suppressions
+            .AsNoTracking()
+            .Where(suppression => suppression.RemovedAt == null
+                && db.ContactPoints.Any(point => point.Id == suppression.ContactPointId
+                    && point.RecipientId == recipientId
+                    && point.RemovedAt == null))
+            .OrderBy(suppression => suppression.ContactPointId)
+            .Select(suppression => new SuppressionState(
+                suppression.ContactPointId,
+                suppression.Channel,
+                suppression.Reason,
+                suppression.CreatedAt,
+                suppression.Until))
+            .ToListAsync(cancellationToken);
+
         return Result.Success(new RecipientSnapshot
         {
             RecipientId = profile.RecipientId,
@@ -92,6 +111,7 @@ internal sealed class RecipientDirectory(
             ContactPoints = contactPoints,
             Consents = consents,
             Devices = devices,
+            Suppressions = suppressions,
         });
     }
 

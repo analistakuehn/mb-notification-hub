@@ -54,8 +54,13 @@ public sealed class DeliveryTrackingFixture : WebApplicationFactory<Program>, IA
     /// never to code under test. The core queue of the seeded class is here
     /// because feedback that exhausts a step asks the Core for the next one,
     /// and the relay of this fixture has to have somewhere to put that ask.
+    /// The contact-invalidation queue is here for the same reason: a refused
+    /// destination reaches the contact ledger, whose write announces the
+    /// invalidation, and a relay with nowhere to put that row fails the pass
+    /// for every test sharing this fixture.
     /// </summary>
-    private static readonly string[] Queues = ["delivery-events", "core-transactional"];
+    private static readonly string[] Queues =
+        ["delivery-events", "core-transactional", "contacts-changed"];
 
     private readonly byte[] _signingKey = RandomNumberGenerator.GetBytes(32);
     private readonly string _envelopeMasterKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -145,6 +150,11 @@ public sealed class DeliveryTrackingFixture : WebApplicationFactory<Program>, IA
             ["Platform:Cryptography:Envelope:MasterKey"] = _envelopeMasterKey,
             ["Modules:Audit:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
             ["Modules:Notifications:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
+
+            // The tracker role reports refused destinations to the contact
+            // ledger through the published contract, and that write is the
+            // contact context's own transaction over its own store.
+            ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
         };
         Apply(settings, overrides);
         return settings;
@@ -195,6 +205,18 @@ public sealed class DeliveryTrackingFixture : WebApplicationFactory<Program>, IA
     {
         using IServiceScope scope = Services.CreateScope();
         return await query(scope.ServiceProvider.GetRequiredService<AuditDbContext>());
+    }
+
+    public async Task<T> QueryContactConsentDbAsync<T>(Func<ContactConsentDbContext, Task<T>> query)
+    {
+        using IServiceScope scope = Services.CreateScope();
+        return await query(scope.ServiceProvider.GetRequiredService<ContactConsentDbContext>());
+    }
+
+    public async Task ExecuteContactConsentDbAsync(Func<ContactConsentDbContext, Task> action)
+    {
+        using IServiceScope scope = Services.CreateScope();
+        await action(scope.ServiceProvider.GetRequiredService<ContactConsentDbContext>());
     }
 
     public async Task<T> QueryPlatformDbAsync<T>(Func<PlatformMessagingDbContext, Task<T>> query)

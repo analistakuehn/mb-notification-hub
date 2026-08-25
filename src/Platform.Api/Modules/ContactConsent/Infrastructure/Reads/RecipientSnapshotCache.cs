@@ -25,6 +25,15 @@ internal sealed class RecipientSnapshotCache(
     TimeProvider timeProvider,
     ILogger<RecipientSnapshotCache> logger)
 {
+    /// <summary>
+    /// Version segment of every key this cache writes. It moves whenever the
+    /// stored shape changes: an entry written before the change would either
+    /// fail to deserialize or, worse, deserialize into a snapshot missing the
+    /// member a caller now decides on. Moving the segment retires the whole
+    /// generation at once, and the old keys expire on their own TTL.
+    /// </summary>
+    private const string EntryVersion = "v2";
+
     public async Task<CachedRecipientSnapshot?> FindAsync(
         string recipientId,
         CancellationToken cancellationToken)
@@ -107,5 +116,5 @@ internal sealed class RecipientSnapshotCache(
         }
     }
 
-    private RedisKey Key(string recipientId) => $"{redis.KeyPrefix}recipient:{recipientId}";
+    private RedisKey Key(string recipientId) => $"{redis.KeyPrefix}recipient:{EntryVersion}:{recipientId}";
 }

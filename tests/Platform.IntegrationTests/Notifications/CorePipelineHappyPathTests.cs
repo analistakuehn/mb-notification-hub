@@ -79,11 +79,12 @@ public sealed class CorePipelineHappyPathTests(CorePipelineFixture fixture)
             .AsNoTracking()
             .Where(evaluation => evaluation.NotificationId == notificationId)
             .ToListAsync());
-        evaluations.Count.ShouldBe(4);
+        evaluations.Count.ShouldBe(5);
         Dictionary<string, string> resultByRule = evaluations.ToDictionary(
             evaluation => evaluation.Rule,
             evaluation => evaluation.Result);
         resultByRule["ConsentGate"].ShouldBe("allow");
+        resultByRule["SuppressionGate"].ShouldBe("allow");
         resultByRule["QuietHours"].ShouldBe("allow");
         resultByRule["DedupeWindow"].ShouldBe("allow");
         resultByRule["ChannelSelection"].ShouldBe("filter-channels");

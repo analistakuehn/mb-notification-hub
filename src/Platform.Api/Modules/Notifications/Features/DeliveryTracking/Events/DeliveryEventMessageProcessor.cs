@@ -2,8 +2,10 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Events;
 
@@ -14,10 +16,18 @@ namespace NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Ev
 /// here, off the request that received the callback, because that request
 /// answers a provider that retries whatever takes too long, while this one can
 /// take the locks it needs.
+/// <para>
+/// It is also where a refusal of the destination itself is reported to the
+/// context that owns contacts, after the attempt transition is confirmed and
+/// never before: a signal that did not move the attempt describes feedback this
+/// hub could not place, and acting on it would suppress a contact on the
+/// strength of a callback nobody could correlate.
+/// </para>
 /// </summary>
 internal sealed class DeliveryEventMessageProcessor(
     NotificationsDbContext db,
     DeliveryStateApplier applier,
+    ISuppressionLedger suppressionLedger,
     IOptions<DeliveryTrackingOptions> options,
     TimeProvider timeProvider,
     ILogger<DeliveryEventMessageProcessor> logger) : ISqsMessageProcessor
@@ -71,6 +81,11 @@ internal sealed class DeliveryEventMessageProcessor(
             },
             cancellationToken);
 
+        if (outcome is DeliveryApplicationOutcome.Applied)
+        {
+            await ReportSuppressionAsync(evidence, cancellationToken);
+        }
+
         return outcome switch
         {
             DeliveryApplicationOutcome.Applied => new MessageDisposition.Processed(),
@@ -87,11 +102,11 @@ internal sealed class DeliveryEventMessageProcessor(
     }
 
     /// <summary>
-    /// Rebuilds the canonical event from the stored evidence. The suppression
-    /// signal is not among the stored columns, so it comes back neutral: this
-    /// path decides attempt state and nothing else, and a decision about the
-    /// destination itself must never be inferred from a value that was not
-    /// persisted.
+    /// Rebuilds the canonical event from the stored evidence, including the
+    /// suppression signal exactly as the provider adapters classified it at
+    /// ingestion. Nothing is reclassified here: the vocabulary of definitive
+    /// failure codes is operator-configured provider knowledge, and a second
+    /// reading of it on this side would be a second classifier free to drift.
     /// </summary>
     private static ProviderDeliveryEvent RebuildEvent(DeliveryEvent evidence, DeliveryFeedbackKind kind)
         => new(
@@ -104,7 +119,91 @@ internal sealed class DeliveryEventMessageProcessor(
                 ? new DispatchCorrelation(notificationId, attemptId)
                 : null,
             evidence.ErrorCode,
-            SuppressionSignal.None);
+            DeliverySuppressionSignals.Parse(evidence.SuppressionSignal));
+
+    /// <summary>
+    /// Reports a refused destination to the context that owns contacts. Best
+    /// effort by design, in the same regime as the dead push token: the attempt
+    /// transition already committed and a redelivery settles as a duplicate, so
+    /// a failure here cannot be retried by the queue, and the reconciliation of
+    /// a later phase remains the safety net. What to do about the refusal is
+    /// not decided here either: this side reports one observation and the
+    /// ledger owns the accumulation rule.
+    /// </summary>
+    private async Task ReportSuppressionAsync(DeliveryEvent evidence, CancellationToken cancellationToken)
+    {
+        if (DeliverySuppressionSignals.Parse(evidence.SuppressionSignal) == SuppressionSignal.None) return;
+
+        SuppressionTarget? target = await ResolveSuppressionTargetAsync(evidence, cancellationToken);
+        if (target is null)
+        {
+            // A push attempt carries a device registration and no contact
+            // point: a token the provider refuses travels the token lifecycle
+            // contract, which the dispatch side already reports on.
+            logger.SuppressionTargetUnresolved(evidence.Id, evidence.SuppressionSignal);
+            return;
+        }
+
+        try
+        {
+            Result<SuppressionOutcome> reported = await suppressionLedger.ReportDeliveryFeedbackAsync(
+                new SuppressionReport(
+                    target.RecipientId,
+                    target.ContactPointId,
+                    target.Channel,
+                    evidence.SuppressionSignal,
+                    evidence.Id,
+
+                    // This hub's instant, and never the provider's: the ledger
+                    // accumulates refusals inside a window, and an instant the
+                    // provider chooses could slide that window open from
+                    // outside.
+                    evidence.ReceivedAt),
+                cancellationToken);
+            if (reported.IsFailure)
+            {
+                logger.SuppressionReportFailed(evidence.Id, reported.Error ?? evidence.SuppressionSignal);
+                return;
+            }
+
+            var settled = reported.Value.ToString();
+            logger.SuppressionReported(evidence.Id, target.ContactPointId, settled);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.SuppressionReportThrew(evidence.Id, exception);
+        }
+    }
+
+    /// <summary>
+    /// The contact point the refused attempt addressed. The evidence row was
+    /// read before the application, so its correlation may still be empty here
+    /// even though the application resolved and stamped one; the second read
+    /// runs only in that case, and only for feedback that carries a signal at
+    /// all.
+    /// </summary>
+    private async Task<SuppressionTarget?> ResolveSuppressionTargetAsync(
+        DeliveryEvent evidence,
+        CancellationToken cancellationToken)
+    {
+        Guid? attemptId = evidence.AttemptId ?? await db.DeliveryEvents
+            .AsNoTracking()
+            .Where(candidate => candidate.Id == evidence.Id && candidate.ReceivedAt == evidence.ReceivedAt)
+            .Select(candidate => candidate.AttemptId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (attemptId is not { } resolved) return null;
+
+        return await db.NotificationAttempts
+            .AsNoTracking()
+            .Where(attempt => attempt.Id == resolved && attempt.ContactPointId != null)
+            .Join(
+                db.Notifications.AsNoTracking(),
+                attempt => attempt.NotificationId,
+                notification => notification.Id,
+                (attempt, notification) => new SuppressionTarget(
+                    notification.RecipientId, attempt.ContactPointId!.Value, attempt.Channel))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 
     /// <summary>
     /// Feedback that arrived before the send it describes. The message comes
@@ -135,3 +234,6 @@ internal sealed class DeliveryEventMessageProcessor(
             && Guid.TryParse(element.GetString(), out value);
     }
 }
+
+/// <summary>The contact point one refused attempt addressed, and who owns it.</summary>
+internal sealed record SuppressionTarget(string RecipientId, Guid ContactPointId, string Channel);

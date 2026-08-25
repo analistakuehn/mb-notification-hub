@@ -54,6 +54,10 @@ internal sealed class DeliveryEventConfiguration : IEntityTypeConfiguration<Deli
             .HasColumnName("error_code")
             .HasMaxLength(100);
 
+        builder.Property(deliveryEvent => deliveryEvent.SuppressionSignal)
+            .HasColumnName("suppression_signal")
+            .HasMaxLength(30);
+
         builder.Property(deliveryEvent => deliveryEvent.PayloadEncrypted)
             .HasColumnName("payload_enc");
 

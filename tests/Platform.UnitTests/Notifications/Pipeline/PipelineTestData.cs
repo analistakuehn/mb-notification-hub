@@ -80,7 +80,8 @@ internal static class PipelineTestData
         string timezone = "America/Sao_Paulo",
         IReadOnlyList<ContactPointSnapshot>? contactPoints = null,
         IReadOnlyList<ConsentDecision>? consents = null,
-        IReadOnlyList<DeviceRegistration>? devices = null)
+        IReadOnlyList<DeviceRegistration>? devices = null,
+        IReadOnlyList<SuppressionState>? suppressions = null)
         => new()
         {
             RecipientId = "recipient-1",
@@ -89,6 +90,7 @@ internal static class PipelineTestData
             ContactPoints = contactPoints ?? [new ContactPointSnapshot(Guid.NewGuid(), "sms", Verified: true)],
             Consents = consents ?? [],
             Devices = devices ?? [],
+            Suppressions = suppressions ?? [],
         };
 
     internal static ClassPolicyDefinition Policy(

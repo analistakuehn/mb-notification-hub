@@ -25,7 +25,29 @@ public sealed record RecipientSnapshot
 
     /// <summary>Active device tokens, most recently seen first.</summary>
     public required IReadOnlyList<DeviceRegistration> Devices { get; init; }
+
+    /// <summary>
+    /// Contact points currently suppressed by delivery feedback, among the
+    /// active ones above. The member rides this snapshot instead of a read of
+    /// its own because the resolution already happens once per notification: a
+    /// separate read would add a round trip to the hot path and would let a
+    /// caller decide over a state other than the one it resolved.
+    /// </summary>
+    public required IReadOnlyList<SuppressionState> Suppressions { get; init; }
 }
+
+/// <summary>
+/// One contact point the hub stopped addressing, and why. A suppression is
+/// reversible: it stays in force until an operator removes it, and
+/// <see cref="Until"/> carries the end of a bounded one when a future rule
+/// mints one.
+/// </summary>
+public sealed record SuppressionState(
+    Guid ContactPointId,
+    string Channel,
+    string Reason,
+    DateTimeOffset SuppressedAt,
+    DateTimeOffset? Until);
 
 /// <summary>One active contact point, addressable through its id; the value stays encrypted inside the module.</summary>
 public sealed record ContactPointSnapshot(Guid ContactPointId, string Channel, bool Verified);

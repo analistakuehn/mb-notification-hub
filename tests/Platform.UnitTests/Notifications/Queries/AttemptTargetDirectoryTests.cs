@@ -101,5 +101,6 @@ public sealed class AttemptTargetDirectoryTests
             ContactPoints = [],
             Consents = [],
             Devices = [new DeviceRegistration(deviceTokenId, platform, null, DateTimeOffset.UtcNow)],
+            Suppressions = [],
         });
 }

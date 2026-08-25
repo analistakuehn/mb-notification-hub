@@ -105,6 +105,12 @@ internal sealed class DeliveryEventWriter(
             Kind = DeliveryEventKinds.From(providerEvent.Kind),
             OccurredAt = providerEvent.OccurredAt,
             ErrorCode = providerEvent.ErrorCode,
+
+            // Written down, never re-derived: what a failure code says about a
+            // destination is provider knowledge, it was already decided on the
+            // dispatch side, and the consumer that acts on it runs long after
+            // this row is the only thing left of the callback.
+            SuppressionSignal = DeliverySuppressionSignals.From(providerEvent.Signal),
             PayloadEncrypted = sealedPayload,
         });
         db.DeliveryEvents.Add(evidence);

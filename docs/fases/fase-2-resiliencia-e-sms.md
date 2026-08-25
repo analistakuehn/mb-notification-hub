@@ -165,11 +165,11 @@ A decomposição em fatias prometida no fim da seção de implantação foi prod
 
 | Entrega deste design | Estado em 2026-08-24 |
 |---|---|
-| Delivery Tracker com webhooks assinados e replay protection | Concluída (fatias F2-1 e F2-2) |
-| Fallback declarativo, unicidade do avanço de plano | Concluída (fatia F2-4) |
-| Scheduler DB-backed | Concluída (fatia F2-5) |
+| Delivery Tracker com webhooks assinados e replay protection | Concluída (fatias F2-1 e F2-2, commit `7af6e32`) |
+| Fallback declarativo, unicidade do avanço de plano | Concluída (fatia F2-4, commit `7af6e32`) |
+| Scheduler DB-backed | Concluída (fatia F2-5, commit `7af6e32`) |
 | Adapter SMS (Twilio) | Pendente (fatias F2-7 e F2-8) |
-| Supressão automática, reversível e auditada | Pendente (fatia F2-6) |
+| Supressão automática, reversível e auditada | Concluída (fatia F2-6) |
 | Reconciliação por canal | Pendente (fatia F2-9) |
 | Classe `operational` com janela de silêncio | Pendente (fatia F2-12) |
 | Relatório mensal de evidências | Pendente (fatia F2-10) |

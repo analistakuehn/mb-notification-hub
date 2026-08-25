@@ -270,12 +270,12 @@ Status observado no repositório na revisão de 2026-08-24:
 
 | Fatia | Entrega | Depende de | Status em 2026-08-24 |
 |---|---|---|---|
-| F2-1 | Contratos de feedback de provedor no Dispatch | nenhuma | Concluída |
-| F2-2 | Ingestão de webhooks e evidência de entrega | F2-1 | Concluída |
+| F2-1 | Contratos de feedback de provedor no Dispatch | nenhuma | Concluída (commit `7af6e32`) |
+| F2-2 | Ingestão de webhooks e evidência de entrega | F2-1 | Concluída (commit `7af6e32`) |
 | F2-3 | Pergunta 7 da reconstrução respondível | F2-2 | Pendente |
-| F2-4 | Convivência dos dois gatilhos de fallback | F2-2 | Concluída |
-| F2-5 | Scheduler DB-backed no papel `delivery-tracker` | F2-4 | Concluída |
-| F2-6 | Supressão automática, reversível e auditada | F2-2 | Pendente |
+| F2-4 | Convivência dos dois gatilhos de fallback | F2-2 | Concluída (commit `7af6e32`) |
+| F2-5 | Scheduler DB-backed no papel `delivery-tracker` | F2-4 | Concluída (commit `7af6e32`) |
+| F2-6 | Supressão automática, reversível e auditada | F2-2 | Concluída |
 | F2-7 | Adapter SMS completo | F2-1, F2-2 | Pendente |
 | F2-8 | Rate limit por provedor e kill switch automático de canal | F2-7 | Pendente |
 | F2-9 | Reconciliação por canal | F2-2, F2-5, F2-7 | Pendente |

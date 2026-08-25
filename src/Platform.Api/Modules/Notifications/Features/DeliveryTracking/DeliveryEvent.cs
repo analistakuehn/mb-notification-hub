@@ -57,6 +57,42 @@ internal static class DeliveryEventKinds
 }
 
 /// <summary>
+/// Stored vocabulary of the suppression signal a provider failure carries.
+/// The classification itself is provider knowledge and belongs to the dispatch
+/// side; this module only writes down what that side decided, in the durable
+/// spelling, so a reordered enum can never reinterpret a stored row.
+/// </summary>
+internal static class DeliverySuppressionSignals
+{
+    internal const string None = "none";
+    internal const string HardBounce = "hard-bounce";
+    internal const string InvalidDestination = "invalid-destination";
+
+    /// <summary>Durable spelling of one classified signal.</summary>
+    internal static string From(SuppressionSignal signal) => signal switch
+    {
+        SuppressionSignal.None => None,
+        SuppressionSignal.HardBounce => HardBounce,
+        SuppressionSignal.InvalidDestination => InvalidDestination,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(signal), signal, "Sinal de supressão desconhecido."),
+    };
+
+    /// <summary>
+    /// Reads a durable spelling back. A row written before this column existed
+    /// carries the neutral value, and anything this vocabulary does not name
+    /// reads neutral as well: an unrecognized spelling must never be promoted
+    /// into a decision that stops addressing a person.
+    /// </summary>
+    internal static SuppressionSignal Parse(string? value) => value switch
+    {
+        HardBounce => SuppressionSignal.HardBounce,
+        InvalidDestination => SuppressionSignal.InvalidDestination,
+        _ => SuppressionSignal.None,
+    };
+}
+
+/// <summary>
 /// One piece of provider feedback exactly as this hub received it, kept as
 /// evidence independently of whether it could be applied. The row is written
 /// inside the request that received the callback and never rewritten
@@ -85,6 +121,7 @@ internal sealed class DeliveryEvent
         ProviderKey = null!;
         ProviderEventId = null!;
         Kind = null!;
+        SuppressionSignal = null!;
         PayloadEncrypted = null!;
     }
 
@@ -113,6 +150,15 @@ internal sealed class DeliveryEvent
 
     public string? ErrorCode { get; private set; }
 
+    /// <summary>
+    /// What the dispatch side concluded the failure says about the destination.
+    /// Stored because the consumer that reports it to the contact ledger runs
+    /// off the request and cannot reclassify: the vocabulary of provider codes
+    /// belongs to the provider adapters, and a second reading of it here would
+    /// be a second, divergent classifier.
+    /// </summary>
+    public string SuppressionSignal { get; private set; }
+
     /// <summary>Envelope-encrypted verified provider payload.</summary>
     public byte[] PayloadEncrypted { get; private set; }
 
@@ -125,6 +171,7 @@ internal sealed class DeliveryEvent
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.ProviderKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.ProviderEventId);
         ArgumentException.ThrowIfNullOrWhiteSpace(draft.Kind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(draft.SuppressionSignal);
         if (draft.PayloadEncrypted is not { Length: > 0 })
         {
             throw new ArgumentException(
@@ -143,6 +190,7 @@ internal sealed class DeliveryEvent
             Kind = draft.Kind,
             OccurredAt = draft.OccurredAt,
             ErrorCode = draft.ErrorCode,
+            SuppressionSignal = draft.SuppressionSignal,
             PayloadEncrypted = draft.PayloadEncrypted,
             AppliedAt = null,
         };
@@ -169,6 +217,9 @@ internal sealed record DeliveryEventDraft
     public required DateTimeOffset OccurredAt { get; init; }
 
     public string? ErrorCode { get; init; }
+
+    /// <summary>Durable spelling of the classification the dispatch side made.</summary>
+    public required string SuppressionSignal { get; init; }
 
     public required byte[] PayloadEncrypted { get; init; }
 }

@@ -6,6 +6,7 @@ using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Reads;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Redis;
+using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Suppression;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.ProviderConfig;
@@ -90,6 +91,24 @@ public static class IntegrationSurfaceSetup
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<ContactConsentWriter>();
         services.TryAddScoped<IDeviceTokenLifecycle, DeviceTokenInvalidation>();
+        return services;
+    }
+
+    /// <summary>
+    /// The suppression ledger of ContactConsent for the delivery-feedback
+    /// path, over the module's own persistence and transactional writer. The
+    /// consuming role also composes the platform messaging and the audit trail
+    /// surface, because every ledger write commits its outbox messages and its
+    /// audit event transactionally.
+    /// </summary>
+    public static IServiceCollection AddContactConsentSuppressionLedger(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddContactConsentPersistence(configuration);
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<ContactConsentWriter>();
+        services.TryAddScoped<ISuppressionLedger, SuppressionLedger>();
         return services;
     }
 

@@ -49,6 +49,13 @@ public static class NotificationRejectionReasons
     /// <summary>The recipient did not consent to the purpose of this template.</summary>
     public const string NoConsent = "no-consent";
 
+    /// <summary>
+    /// Every channel left for this notification is suppressed: a provider
+    /// refused the destination definitively and the hub stopped addressing it
+    /// until an operator takes the suppression back.
+    /// </summary>
+    public const string ChannelSuppressed = "channel-suppressed";
+
     /// <summary>The per-recipient budget of the class is exhausted.</summary>
     public const string RecipientRateLimited = "recipient-rate-limited";
 
@@ -86,6 +93,7 @@ public static class NotificationRejectionReasons
         SensitiveVariablesOnBus,
         NoValidContact,
         NoConsent,
+        ChannelSuppressed,
         RecipientRateLimited,
         DuplicateWindow,
         PayloadInvalid,

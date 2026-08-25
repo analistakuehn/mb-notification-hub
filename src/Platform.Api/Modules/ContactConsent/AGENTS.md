@@ -12,8 +12,9 @@
   `src/Platform.Api/Modules/ContactConsent/Features/`.
 - Sibling contexts read this module exclusively through the published
   contracts of `Modules.ContactConsent.Integration.V1`:
-  `IRecipientDirectory` for reads and reveals, and `IDeviceTokenLifecycle`
-  for the provider-feedback invalidation write. This module reads siblings
+  `IRecipientDirectory` for reads and reveals, `IDeviceTokenLifecycle` for the
+  provider-feedback invalidation write, and `ISuppressionLedger` for the
+  provider-feedback suppression write. This module reads siblings
   exclusively through `Modules.Audit.Integration.V1` (transactional audit
   append). Never touch another context's data store or internal types.
 - Platform infrastructure is a dependency, not a sibling: the outbox writer
@@ -25,16 +26,21 @@
 
 | Path | Responsibility |
 |---|---|
-| `src/Platform.Api/Modules/ContactConsent/Domain/` | profile, contact point, consent and device entities; channel, source and platform vocabularies; value normalization |
+| `src/Platform.Api/Modules/ContactConsent/Domain/` | profile, contact point, consent, device and suppression entities; channel, source and platform vocabularies; the per-channel accumulation rule; value normalization |
 | `src/Platform.Api/Modules/ContactConsent/Features/` | vertical slices for this context |
-| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, the degradation-aware read fallback, the snapshot records other modules consume, the masked contact-point record, and the refusal vocabulary of the contact ingestion |
-| `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, snapshot cache, invalidation consumer, bus ingestion topology and dead-letter writer, authorization, problems |
+| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, `ISuppressionLedger`, the degradation-aware read fallback, the snapshot records other modules consume (including the suppressions in force), the masked contact-point record, and the refusal vocabulary of the contact ingestion |
+| `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, snapshot cache, invalidation consumer, bus ingestion topology and dead-letter writer, the suppression ledger, authorization, problems |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentModule.cs` | service registration and endpoint mapping for this context |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentWorkerRole.cs` | composition of the `contact-consent` worker role, discovered by the worker host |
 | `src/Platform.Api/Modules/ContactConsent/ContactsIngressWorkerRole.cs` | composition of the `contacts-ingress` worker role, discovered by the worker host |
 
 Owned state: `recipient_profile`, `contact_point`, `consent` (append-only),
-`device_token`. None is partitioned. The platform `outbox` belongs to the
+`device_token`, `suppression_signal` (append-only) and `suppression`. None is
+partitioned, which is what lets their unique keys exist without a partition
+column: the unique key over `suppression_signal.source_event_id` is the whole
+idempotency of the delivery-feedback path, and the partial unique index over
+the suppressions in force is what keeps a reversal from leaving a second row
+standing. The platform `outbox` belongs to the
 messaging infrastructure; this module only appends through the contract.
 
 ## Transactional invariant of every write
@@ -47,15 +53,20 @@ the partition chain lock until the transaction ends, so the commit follows it
 immediately. A declarative no-op has no business effect and records its trail
 in its own short transaction.
 
-Two kinds of outbox message ride that transaction. The cache invalidation
+Three kinds of outbox message ride that transaction. The cache invalidation
 (`contact.changed` / `consent.changed`, destination `contacts-changed`,
 message key = recipient id, claim-check payload with recipient id and contact
 point id only) never leaves the hub. The outgoing consent event
 (`araia.notification.consent_changed.v1`, destination
 `NotificationHub.Api.Infrastructure.Messaging.OutgoingEventBus.Topic`, subject
 = recipient id, body with recipient, channel, purpose, granted and source) is
-the integration contract with the domains. Both are appended before the audit
-call, because the append holds the chain lock until the transaction ends.
+the integration contract with the domains, and the outgoing suppression event
+(`araia.notification.contact_suppressed.v1`, same destination and subject, body
+with recipient, channel and reason) announces that the hub stopped addressing a
+channel. Only a write that really suppressed appends it, so the announcement
+happens once per decision and never once per reported refusal. All of them are
+appended before the audit call, because the append holds the chain lock until
+the transaction ends.
 
 Who writes, and which consumed record carried the write, travel in
 `ContactWriteContext`, an explicit parameter of every handler. A write with
@@ -103,7 +114,14 @@ appending a second entry to the hash-chained trail.
 - Invalidation marks the entry stale instead of deleting it: a stale entry
   forces the next read back to the store while staying available as the last
   known value. The `contact-consent` worker role consumes `contacts-changed`
-  and applies the mark; the effect is idempotent by design.
+  and applies the mark; the effect is idempotent by design. That queue is the
+  only invalidation path: a write never touches Redis directly, because a
+  second write path would be exactly what this module forbids.
+- The key carries a version segment (`recipient:v2:`). It moves whenever the
+  stored snapshot shape changes: an entry written before the change would
+  otherwise deserialize into a snapshot missing the member a caller now decides
+  on. Moving the segment retires the whole generation at once and the old keys
+  expire on their own lifetime.
 - Degradation is the caller's declaration, per read: only a caller that asked
   for `RecipientReadFallback.LastKnown` receives the cached snapshot when the
   local read fails; every other caller sees the failure and its queue retry
@@ -138,10 +156,11 @@ appending a second entry to the hash-chained trail.
 
 ## Extension points (outside v1, with a named return trigger)
 
-- **Suppression**: the suppression ledger (`SUPPRESSION` in the system model)
-  and its read are not part of `Integration/V1`. When the delivery-feedback
-  phase introduces hard-bounce suppression, its read joins the contract as a
-  new member or a `V2` surface; nothing here may fake it meanwhile.
+- **Suppression**: delivered. The write is `ISuppressionLedger` and the read
+  rides `RecipientSnapshot.Suppressions`, a new member rather than a `V2`
+  surface, because the resolution already happens once per notification. A
+  bounded suppression (`until`) has no rule minting it yet; the column and the
+  contract member exist so that one can arrive without a migration.
 - **Device token invalidation** by FCM feedback: delivered through
   `IDeviceTokenLifecycle`; webhooks of the delivery-feedback phase reuse the
   same contract, never a parallel write path.
@@ -177,11 +196,45 @@ appending a second entry to the hash-chained trail.
   accepted consequence is that this topic pair has no redrive; the repair is
   the emitting system publishing the correct state again.
 
+## Suppression ledger
+
+- `ISuppressionLedger.ReportDeliveryFeedbackAsync` takes one refusal a provider
+  reported about a destination and answers `SignalRecorded`,
+  `ContactSuppressed` or `AlreadyApplied`. The reporter names the contact point
+  it already addressed; it never sends a contact value and never decides the
+  consequence.
+- **The accumulation rule lives here** (`Domain/ContactSuppression.cs`): e-mail
+  suppresses on the first definitive refusal, because a mailbox the provider
+  declares nonexistent does not come back and every further message spends
+  sender reputation. Every other channel requires two refusals inside a week,
+  counted back from the newest one, because a number can be refused for reasons
+  that pass and removing a reachable channel on one such refusal is worse for
+  the recipient than the extra message. Deciding this needs the history of
+  refusals of the contact point, and that history is contact data: exporting it
+  so a caller could decide would export what this module exists to hold.
+- **Idempotency is the unique key over `source_event_id`, not the check before
+  the insert.** The check is the fast path; concurrent redeliveries both read
+  absent and the constraint is what stops the second one from counting a
+  refusal that never happened. A repeated report is a declarative no-op with
+  its own trail and no second effect.
+- A write that suppresses commits the signal row, the suppression row, the
+  cache-invalidation message, the outgoing announcement and the audit event in
+  one transaction, through the same transactional writer as every other write.
+  A report that only records a signal commits no cache event, because the
+  snapshot did not change.
+- **Reversal is a named human act.** `POST /v1/recipients/{recipientId}/suppressions/{contactPointId}/removal`
+  carries its own role (`Contacts.Suppression.Manage`) and its own rate-limit
+  policy, requires a justification and records `suppression.removed` with the
+  actor. The registration system's write role does not carry it. The row is
+  stamped, never deleted: why a message was not sent on a given day has to
+  survive the reversal.
+
 ## Audit vocabulary
 
 Actions follow the platform dot vocabulary: `contact.points.declared`,
-`consents.declared`, `device.registered`, `device.invalidated`; entity types
-`recipient` and `device_token`; actor type `system` for `appid` principals
+`consents.declared`, `device.registered`, `device.invalidated`,
+`suppression.signal.recorded`, `suppression.added`, `suppression.removed`;
+entity types `recipient`, `device_token` and `contact_point`; actor type `system` for `appid` principals
 and `user` for human identities, with the stable id from the token. The
 invalidation write records actor id `dispatcher`, the reporter of the
 provider feedback. The constants live in
@@ -194,13 +247,17 @@ Handlers return `Result<T>` with every business outcome as data inside the
 response union, and the endpoint maps each case to RFC 9457 problems
 (`Infrastructure/Http/ContactConsentProblems.cs`). Problem `type` values are
 stable codes: `recipient-id-invalid`, `recipient-not-found`,
-`no-contact-point-for-channel`, `writer-identity-required`,
-`concurrent-update-conflict`.
+`no-contact-point-for-channel`, `contact-point-not-found`,
+`writer-identity-required`, `concurrent-update-conflict`.
 
 ## Security and tests
 
 - Every route requires the `Contacts.Write` app role (policy `contacts-write`)
-  and the named rate-limit policy.
+  and the named rate-limit policy, except the suppression reversal, which
+  requires `Contacts.Suppression.Manage` (policy and rate limit
+  `contacts-suppression-removal`): re-opening a channel an automatic decision
+  closed is not an ordinary contact write, and the registration system has no
+  business performing it.
 - Never bind HTTP bodies to domain types; never log contact values, device
   tokens or consent evidence beyond identifiers and counts.
 - Start with a failing behavior test; keep the transactional invariant, the

@@ -21,6 +21,10 @@ public sealed class ContactConsentDbContext(DbContextOptions<ContactConsentDbCon
 
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
 
+    public DbSet<SuppressionSignalRecord> SuppressionSignals => Set<SuppressionSignalRecord>();
+
+    public DbSet<ContactSuppression> Suppressions => Set<ContactSuppression>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("contactconsent");

@@ -385,6 +385,7 @@ carrega conteúdo renderizado nem dado de contato.
 | `araia.notification.failed.v1` | O plano de entrega se esgotou, ou a notificação expirou | A entrega não aconteceu |
 | `araia.notification.delivered.v1` | O provedor confirmou a entrega, ou um push foi aceito na **última** etapa do plano | Entrega confirmada; em push sem etapa posterior, aceitação pelo provedor |
 | `araia.notification.consent_changed.v1` | O ledger de consentimento registrou uma mudança | Estado de consentimento por finalidade e canal |
+| `araia.notification.contact_suppressed.v1` | Um provedor recusou o destino de forma definitiva e o hub parou de endereçar o canal | O canal daquele destinatário deixa de ser elegível até remoção manual |
 
 ```json
 {
@@ -582,16 +583,31 @@ timeout ou erro de servidor, sem veredito conclusivo, a tentativa fica em
 `unknown` e permanece assim: sem reconciliação, nada a resolve nesta versão.
 Trate `unknown` como indeterminado, não como falha e não como sucesso.
 
-**Supressão de contato é detectada e registrada internamente, não anunciada.**
-O evento `araia.notification.contact_suppressed.v1` não é publicado nesta
-versão. Não é que o hub ignore o fato: um token de push revogado pelo provedor
-já é registrado na trilha, na mesma transação do veredito do envio, e o
-dispositivo deixa de ser alcançável a partir dali. O que falta é o anúncio no
-barramento e a decisão automática de supressão a partir dele. A entrega do
-evento é de versão futura.
-
 **Não existe stream de mudanças de status.** Não há assinatura por evento
 enviado pelo servidor. O que existe é o tópico de saída e a consulta.
+
+### 5.4 Supressão de contato
+
+Quando um provedor recusa um destino de forma definitiva, o hub para de
+endereçar aquele contato. A regra é por canal e não é a mesma em todos eles:
+e-mail suprime na primeira recusa definitiva, porque uma caixa que o provedor
+declara inexistente não volta a existir e cada mensagem seguinte gasta
+reputação de envio; os demais canais exigem duas recusas dentro de sete dias,
+porque um número pode ser recusado por condição temporária e retirar um canal
+alcançável custa mais ao destinatário do que a mensagem extra.
+
+O que o produtor observa:
+
+- `araia.notification.contact_suppressed.v1` no tópico de saída, com
+  `recipientId`, `channel` e `reason`, publicado uma vez por decisão. Ele é o
+  aviso de que aquele canal daquele destinatário parou de funcionar, e serve
+  para o domínio pedir um contato novo pelo caminho de cadastro.
+- `araia.notification.rejected.v1` com motivo `channel-suppressed` na próxima
+  solicitação cujos canais elegíveis estejam todos suprimidos.
+
+A supressão é reversível, e a reversão é ato humano registrado: um operador com
+o papel próprio remove a supressão com justificativa, e a trilha guarda quem
+removeu. Não há reversão automática, e não há como um produtor pedir uma.
 
 ## 6. Motivos de rejeição
 
@@ -630,6 +646,7 @@ protocolo, listados no fim desta seção.
 | `sensitive-variables-on-bus` | O template declara variáveis sensíveis e a solicitação veio pelo barramento | Migre a solicitação desse template para REST |
 | `no-valid-contact` | Nenhum canal sobreviveu ao cruzamento entre plano da política, canais com conteúdo publicado e canais em que o destinatário é alcançável | Não retente igual. Verifique o cadastro do destinatário; se ele estiver correto, a causa é conteúdo publicado faltando para o canal, e é assunto do time do template |
 | `no-consent` | O destinatário não consentiu com a finalidade em nenhum canal elegível | Não retente. Colete o consentimento pelo caminho de cadastro |
+| `channel-suppressed` | Todo canal elegível está suprimido: o provedor recusou o destino de forma definitiva e o hub parou de endereçá-lo | Não retente. O destino não vai passar a funcionar por insistência, e insistir gasta reputação de envio de todos os outros destinatários. A saída é o destinatário declarar um contato novo ou um operador reverter a supressão com justificativa |
 | `recipient-rate-limited` | O orçamento por destinatário daquela classe se esgotou | Não retente em laço. Respeite o intervalo e reavalie se o volume por cliente está correto |
 | `duplicate-window` | Uma notificação equivalente está dentro da janela de deduplicação da política | Provavelmente é duplicata legítima detectada. Se não for, revise a chave de negócio que está gerando repetição |
 | `payload-invalid` | O corpo é estruturalmente inválido, ou falha nas regras de forma | Corrija o corpo usando o dicionário `errors` da resposta. É o `type` do `400` no REST e, no Kafka, o motivo da dead letter para envelope ilegível ou sem `idempotencyKey` |
@@ -663,10 +680,10 @@ Content-Type: application/problem+json
 As mensagens de verificação nomeiam a variável e **nunca** carregam o valor
 dela.
 
-Três motivos do catálogo **não** aparecem como status HTTP, porque são
+Alguns motivos do catálogo **não** aparecem como status HTTP, porque são
 decididos depois do aceite, no pipeline: `no-valid-contact`, `no-consent`,
-`duplicate-window`, além de `template-render-failed` e `expired`. Eles chegam
-pelo evento `rejected` e pela consulta.
+`channel-suppressed`, `duplicate-window`, além de `template-render-failed` e
+`expired`. Eles chegam pelo evento `rejected` e pela consulta.
 
 **O erro de forma no REST usa o catálogo, e mantém o relatório por campo.** Um
 corpo que falha na validação recebe `payload-invalid` no `type` e a mesma lista
