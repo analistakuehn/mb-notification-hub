@@ -112,7 +112,7 @@ public sealed class SchedulerScanFixture : IAsyncLifetime
         Guid attemptId = Guid.Empty;
         await ExecuteNotificationsDbAsync(async db =>
         {
-            Notification notification = Notification.Accept(new NotificationDraft
+            var notification = Notification.Accept(new NotificationDraft
             {
                 Application = seed.Application,
                 IdempotencyKey = Guid.NewGuid().ToString("N"),
@@ -165,7 +165,7 @@ public sealed class SchedulerScanFixture : IAsyncLifetime
         Guid notificationId = Guid.Empty;
         await ExecuteNotificationsDbAsync(async db =>
         {
-            Notification notification = Notification.Accept(new NotificationDraft
+            var notification = Notification.Accept(new NotificationDraft
             {
                 Application = $"app-{Guid.NewGuid():N}",
                 IdempotencyKey = Guid.NewGuid().ToString("N"),

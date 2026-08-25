@@ -43,7 +43,7 @@ public sealed class DeferredReleaseEndToEndTests(CorePipelineFixture fixture)
         // parks the notification, and it ends a minute from now, so a clock
         // moved three minutes forward is outside it while every notification
         // parked by a neighbouring test is still hours from its release.
-        TimeZoneInfo saoPaulo = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
+        var saoPaulo = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
         DateTimeOffset localNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, saoPaulo);
         var from = localNow.AddHours(-1).ToString("HH:mm", CultureInfo.InvariantCulture);
         var to = localNow.AddMinutes(1).ToString("HH:mm", CultureInfo.InvariantCulture);
