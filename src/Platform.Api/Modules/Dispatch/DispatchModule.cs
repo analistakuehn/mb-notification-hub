@@ -17,6 +17,7 @@ public sealed class DispatchModule : IModule
         services.AddDispatchProviders(configuration);
         services.AddDispatchProviderResolution(configuration);
         services.AddDispatchWebhookInterpreters(configuration);
+        services.AddDispatchDeliveryLookups();
         services.TryAddSingleton(TimeProvider.System);
     }
 }

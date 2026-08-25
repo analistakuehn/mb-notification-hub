@@ -126,6 +126,25 @@ public sealed class TwilioOptions
     [Range(1, 86_400)]
     public int MaxValidityPeriodSeconds { get; init; } = DefaultMaxValidityPeriodSeconds;
 
+    /// <summary>
+    /// Half-width of the time window the delivery lookup searches by
+    /// destination, in seconds, centred on the instant this hub handed the
+    /// message over. It is the whole of what separates the message being asked
+    /// about from the next message to the same person, so it is narrow by
+    /// default: widening it buys nothing, because a window that matches more
+    /// than one message makes the adapter conclude nothing at all.
+    /// </summary>
+    [Range(30, 86_400)]
+    public int LookupWindowSeconds { get; init; } = 300;
+
+    /// <summary>
+    /// How many messages the search route asks for. Above one only so that an
+    /// ambiguous window is visible as ambiguous: a page of one would hide the
+    /// second match and let a wrong message settle an attempt.
+    /// </summary>
+    [Range(2, 100)]
+    public int LookupPageSize { get; init; } = 5;
+
     [Range(1, 120)]
     public int TimeoutSeconds { get; init; } = 5;
 

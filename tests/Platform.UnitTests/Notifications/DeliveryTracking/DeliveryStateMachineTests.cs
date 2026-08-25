@@ -83,9 +83,33 @@ public sealed class DeliveryStateMachineTests
         => DeliveryStateMachine.NextStatus("a-status-no-writer-produces", DeliveryFeedbackKind.Delivered)
             .ShouldBeNull();
 
+    /// <summary>
+    /// The parked state asserts nothing about the message, so every canonical
+    /// answer moves it. This is what makes a later reconciliation worth
+    /// running at all: without these rows the job could ask providers all day
+    /// and never correct a single attempt.
+    /// </summary>
+    [Theory]
+    [InlineData(DeliveryFeedbackKind.Sent, NotificationAttemptStatuses.Sent)]
+    [InlineData(DeliveryFeedbackKind.Delivered, NotificationAttemptStatuses.Delivered)]
+    [InlineData(DeliveryFeedbackKind.Read, NotificationAttemptStatuses.Read)]
+    [InlineData(DeliveryFeedbackKind.Failed, NotificationAttemptStatuses.Failed)]
+    [InlineData(DeliveryFeedbackKind.Bounced, NotificationAttemptStatuses.Bounced)]
+    public void Every_answer_settles_an_attempt_parked_on_an_inconclusive_verdict(
+        DeliveryFeedbackKind kind,
+        string expected)
+        => DeliveryStateMachine.NextStatus(NotificationAttemptStatuses.Unknown, kind)
+            .ShouldBe(expected);
+
+    /// <summary>
+    /// A message the provider accepted and then stopped for a reason that does
+    /// not accuse the destination ends the attempt too. Only the accusation
+    /// differs from a bounce, and the accusation travels in the suppression
+    /// signal, never in the status.
+    /// </summary>
     [Fact]
-    public void An_attempt_parked_on_unknown_is_left_to_reconciliation()
+    public void A_provider_side_failure_after_acceptance_settles_the_attempt()
         => DeliveryStateMachine.NextStatus(
-                NotificationAttemptStatuses.Unknown, DeliveryFeedbackKind.Delivered)
-            .ShouldBeNull();
+                NotificationAttemptStatuses.Sent, DeliveryFeedbackKind.Failed)
+            .ShouldBe(NotificationAttemptStatuses.Failed);
 }

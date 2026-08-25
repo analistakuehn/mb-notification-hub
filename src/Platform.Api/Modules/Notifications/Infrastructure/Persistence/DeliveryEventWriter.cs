@@ -22,6 +22,16 @@ internal enum DeliveryEventRecordOutcome
 }
 
 /// <summary>
+/// What one write of provider feedback produced: how it settled, and the
+/// evidence row it created when it created one. The identity matters to a
+/// caller that goes on to apply the event itself, because the contact ledger
+/// keys the idempotency of a refusal on the evidence row that originated it.
+/// </summary>
+internal readonly record struct DeliveryEventRecorded(
+    DeliveryEventRecordOutcome Outcome,
+    Guid? DeliveryEventId);
+
+/// <summary>
 /// Transactional write of the delivery-tracking ingestion. One callback event
 /// commits three writes together or none: the deduplication mark that claims
 /// the provider's event identity, the evidence row carrying the sealed
@@ -68,6 +78,29 @@ internal sealed class DeliveryEventWriter(
         DispatchCorrelation? correlation,
         byte[] sealedPayload,
         CancellationToken cancellationToken)
+        => (await RecordDiscoveredAsync(providerEvent, correlation, sealedPayload, cancellationToken))
+            .Outcome;
+
+    /// <summary>
+    /// Records one canonical event and names the evidence row it wrote. It is
+    /// the same write in every respect, including the queue message: what the
+    /// caller gains is the identity of the evidence, which a caller that
+    /// applies the event in its own process needs and a caller that only hands
+    /// it to the queue does not.
+    /// <para>
+    /// The queue message is written even when the caller intends to apply the
+    /// event itself. It costs one message that is answered as a duplicate on
+    /// the ordinary path, and it buys the only cure for a caller that dies
+    /// between this commit and its own application: without it the identity
+    /// would stay claimed, the evidence would stay unapplied, and no later
+    /// round could ever ask about that event again.
+    /// </para>
+    /// </summary>
+    public async Task<DeliveryEventRecorded> RecordDiscoveredAsync(
+        ProviderDeliveryEvent providerEvent,
+        DispatchCorrelation? correlation,
+        byte[] sealedPayload,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(providerEvent);
         DateTimeOffset now = timeProvider.GetUtcNow();
@@ -91,7 +124,7 @@ internal sealed class DeliveryEventWriter(
         if (claimed == 0)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return DeliveryEventRecordOutcome.Duplicate;
+            return new DeliveryEventRecorded(DeliveryEventRecordOutcome.Duplicate, null);
         }
 
         var evidence = DeliveryEvent.Record(new DeliveryEventDraft
@@ -122,6 +155,6 @@ internal sealed class DeliveryEventWriter(
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return DeliveryEventRecordOutcome.Stored;
+        return new DeliveryEventRecorded(DeliveryEventRecordOutcome.Stored, evidence.Id);
     }
 }

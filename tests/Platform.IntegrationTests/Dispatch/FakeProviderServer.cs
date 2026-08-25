@@ -73,7 +73,8 @@ public sealed class FakeProviderServer : IAsyncDisposable
                 context.Request.Path.Value ?? "/",
                 context.Request.Headers.Authorization.ToString(),
                 context.Request.ContentType,
-                body);
+                body,
+                context.Request.QueryString.Value ?? string.Empty);
             Requests.Enqueue(request);
 
             FakeProviderResponse response = await Handler(request);
@@ -110,12 +111,19 @@ public sealed class FakeProviderServer : IAsyncDisposable
     }
 }
 
+/// <summary>
+/// One call the double received. The query string is separate from the path
+/// because a provider that is asked a question rather than told to send one
+/// carries the whole question there, and a test about what this hub asked has
+/// to be able to read it.
+/// </summary>
 public sealed record FakeProviderRequest(
     string Method,
     string Path,
     string Authorization,
     string? ContentType,
-    string Body);
+    string Body,
+    string Query = "");
 
 public sealed record FakeProviderResponse(
     int StatusCode,

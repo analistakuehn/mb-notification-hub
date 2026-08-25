@@ -7,6 +7,7 @@ using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Reconciliation;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
@@ -172,7 +173,7 @@ public sealed class WorkerHostCompositionTests
     }
 
     [Fact]
-    public void The_notifications_maintenance_role_hosts_exactly_the_content_services_and_the_kill_switch_hold_releaser()
+    public void The_notifications_maintenance_role_hosts_the_content_services_the_hold_releaser_and_the_reconciliation()
     {
         HostApplicationBuilder builder = CreateBuilder(new Dictionary<string, string?>
         {
@@ -181,6 +182,12 @@ public sealed class WorkerHostCompositionTests
             ["Platform:Cryptography:Envelope:MasterKey"] = Convert.ToBase64String(new byte[32]),
             ["Modules:Notifications:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
             ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+
+            // The reconciliation reads contacts to reveal a destination and
+            // reports a refused one back, so the role composes that context's
+            // stores exactly like the roles that already write to it.
+            ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:ContactConsent:Redis:ConnectionString"] = "localhost:6379",
         });
 
         WorkerRoleCatalog.Register(builder.Services, builder.Configuration);
@@ -190,10 +197,12 @@ public sealed class WorkerHostCompositionTests
         hosted.OfType<RenderedContentSweepService>().ShouldHaveSingleItem();
         hosted.OfType<RenderedContentBackfillService>().ShouldHaveSingleItem();
         hosted.OfType<KillSwitchHoldReleaseService>().ShouldHaveSingleItem();
+        hosted.OfType<DeliveryReconciliationService>().ShouldHaveSingleItem();
         hosted
             .Where(service => service is not RenderedContentSweepService
                 && service is not RenderedContentBackfillService
-                && service is not KillSwitchHoldReleaseService)
+                && service is not KillSwitchHoldReleaseService
+                && service is not DeliveryReconciliationService)
             .ShouldAllBe(service => service.GetType().Namespace!.StartsWith("Microsoft.", StringComparison.Ordinal));
 
         // The backfill rebuilds the masked form through the published render
@@ -202,6 +211,15 @@ public sealed class WorkerHostCompositionTests
         scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>().ShouldNotBeNull();
         scope.ServiceProvider.GetRequiredService<RenderedContentSweep>().ShouldNotBeNull();
         scope.ServiceProvider.GetRequiredService<RenderedContentBackfill>().ShouldNotBeNull();
+
+        // The whole reconciliation resolves, which is the only proof that the
+        // role composed the three sibling surfaces it needs: the providers it
+        // may ask, the contacts it may reveal a destination from, and the
+        // trail every correction writes.
+        scope.ServiceProvider.GetRequiredService<DeliveryReconciliationScan>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<IProviderDeliveryLookupResolver>()
+            .Resolve("fcm").IsFailure.ShouldBeTrue(
+                "o provedor de push não registra consulta posterior, e a recusa é o registro disso.");
     }
 
     [Fact]

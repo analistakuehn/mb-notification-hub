@@ -114,8 +114,8 @@ internal sealed class TwilioWebhookInterpreter(
                 ProviderWebhookRefusal.PayloadUnreadable);
         }
 
-        var status = declaredStatus.Trim().ToLowerInvariant();
-        DeliveryFeedbackKind? kind = MapStatus(status);
+        var status = TwilioDeliveryVocabulary.Normalize(declaredStatus);
+        DeliveryFeedbackKind? kind = TwilioDeliveryVocabulary.Kind(status);
         if (kind is null)
         {
             // A word outside the mapped vocabulary is a provider change, not
@@ -137,11 +137,9 @@ internal sealed class TwilioWebhookInterpreter(
                 config.EffectiveHardBounceCodes)
             : SuppressionSignal.None;
 
-        // The provider mints no event identifier, so the identity of the event
-        // is the message plus the status it moved to: each status is sent once
-        // per message, which keeps the pair stable across every redelivery of
-        // the same callback.
-        var providerEventId = $"{messageSid}:{status}";
+        // The identity is minted by the shared vocabulary, so the reading
+        // this module pulls later lands on the very same one.
+        var providerEventId = TwilioDeliveryVocabulary.EventId(messageSid, status);
 
         // The correlation identifiers ride in the callback URL, which a
         // verified webhook deliberately does not carry, so this provider
@@ -178,16 +176,6 @@ internal sealed class TwilioWebhookInterpreter(
             Encoding.UTF8.GetBytes(payload.ToString()));
 #pragma warning restore CA5350
     }
-
-    private static DeliveryFeedbackKind? MapStatus(string status) => status switch
-    {
-        "queued" or "sending" or "sent" or "accepted" => DeliveryFeedbackKind.Sent,
-        "delivered" => DeliveryFeedbackKind.Delivered,
-        "read" => DeliveryFeedbackKind.Read,
-        "failed" or "canceled" => DeliveryFeedbackKind.Failed,
-        "undelivered" => DeliveryFeedbackKind.Bounced,
-        _ => null,
-    };
 
     private static string? Find(List<KeyValuePair<string, string>> parameters, string name)
     {

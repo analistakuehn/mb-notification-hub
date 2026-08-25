@@ -16,6 +16,12 @@ namespace NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Ev
 /// feedback must never do is walk an attempt backwards, so it produces no
 /// transition at all.
 /// </para>
+/// <para>
+/// The parked state is the exception that proves the rule. An inconclusive
+/// verdict is this hub admitting it does not know what the provider did, not a
+/// fact about the message, so every canonical answer moves it: nothing can
+/// walk backwards from a state that asserts nothing.
+/// </para>
 /// </summary>
 internal static class DeliveryStateMachine
 {
@@ -48,6 +54,30 @@ internal static class DeliveryStateMachine
             // The destination rejected a message the provider had accepted,
             // which is the ordinary shape of a bounce.
             (NotificationAttemptStatuses.Sent, DeliveryFeedbackKind.Bounced)
+                => NotificationAttemptStatuses.Bounced,
+
+            // The message the provider accepted will not arrive for a reason
+            // that does not accuse the destination: a block, a cancellation, a
+            // drop. It ends the attempt exactly like a bounce does, and only
+            // the accusation differs, which is what the suppression signal
+            // carries and the status deliberately does not.
+            (NotificationAttemptStatuses.Sent, DeliveryFeedbackKind.Failed)
+                => NotificationAttemptStatuses.Failed,
+
+            // Out of the parked state, which is the whole reason a later
+            // reconciliation exists. An inconclusive verdict means this hub
+            // does not know whether the provider took the message, so every
+            // canonical answer is news: the provider taking it is progress,
+            // and any conclusion about it settles the attempt.
+            (NotificationAttemptStatuses.Unknown, DeliveryFeedbackKind.Sent)
+                => NotificationAttemptStatuses.Sent,
+            (NotificationAttemptStatuses.Unknown, DeliveryFeedbackKind.Delivered)
+                => NotificationAttemptStatuses.Delivered,
+            (NotificationAttemptStatuses.Unknown, DeliveryFeedbackKind.Read)
+                => NotificationAttemptStatuses.Read,
+            (NotificationAttemptStatuses.Unknown, DeliveryFeedbackKind.Failed)
+                => NotificationAttemptStatuses.Failed,
+            (NotificationAttemptStatuses.Unknown, DeliveryFeedbackKind.Bounced)
                 => NotificationAttemptStatuses.Bounced,
 
             _ => null,

@@ -5,9 +5,11 @@ using Microsoft.EntityFrameworkCore.Storage;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Events;
 
@@ -78,6 +80,14 @@ internal sealed record DeliveryApplicationRequest
 /// rate would otherwise serialize this hub's ingestion behind its feedback.
 /// </para>
 /// <para>
+/// What a refused destination costs the recipient is reported from here, once
+/// the transition that proves the refusal is committed. It belongs to the
+/// single writer of the machine for the same reason the plan outcome does: two
+/// sources of feedback must not become two reporters, and a rule that each
+/// caller has to remember is a rule that eventually travels without its
+/// caller.
+/// </para>
+/// <para>
 /// What the transition means for the notification is not decided here. A
 /// confirmed delivery ends the notification and a refused destination may
 /// exhaust the plan, and both conclusions already have an owner: this applier
@@ -91,6 +101,7 @@ internal sealed class DeliveryStateApplier(
     IAuditTrail auditTrail,
     IOutboxWriter outboxWriter,
     IProcessedMessageStore processedMessages,
+    ISuppressionLedger suppressionLedger,
     TimeProvider timeProvider,
     ILogger<DeliveryStateApplier> logger)
 {
@@ -189,6 +200,11 @@ internal sealed class DeliveryStateApplier(
 
         logger.DeliveryTransitionApplied(
             providerEvent.ProviderKey, attempt.Id, fromStatus, toStatus);
+
+        // After the commit, and only after it: a signal that moved nothing
+        // describes feedback this hub could not place, and acting on it would
+        // suppress a contact on the strength of a callback nobody correlated.
+        await ReportSuppressionAsync(request, notification, attempt, now, cancellationToken);
         return DeliveryApplicationOutcome.Applied;
     }
 
@@ -251,16 +267,25 @@ internal sealed class DeliveryStateApplier(
         }
     }
 
+    /// <summary>
+    /// Stamps when the message arrived, on every transition that proves it
+    /// arrived. Reading proves it too, and a read can be the first proof this
+    /// hub ever gets: a parked attempt whose confirmation never came still
+    /// reaches this stamp through the open. The stamp is written only where it
+    /// is still empty, so the earlier and more precise instant always wins over
+    /// the later one.
+    /// </summary>
     private static void ApplyDeliveryStamp(
         UpdateSettersBuilder<NotificationAttempt> setters,
         string toStatus,
         DateTimeOffset occurredAt)
     {
-        if (string.Equals(toStatus, NotificationAttemptStatuses.Delivered, StringComparison.Ordinal))
+        if (toStatus is NotificationAttemptStatuses.Delivered or NotificationAttemptStatuses.Read)
         {
             // The provider's own instant, not this hub's: the stamp answers
             // when the message arrived, never when the feedback was consumed.
-            setters.SetProperty(candidate => candidate.DeliveredAt, occurredAt);
+            setters.SetProperty(
+                candidate => candidate.DeliveredAt, candidate => candidate.DeliveredAt ?? occurredAt);
         }
     }
 
@@ -358,6 +383,87 @@ internal sealed class DeliveryStateApplier(
                 && candidate.ProviderKey == providerEvent.ProviderKey)
             .OrderByDescending(candidate => candidate.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Reports a refused destination to the context that owns contacts, once
+    /// the transition it accuses is committed. It lives here, with the single
+    /// writer of the state machine, and not with each caller: the invariant is
+    /// that a refusal is reported only after the attempt actually moved, and a
+    /// convention that every future caller has to remember is a convention that
+    /// eventually travels without its rule. This is also the only place that
+    /// already holds both halves of the target, the contact point the attempt
+    /// addressed and the recipient who owns it, so reporting from here costs no
+    /// read at all.
+    /// <para>
+    /// Best effort by design, in the same regime as the dead push token: the
+    /// transition already committed and a redelivery settles as a duplicate, so
+    /// a failure here cannot be retried by the queue. What to do about the
+    /// refusal is not decided here either: this side reports one observation
+    /// and the ledger owns the accumulation rule.
+    /// </para>
+    /// <para>
+    /// Feedback with no stored evidence reports nothing. The ledger keys its
+    /// idempotency on the evidence row that originated the report, and a report
+    /// with an identity minted on the spot would let one refusal be counted
+    /// twice, which on a channel that suppresses at the second refusal takes a
+    /// reachable destination away from a person who was refused once.
+    /// </para>
+    /// </summary>
+    private async Task ReportSuppressionAsync(
+        DeliveryApplicationRequest request,
+        Notification notification,
+        NotificationAttempt attempt,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (request.Event.Signal == SuppressionSignal.None) return;
+
+        var reason = DeliverySuppressionSignals.From(request.Event.Signal);
+        if (request.DeliveryEventId is not { } sourceEventId)
+        {
+            logger.SuppressionWithoutEvidence(attempt.Id, reason);
+            return;
+        }
+
+        if (attempt.ContactPointId is not { } contactPointId)
+        {
+            // A push attempt carries a device registration and no contact
+            // point: a token the provider refuses travels the token lifecycle
+            // contract, which the dispatch side already reports on.
+            logger.SuppressionTargetUnresolved(sourceEventId, reason);
+            return;
+        }
+
+        try
+        {
+            Result<SuppressionOutcome> reported = await suppressionLedger.ReportDeliveryFeedbackAsync(
+                new SuppressionReport(
+                    notification.RecipientId,
+                    contactPointId,
+                    attempt.Channel,
+                    reason,
+                    sourceEventId,
+
+                    // This hub's instant, and never the provider's: the ledger
+                    // accumulates refusals inside a window, and an instant the
+                    // provider chooses could slide that window open from
+                    // outside.
+                    now),
+                cancellationToken);
+            if (reported.IsFailure)
+            {
+                logger.SuppressionReportFailed(sourceEventId, reported.Error ?? reason);
+                return;
+            }
+
+            var settled = reported.Value.ToString();
+            logger.SuppressionReported(sourceEventId, contactPointId, settled);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.SuppressionReportThrew(sourceEventId, exception);
+        }
     }
 
     private static AuditEntry BuildAuditEntry(

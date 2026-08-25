@@ -14,7 +14,10 @@
   vocabulary, lives here behind a published contract. The route, the
   deduplication, the correlation with an attempt and the state machine live
   with the module that owns attempt state. This module never sees a
-  notification identifier it did not receive from the provider.
+  notification identifier it did not receive from the provider, with one
+  bounded exception: a delivery lookup is asked about one attempt and receives
+  its identifiers in the query, because the question cannot be posed without
+  them.
 - Do not read or write another context's data store, infrastructure types,
   or mutable domain types. Cross-context capability enters and leaves only
   through distinct, versioned contracts under
@@ -26,10 +29,10 @@
 | Path | Responsibility |
 |---|---|
 | `src/Platform.Api/Modules/Dispatch/Domain/` | provider selection row (channel, provider key, priority) |
-| `src/Platform.Api/Modules/Dispatch/Integration/V1/` | `IChannelProvider`, `IChannelProviderResolver`, `DispatchRequest`, `DeliveryTarget` and `RenderedMessage` hierarchies, `ProviderResult`/`ProviderOutcome`, `IProviderWebhookInterpreter`, `IProviderWebhookInterpreterResolver`, `ProviderWebhookRequest`, `VerifiedProviderWebhook`, `ProviderDeliveryEvent`, `DeliveryFeedbackKind`, `SuppressionSignal`, `ProviderWebhookRefusal` |
+| `src/Platform.Api/Modules/Dispatch/Integration/V1/` | `IChannelProvider`, `IChannelProviderResolver`, `DispatchRequest`, `DeliveryTarget` and `RenderedMessage` hierarchies, `ProviderResult`/`ProviderOutcome`, `IProviderWebhookInterpreter`, `IProviderWebhookInterpreterResolver`, `ProviderWebhookRequest`, `VerifiedProviderWebhook`, `ProviderDeliveryEvent`, `DeliveryFeedbackKind`, `SuppressionSignal`, `ProviderWebhookRefusal`, `IProviderDeliveryLookup`, `IProviderDeliveryLookupResolver`, `ProviderDeliveryQuery`, `ProviderLookupRefusal` |
 | `src/Platform.Api/Modules/Dispatch/Infrastructure/Persistence/` | `DispatchDbContext` and migrations (schema `dispatch`, table `provider_config`) |
 | `src/Platform.Api/Modules/Dispatch/Infrastructure/ProviderConfig/` | cached read of `provider_config`, channel-to-adapter resolution |
-| `src/Platform.Api/Modules/Dispatch/Infrastructure/Providers/` | SendGrid, FCM and Twilio adapters, their webhook interpreters, error sanitization |
+| `src/Platform.Api/Modules/Dispatch/Infrastructure/Providers/` | SendGrid, FCM and Twilio adapters, their webhook interpreters, their delivery lookups and the resolution between them, error sanitization |
 | `src/Platform.Api/Modules/Dispatch/Infrastructure/Webhooks/` | interpreter resolution, shared verification guards, suppression classification, registration |
 | `src/Platform.Api/Modules/Dispatch/Infrastructure/Resilience/` | per-provider concurrency limiter, per-provider rate limit and its Redis, circuit-breaker options |
 
@@ -175,6 +178,66 @@
   and re-read as evidence. Twilio echoes no correlation identifiers in the
   callback body, so its events correlate through `ProviderMessageId` at the
   consumer; SendGrid echoes the identifiers it was given in `custom_args`.
+
+## Delivery lookup contract
+
+- Feedback has two halves and this module publishes both. The push half is the
+  interpreter of a callback; the pull half is `IProviderDeliveryLookup`, which
+  answers what became of a message whose callback never arrived. Both return the
+  same `ProviderDeliveryEvent`, so the module that owns attempt state keeps one
+  vocabulary and one state machine.
+- **A provider with no lookup registers no implementation.** The resolver then
+  refuses with `lookup-unsupported`, and that refusal is the record that the
+  attempt can only be settled by fallback or by validity. An adapter that
+  answered "nothing found" for such a provider would make an unanswerable
+  attempt look like an attempt the provider denies.
+- Refusal codes are a catalogue of their own, distinct from the callback one
+  because the caller acts on them differently: `lookup-unsupported` and
+  `history-exhausted` are permanent for the row, `lookup-unavailable` and
+  `payload-unreadable` are worth asking again tomorrow, `query-unusable` says
+  the caller has to carry more about the attempt, and `provider-unknown` is a
+  deployment fault.
+- `ProviderDeliveryQuery.Target` is personal data with a lifetime of one call.
+  It exists because one provider searches by neither metadata nor identity: the
+  caller resolves the destination at the moment of the query and drops it with
+  the query, and no adapter may persist it, log it or echo it into an event.
+  The canonical event carries no destination by contract, which is what keeps
+  the whole pull path free of one everywhere else.
+- The identity of an event is minted by shared provider vocabulary, so the
+  pulled reading and the pushed callback of the same message produce the same
+  `ProviderEventId`. The hub deduplicates by that identity, and the arithmetic
+  is not academic: the contact ledger closes an SMS destination at the second
+  refusal inside a week, so one refusal honoured twice under two identities
+  would take a reachable number away from a person who was refused once.
+- Ambiguity concludes nothing. The SMS lookup prefers the message identity and
+  falls back to destination plus time window only when there is none; if the
+  window matches more than one message it returns no events at all, because a
+  message picked out of an ambiguous set would settle an attempt with another
+  attempt's outcome.
+- The e-mail lookup searches the message activity by the custom arguments the
+  send attached, naming both the notification and the attempt: one notification
+  can have several attempts on the channel. How far back it may search is a
+  commercial term of the contracted plan
+  (`Modules:Dispatch:Providers:SendGrid:ActivityLookbackDays`, three days
+  shipped, which is the reach without the paid activity add-on). A message
+  older than the reach is refused with `history-exhausted` instead of asked
+  about, because an empty search reads exactly like a provider denying it ever
+  saw the message. A route that answers 403 or 404 is `lookup-unsupported` with
+  an alarm of its own: the capability is contracted, and until it is restored
+  no e-mail reconciliation concludes anything.
+- The activity view speaks a coarser dialect than the callback: it says a
+  message was not delivered and does not say why. That maps to a failure with
+  `SuppressionSignal.None`, never to a bounce. A status word carrying no reason
+  must not be promoted into the decision that closes a person's mailbox.
+- **Lookups use named clients of their own, never the sending client.** The send
+  pipeline carries a circuit breaker whose whole meaning is how the provider is
+  answering sends; a batch read that times out is not a send that failed, and
+  feeding it into that breaker would stop a channel over a question nobody asked
+  the provider to answer quickly.
+- Composing the lookups means composing the sending options and the callback
+  options, because a lookup authenticates with the credentials of the send and
+  classifies failure codes with the vocabulary of the callback. It binds no
+  section of its own, so no list of that configuration is ever bound twice.
 
 ## Resilience posture
 

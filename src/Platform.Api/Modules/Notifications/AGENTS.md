@@ -43,14 +43,14 @@
 | Caminho | Responsabilidade |
 |---|---|
 | `src/Platform.Api/Modules/Notifications/Domain/` | entidades de notificação, tentativa, avaliação de política e idempotência, vocabulário de classes, JSON canônico, mascaramento de variáveis e forma pública do id |
-| `src/Platform.Api/Modules/Notifications/Features/` | slices verticais deste contexto: o pipeline Core em `Features/Pipeline/`, o consumer de dispatch em `Features/Dispatching/`, o handler de fallback em `Features/Fallback/`, a administração e os gates do kill switch em `Features/KillSwitch/`, o rastreamento de entrega em `Features/DeliveryTracking/` e as slices de consulta em `Features/Queries/` |
+| `src/Platform.Api/Modules/Notifications/Features/` | slices verticais deste contexto: o pipeline Core em `Features/Pipeline/`, o consumer de dispatch em `Features/Dispatching/`, o handler de fallback em `Features/Fallback/`, a administração e os gates do kill switch em `Features/KillSwitch/`, o rastreamento de entrega em `Features/DeliveryTracking/` (recepção em `Webhooks/`, aplicação em `Events/`, varreduras em `Scheduling/` e reconciliação em `Reconciliation/`) e as slices de consulta em `Features/Queries/` |
 | `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistência (schema `notifications`, contextos de escrita e somente leitura), controles Redis, gate de template, privacidade, cache do kill switch e ciclo de vida dos holds, gerenciador de partições, jobs de purge, writer de commit do pipeline, writer de dispatch de tentativas, writer da evidência de entrega, esquema de autenticação por assinatura de provedor, poison sinks, auxiliares de transporte para consultas e leitor de histórico |
 | `src/Platform.Api/Modules/Notifications/NotificationsModule.cs` | registro de serviços e mapeamento de endpoints deste contexto |
 | `src/Platform.Api/Modules/Notifications/Integration/V1/` | contrato publicado deste contexto: o catálogo canônico de motivos de rejeição |
 | `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs` | composição da função de worker `core`, descoberta pelo host de workers |
 | `src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs` | composição da função de worker `dispatcher`, descoberta pelo host de workers |
 | `src/Platform.Api/Modules/Notifications/KafkaIngressWorkerRole.cs` | composição da função de worker `kafka-ingress`, descoberta pelo host de workers |
-| `src/Platform.Api/Modules/Notifications/NotificationsMaintenanceWorkerRole.cs` | composição da função de worker `notifications-maintenance`, descoberta pelo host de workers |
+| `src/Platform.Api/Modules/Notifications/NotificationsMaintenanceWorkerRole.cs` | composição da função de worker `notifications-maintenance`, descoberta pelo host de workers: varredura de conteúdo renderizado, backfill e reconciliação diária de entrega |
 | `src/Platform.Api/Modules/Notifications/DeliveryTrackerWorkerRole.cs` | composição da função de worker `delivery-tracker`, descoberta pelo host de workers |
 
 Estado sob responsabilidade: `notification`, `notification_attempt`,
@@ -518,9 +518,17 @@ curta própria.
   virem duas máquinas.
 - Transições alimentadas por feedback, em `DeliveryStateMachine`: `sent ->
   delivered` (carimba `delivered_at` com o instante do provedor), `delivered ->
-  read`, `sending -> failed`, `sending -> bounced` e `sent -> bounced`.
+  read`, `sending -> failed`, `sending -> bounced`, `sent -> bounced`, `sent ->
+  failed` e, a partir do estado estacionado, `unknown -> sent`, `unknown ->
+  delivered`, `unknown -> read`, `unknown -> failed` e `unknown -> bounced`.
   Qualquer outro par é registrado e ignorado, sem erro: o feedback nunca anda
-  para trás.
+  para trás. O estado estacionado é a exceção que confirma a regra, e é o que
+  torna a reconciliação capaz de corrigir alguma coisa: um veredito
+  inconclusivo é este hub admitindo que não sabe o que o provedor fez, não um
+  fato sobre a mensagem, então nada anda para trás a partir dele. O carimbo de
+  entrega é escrito onde ainda estiver vazio, inclusive na leitura, porque uma
+  abertura pode ser a única prova de entrega que uma tentativa estacionada
+  jamais recebe.
 - O que a transição significa para a notificação **não** é decidido no
   aplicador. Ele chama `NotificationPlanOutcome` dentro da própria transação:
   `delivered` encerra a notificação em `delivered` e publica o evento de
@@ -543,16 +551,26 @@ curta própria.
   configurável do provedor, e uma segunda leitura desse vocabulário deste lado
   seria um segundo classificador livre para divergir. Linha anterior à coluna
   lê `none`, que é o que a ausência já significava.
-- Depois de confirmar a transição, e nunca antes, o consumidor relata o destino
-  recusado ao contexto dono dos contatos por
-  `ContactConsent.Integration.V1.ISuppressionLedger`, no mesmo regime best
-  effort e idempotente do token de dispositivo: a transição já foi commitada e
-  uma reentrega resolve como duplicata, então uma falha do relato fica
-  registrada e é a reconciliação que a socorre. O `sourceEventId` é o id da
-  linha de evidência, e o instante relatado é o `received_at` deste hub, nunca
-  o que o provedor declara: a janela de acúmulo do ledger não pode ser aberta
-  de fora. Um attempt sem ponto de contato (push) não relata nada aqui, porque
-  token morto viaja pelo contrato de ciclo de vida do dispositivo.
+- **Quem relata o destino recusado é o aplicador**, depois de confirmar a
+  transição e nunca antes, por
+  `ContactConsent.Integration.V1.ISuppressionLedger`. O relato vive junto do
+  escritor único da máquina de estados porque a regra é exatamente essa
+  ordem, e uma regra que cada chamador do aplicador precisa lembrar é uma
+  regra que um dia viaja sem o chamador: foi o que aconteceu quando a
+  reconciliação passou a chamar o aplicador direto. O aplicador também é o
+  único lugar que já tem as duas metades do alvo em mãos, o ponto de contato
+  da tentativa e o destinatário da notificação, então relatar dali não custa
+  leitura alguma. Regime best effort e idempotente, o mesmo do token de
+  dispositivo: a transição já foi commitada e uma reentrega resolve como
+  duplicata, então uma falha do relato fica registrada. O `sourceEventId` é o
+  id da linha de evidência, e feedback sem evidência não relata nada: o ledger
+  identifica a recusa por essa linha, e um identificador cunhado na hora
+  contaria a mesma recusa duas vezes, o que num canal que suprime na segunda
+  tira um destino alcançável de quem foi recusado uma vez. O instante relatado
+  é o da aplicação, sempre deste hub e nunca o que o provedor declara: a janela
+  de acúmulo do ledger não pode ser aberta de fora. Um attempt sem ponto de
+  contato (push) não relata nada, porque token morto viaja pelo contrato de
+  ciclo de vida do dispositivo.
 
 ## Scheduler do papel `delivery-tracker`
 
@@ -622,6 +640,72 @@ curta própria.
   antiga sai em log estruturado a cada rodada que encontra trabalho; o alarme
   sobre ela pertence à Infrastructure.
 
+
+## Reconciliação do papel `notifications-maintenance`
+
+- `Features/DeliveryTracking/Reconciliation/` roda uma vez por
+  `Modules:Notifications:DeliveryReconciliation:Interval` (um dia por padrão) e
+  pergunta ao provedor o que aconteceu com as tentativas que ele aceitou, ou
+  deixou sem veredito, e nunca mais reportou. É correção de retaguarda: o
+  fallback já rodou, o prazo já venceu, e o que sobrou é uma tentativa cujo
+  registro está errado, não uma mensagem que alguém espera.
+- **Elegibilidade**: `sent` ou `unknown`, com `provider_key` carimbado, paradas
+  há mais de `StaleAfter` (seis horas por padrão). A idade cai para
+  `created_at` quando `status_changed_at` é nula, que é o que toda linha
+  anterior à coluna carrega. O scheduler não pode fazer essa substituição,
+  porque agir cedo lá custa uma segunda mensagem a uma pessoa; aqui o mesmo
+  erro custa uma leitura no provedor, e recusar-se a fazê-la deixaria
+  justamente essas linhas inalcançáveis para sempre. Uma tentativa encerrada
+  pela própria validade não entra: ela nunca chegou ao provedor e não carrega
+  identidade de mensagem, e é o par de status que a mantém de fora, não uma
+  exceção escrita à parte.
+- **A resposta entra pela mesma porta que o callback**: uma linha
+  `delivery_event` sob a mesma identidade de evento do provedor, com o evento
+  canônico selado como payload, e uma aplicação pelo mesmo
+  `DeliveryStateApplier`. A deduplicação é compartilhada de propósito: um
+  evento que o callback já gravou é recusado aqui, e um evento gravado aqui é
+  recusado ao callback que chegar depois. Sem isso, uma recusa vista pelas duas
+  metades contaria duas vezes no ledger de contatos. A mensagem de fila também
+  é escrita, e é respondida como duplicata no caminho feliz: ela é a única cura
+  para uma rodada que morra entre o commit da evidência e a própria aplicação.
+- **O destino é transitório e só existe quando é a única rota.** Uma mensagem
+  com identidade no provedor é consultada por ela, e nada é revelado; sem
+  identidade, o valor sai de `RevealContactValueAsync` no instante da consulta,
+  vai para o adaptador e morre com a consulta. A regra é escrita sobre a
+  tentativa e não sobre o provedor, porque quais chaves de busca uma plataforma
+  oferece é conhecimento de provedor e vive do outro lado do contrato; o preço
+  é uma revelação supérflua para o provedor que busca por metadado e cujo envio
+  não deixou identidade, e o valor dessa revelação é descartado sem uso.
+- **Provedor sem consulta posterior não é chamado.** O resolver do Dispatch
+  recusa, a tentativa permanece onde está e o registro é de log, não de trilha:
+  as mesmas linhas voltam a cada rodada pela vida da partição, e um acréscimo
+  de trilha segura o bloqueio da cadeia da partição mensal, então um acréscimo
+  por linha inconsultável por dia taxaria a ingestão do hub inteiro para
+  repetir um fato que não muda.
+- **A consulta não alimenta o observador de circuito do canal.** Aquela janela
+  mede há quanto tempo os envios estão falhando e sua consequência é parar o
+  canal para todo mundo. Uma consulta é leitura, feita por um job de lote,
+  sobre uma mensagem enviada horas antes: contar o timeout dela como veredito
+  de envio faria um minuto ruim de uma API de relatório parar um canal que
+  entrega perfeitamente. Também não há lacuna: uma tentativa barrada pelo
+  limitador de taxa nunca chegou ao provedor e continua `queued`, fora dos dois
+  status que esta varredura lê.
+- **A retirada do passivo de índice roda na mesma rodada.**
+  `SettleTerminalAsync` encerra a notificação sem reivindicar avanço de plano,
+  porque não há avanço a reivindicar, e a tentativa fica com prazo carimbado e
+  claim vazio: exatamente o predicado dos três índices parciais do scheduler. A
+  varredura de prazo já mantém notificação encerrada fora do lote pelo join,
+  então nada é pedido duas vezes; o que cresce é o trabalho embaixo, uma
+  entrada lida e descartada por rodada por linha, para sempre. Carimbar
+  `plan_advanced_at` nessas linhas não muda comportamento algum (o handler
+  responde duplicata antes de chegar ao claim, e um plano encerrado não avança)
+  e muda só quais linhas os índices guardam. Medição sobre 40 mil tentativas:
+  a varredura de prazo lia 897 entradas por rodada, 799 delas de notificações
+  encerradas, e passou a ler 98, que é o trabalho real.
+- O alcance histórico da consulta de e-mail é decisão comercial e vive em
+  configuração do Dispatch, não aqui. Enquanto o add-on de atividade não for
+  contratado, uma tentativa de e-mail mais velha que o alcance é recusada com
+  `history-exhausted` e permanece sem desfecho, com registro.
 
 ## Superfície de consulta
 

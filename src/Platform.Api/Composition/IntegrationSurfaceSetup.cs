@@ -11,6 +11,8 @@ using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.ProviderConfig;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.SendGrid;
+using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Twilio;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
@@ -109,6 +111,46 @@ public static class IntegrationSurfaceSetup
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<ContactConsentWriter>();
         services.TryAddScoped<ISuppressionLedger, SuppressionLedger>();
+        return services;
+    }
+
+    /// <summary>
+    /// The delivery-lookup surface of Dispatch: the adapters that ask a
+    /// provider what became of a message whose feedback never arrived, and the
+    /// resolution that picks between them.
+    /// <para>
+    /// It binds the sending credentials and the callback vocabulary, and it
+    /// composes neither send adapters nor callback interpreters. A lookup
+    /// authenticates with the credentials of the send and classifies failure
+    /// codes with the vocabulary of the callback, because a code that means a
+    /// dead destination means the same whether this hub was told or had to
+    /// ask; what it does not need is the ability to send anything, and a batch
+    /// role that cannot send is a batch role that cannot message anybody by
+    /// accident.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddDispatchDeliveryLookupSurface(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<SendGridOptions>()
+            .Bind(configuration.GetSection(SendGridOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<TwilioOptions>()
+            .Bind(configuration.GetSection(TwilioOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<SendGridWebhookOptions>()
+            .Bind(configuration.GetSection(SendGridWebhookOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<TwilioWebhookOptions>()
+            .Bind(configuration.GetSection(TwilioWebhookOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddDispatchDeliveryLookups();
         return services;
     }
 
