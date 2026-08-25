@@ -170,9 +170,9 @@ A decomposição em fatias prometida no fim da seção de implantação foi prod
 | Scheduler DB-backed | Concluída (fatia F2-5, commit `7af6e32`) |
 | Adapter SMS (Twilio) | Concluída (fatias F2-7 e F2-8, commits `b2a885e` e `8132cbf`), incluindo rate limit por provedor, kill switch automático de canal e pool de sender por aplicação |
 | Supressão automática, reversível e auditada | Concluída (fatia F2-6, commit `47ab335`) |
-| Reconciliação por canal | Concluída (fatia F2-9) |
+| Reconciliação por canal | Concluída (fatia F2-9, commit `6850637`) |
 | Classe `operational` com janela de silêncio | Pendente (fatia F2-12) |
-| Relatório mensal de evidências | Pendente (fatia F2-10) |
+| Relatório mensal de evidências | Concluída (fatia F2-10) |
 
 Duas correções que a implementação obrigou e que este design não previa, ambas registradas na decomposição e a segunda também em [ADR-0014](../ADR-0014-confirmacao-de-entrega-e-gatilhos-de-fallback.md):
 

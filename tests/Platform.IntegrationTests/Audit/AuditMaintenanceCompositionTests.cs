@@ -6,6 +6,9 @@ using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Verification;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Worm;
+using NotificationHub.Api.Modules.Audit.Integration.V1;
+using NotificationHub.Api.Modules.Compliance.Features.Reporting;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using NotificationHub.Worker;
 
@@ -19,7 +22,7 @@ namespace NotificationHub.IntegrationTests.Audit;
 public sealed class AuditMaintenanceRoleCompositionTests
 {
     [Fact]
-    public void The_maintenance_role_hosts_exactly_the_partition_manager_and_the_chain_verification()
+    public void The_maintenance_role_hosts_the_partition_manager_the_verification_and_the_evidence_report()
     {
         HostApplicationBuilder builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings());
         builder.Configuration.AddInMemoryCollection(RoleSettings());
@@ -31,8 +34,15 @@ public sealed class AuditMaintenanceRoleCompositionTests
         IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
         hosted.OfType<PartitionManagerService>().ShouldHaveSingleItem();
         hosted.OfType<ChainVerificationService>().ShouldHaveSingleItem();
+
+        // The recurring evidence report rides in this role and in no other:
+        // it is the singleton that already runs on a batch cadence and already
+        // holds the immutable store the report lands in.
+        hosted.OfType<MonthlyEvidenceReportService>().ShouldHaveSingleItem();
         hosted
-            .Where(service => service is not PartitionManagerService and not ChainVerificationService)
+            .Where(service => service is not PartitionManagerService
+                and not ChainVerificationService
+                and not MonthlyEvidenceReportService)
             .ShouldAllBe(service => service.GetType().Namespace!.StartsWith("Microsoft.", StringComparison.Ordinal));
 
         // Provisioning, closing cycle, export and verification resolve end to
@@ -41,6 +51,13 @@ public sealed class AuditMaintenanceRoleCompositionTests
         scope.ServiceProvider.GetRequiredService<PartitionMaintenanceRound>().ShouldNotBeNull();
         scope.ServiceProvider.GetRequiredService<PartitionClosingCycle>().ShouldNotBeNull();
         scope.ServiceProvider.GetRequiredService<ChainVerificationRound>().ShouldNotBeNull();
+
+        // The three contracts the composer asks for resolve here, each from
+        // the module that owns what it answers about.
+        scope.ServiceProvider.GetRequiredService<IEvidenceArchive>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<IAuditPeriodEvidence>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<INotificationOutcomeReport>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<ComposeMonthlyEvidence.Handler>().ShouldNotBeNull();
 
         HealthCheckRegistration[] checks = [.. host.Services
             .GetRequiredService<IOptions<HealthCheckServiceOptions>>().Value.Registrations];
@@ -71,6 +88,8 @@ public sealed class AuditMaintenanceRoleCompositionTests
             ["Worker:Role"] = "audit-maintenance",
             ["Modules:Audit:Persistence:Ef:ConnectionString"] =
                 "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:Notifications:Persistence:Ef:ConnectionString"] =
+                "Host=localhost;Database=worker_tests;Username=test",
             ["Modules:Audit:WormExport:Bucket"] = "worker-tests-worm",
             ["Platform:Cryptography:Attestation:Provider"] = "local",
             ["Platform:Cryptography:Attestation:KeyId"] = AuditMaintenanceComposition.TestKeyId,
@@ -91,6 +110,7 @@ public sealed class AuditApiHostCompositionTests(TemplateManagementApiFixture fi
         IHostedService[] hosted = [.. fixture.Services.GetServices<IHostedService>()];
         hosted.OfType<PartitionManagerService>().ShouldBeEmpty();
         hosted.OfType<ChainVerificationService>().ShouldBeEmpty();
+        hosted.OfType<MonthlyEvidenceReportService>().ShouldBeEmpty();
 
         var checks = fixture.Services
             .GetRequiredService<IOptions<HealthCheckServiceOptions>>()

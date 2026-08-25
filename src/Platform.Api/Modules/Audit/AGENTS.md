@@ -20,6 +20,13 @@
   because it must see the coverage running out, and hosts none of the jobs:
   revoking grants and detaching partitions is not work that may run once per
   replica.
+- That role also **hosts** the recurring evidence report and does not **own**
+  it. The composition lives in the Compliance module, which is a leaf of the
+  dependency graph and reads every source through a published contract;
+  composing it here would make a module everything depends on depend back on
+  Notifications and TemplateManagement, and close a cycle between contexts.
+  The role composes it through the composition root, so no namespace of this
+  module ever names one of that module's types.
 - Do not read or write another context's data store, infrastructure types, or
   mutable domain types. Subject identities arrive already composed in the
   producing context's naming; this module never models foreign aggregates.
@@ -31,9 +38,9 @@
 | Path | Responsibility |
 |---|---|
 | `src/Platform.Api/Modules/Audit/Domain/` | audit event and approval entities, hash-chain arithmetic (canonical form, anchor, link) |
-| `src/Platform.Api/Modules/Audit/Integration/V1/` | `IAuditTrail` (transactional append and approval), `AuditEntry`, `ApprovalGrant`, audit vocabulary constants |
+| `src/Platform.Api/Modules/Audit/Integration/V1/` | `IAuditTrail` (transactional append and approval), `IAuditEvidence` (subject read), `IAuditPeriodEvidence` (window read), `IEvidenceArchive` (write-once archival), `AuditEntry`, `ApprovalGrant`, audit vocabulary constants |
 | `src/Platform.Api/Modules/Audit/Infrastructure/` | `AuditDbContext` and migrations (schema `audit`), the transactional appender, partition maintenance and closing cycle, WORM export, chain verification, health checks |
-| `src/Platform.Api/Modules/Audit/Infrastructure/Worm/` | the module-owned write-once store contract and its object-store implementation |
+| `src/Platform.Api/Modules/Audit/Infrastructure/Worm/` | the module-owned write-once store contract, its object-store implementation, and the published archive of recurring evidence |
 | `src/Platform.Api/Modules/Audit/AuditModule.cs` | service registration for a request-serving host (persistence, trail contract, coverage health check) |
 | `src/Platform.Api/Modules/Audit/AuditMaintenanceWorkerRole.cs` | composition of the `audit-maintenance` worker role (provisioning, export, closing cycle, verification) |
 
@@ -216,11 +223,35 @@ destruction; the drop has a gate of its own on purpose. Exporting evidence is
 additive and reversible, dropping a table is not, and the two must never
 share one switch.
 
+## Recurring evidence archive
+
+- `IEvidenceArchive` takes bytes and a **relative** key and returns a receipt.
+  The composer names its own evidence; this module decides where evidence
+  lives, so the key is joined under the module's prefix, in an `evidence/`
+  folder beside the trail exports, and a key that could escape that folder is
+  refused. One bucket and one retention rule then cover everything the
+  platform must still be able to show years from now.
+- The posture is the exporter's, in a `Result` axis: compute the digest, ask
+  the store what is already there, treat a matching digest as a rerun that
+  writes nothing, and refuse to overwrite when the digest differs. A digest
+  that moved is an integration failure and a finding for a person, never a
+  retry: the destination forbids the rewrite anyway, and hiding the divergence
+  would be worse than the divergence.
+- A write lands in the trail as `evidence.archived`, with the key, the length
+  and the digest. A rerun that changed nothing records nothing, so counting
+  those rows counts archivals and not rounds.
+- `IAuditPeriodEvidence` answers about a window and never about a subject.
+  Counts are grouped by the database over the queryable columns, including the
+  `details` column, which is exactly what that column is for; every individual
+  event it hands over (the governed changes) is rebuilt from the canonical text
+  the hash covers. Both halves are bounded: the window has a ceiling, because
+  every index is local to a partition, and the governed changes have a row cap.
+
 ## Out of scope for now
 
 The `/v1/audit/*` read API (reads must generate `audit.read` through it), the
-pseudonymized export for the regulator, the monthly evidence reports, and the
-lifecycle rules of the bucket. Do not work around their absence here.
+pseudonymized export for the regulator, and the lifecycle rules of the bucket.
+Do not work around their absence here.
 
 ## Error axis and logging
 

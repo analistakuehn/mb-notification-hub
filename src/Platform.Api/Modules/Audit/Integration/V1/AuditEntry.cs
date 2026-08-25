@@ -31,6 +31,18 @@ public static class AuditEntityTypes
 
     /// <summary>One push registration of a recipient, as its owning context names it.</summary>
     public const string DeviceToken = "device_token";
+
+    /// <summary>
+    /// A switch that stops traffic, named as the context that owns it names
+    /// the scope and the key it covers.
+    /// </summary>
+    public const string KillSwitch = "kill_switch";
+
+    /// <summary>
+    /// One object of recurring evidence in the immutable store, identified by
+    /// the key it was archived under.
+    /// </summary>
+    public const string EvidenceObject = "evidence_object";
 }
 
 /// <summary>Canonical action names of the audit vocabulary.</summary>
@@ -66,6 +78,20 @@ public static class AuditActions
     /// never a contact value and never a fragment of content.
     /// </summary>
     public const string AuditRead = "audit.read";
+
+    /// <summary>
+    /// A switch that stops traffic changed state. The actor may be a person or
+    /// this platform itself, so a reader that assumes a human here is wrong;
+    /// the actor type is what separates the two.
+    /// </summary>
+    public const string KillSwitchChanged = "kill_switch.changed";
+
+    /// <summary>
+    /// Recurring evidence was written to the immutable store. The details
+    /// carry the key, the digest and the length, which is what lets an auditor
+    /// tie the archived bytes to the moment they were archived.
+    /// </summary>
+    public const string EvidenceArchived = "evidence.archived";
 }
 
 /// <summary>Everything an audit event must capture about one governed effect.</summary>

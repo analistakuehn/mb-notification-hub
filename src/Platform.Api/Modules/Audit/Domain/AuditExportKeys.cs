@@ -41,6 +41,33 @@ internal static partial class AuditExportKeys
     internal static string PublicKeyObject(string prefix, string keyId)
         => $"{Normalize(prefix)}attestation-keys/{SanitizeKeyId(keyId)}.json";
 
+    /// <summary>
+    /// Folder of recurring evidence composed outside this module. It sits
+    /// beside the trail exports under the same prefix, so one retention
+    /// policy and one bucket cover everything this platform must still be
+    /// able to show years from now.
+    /// </summary>
+    internal const string EvidenceFolder = "evidence";
+
+    /// <summary>
+    /// Key of one archived evidence object. The composer names its own
+    /// evidence and this module decides where evidence lives, which is why the
+    /// caller's part is relative and never reaches the prefix.
+    /// </summary>
+    internal static string EvidenceObject(string prefix, string relativeKey)
+        => $"{Normalize(prefix)}{EvidenceFolder}/{relativeKey}";
+
+    /// <summary>
+    /// Whether a caller's relative key may be joined to the evidence folder.
+    /// The character set is narrow and traversal is refused outright: a key
+    /// that escaped the folder would put an object where no retention rule
+    /// expects one, and an object store has no directory to stop it.
+    /// </summary>
+    internal static bool IsSafeRelativeKey(string relativeKey)
+        => !string.IsNullOrEmpty(relativeKey)
+            && SafeRelativeKey().IsMatch(relativeKey)
+            && !relativeKey.Split('/').Any(segment => segment is "." or "..");
+
     /// <summary>Prefix with exactly one trailing separator, whatever the configuration wrote.</summary>
     internal static string Normalize(string prefix)
     {
@@ -61,4 +88,7 @@ internal static partial class AuditExportKeys
 
     [GeneratedRegex("[^A-Za-z0-9._-]")]
     private static partial Regex UnsafeKeyIdCharacter();
+
+    [GeneratedRegex("^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")]
+    private static partial Regex SafeRelativeKey();
 }

@@ -47,6 +47,7 @@ internal static class WormExportSetup
         services.AddSingleton<IAmazonS3>(serviceProvider =>
             CreateS3Client(serviceProvider.GetRequiredService<IOptions<WormExportOptions>>().Value));
         services.TryAddScoped<IWormObjectStore, S3WormObjectStore>();
+        services.TryAddScoped<IEvidenceArchive, WormEvidenceArchive>();
         services.AddScoped<AuditManifestStore>();
         services.AddScoped<AuditExporter>();
         services.AddScoped<AuditExportPlanner>();

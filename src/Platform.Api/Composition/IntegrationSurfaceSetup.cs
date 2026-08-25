@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
+using NotificationHub.Api.Modules.Compliance.Features.Reporting;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Devices;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Privacy;
@@ -13,6 +14,9 @@ using NotificationHub.Api.Modules.Dispatch.Infrastructure.ProviderConfig;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.SendGrid;
 using NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.Twilio;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Reads;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
@@ -151,6 +155,24 @@ public static class IntegrationSurfaceSetup
             .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
         services.AddDispatchDeliveryLookups();
+        return services;
+    }
+
+    /// <summary>
+    /// The recurring evidence report of Compliance, with the Notifications
+    /// read surface it aggregates over. The composing module is a leaf of the
+    /// dependency graph and owns no store, so the root is what puts the read
+    /// behind its published contract; the archive and the trail read come from
+    /// the module whose role hosts this job.
+    /// </summary>
+    public static IServiceCollection AddComplianceEvidenceReporting(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddNotificationsPersistence(configuration);
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<INotificationOutcomeReport, NotificationOutcomeReader>();
+        services.AddComplianceMonthlyEvidenceReport(configuration);
         return services;
     }
 

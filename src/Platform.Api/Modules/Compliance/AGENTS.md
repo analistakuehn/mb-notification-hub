@@ -6,6 +6,10 @@
   the question, not the data, and it never gains a table. Nothing here is a
   source of truth, and nothing outside consumes it: this module is a leaf of
   the dependency graph, on purpose.
+- Evidence leaves through two kinds of surface and no other: a route, answered
+  synchronously to a principal, and a recurring report, composed by a job and
+  archived. Both compose from published contracts alone, and neither knows
+  where the data sits.
 - The `/v1/audit/*` routes live here and nowhere else. Putting them in the Audit
   module would invert the direction that makes the transactional append work:
   every module depends on `Audit.Integration.V1`, so an Audit module that also
@@ -32,6 +36,7 @@
 | `Infrastructure/RateLimiting/` | separate budgets for the evidence route and the content route |
 | `Infrastructure/Disclosure/` | the shape of a disclosure record and the append that writes it |
 | `Infrastructure/Http/` | published numbers and notices, problem responses, principal resolution, volume alarm |
+| `Features/Reporting/` | the monthly evidence report: its archived shape, the composition, the object key, and the scheduler |
 
 ## The disclosure contract
 
@@ -110,6 +115,53 @@
 - The route has a rate-limit budget of its own plus a volume alarm, because the
   risk is not a burst, it is a patient sweep that never trips a per-minute
   ceiling.
+
+## The recurring evidence report
+
+- The monthly report is composed here and hosted by the `audit-maintenance`
+  worker role, which is already the singleton that runs on a batch cadence and
+  already holds the immutable store the report lands in. Hosting is not
+  ownership: the role composes this job through the composition root, and no
+  namespace of this module is named by the module that owns the trail.
+- Both halves arrive through published contracts. `INotificationOutcomeReport`
+  aggregates volumes, refusals and delivery outcomes **inside** the owning
+  module, because what a status means and which channel can never report a
+  delivery are facts of that context. `IAuditPeriodEvidence` answers the trail
+  half, and `IEvidenceArchive` takes the bytes.
+- The archived document carries **no clock and no run identifier**. The bytes
+  must repeat exactly over the same sources, because that is what turns a rerun
+  into a digest comparison instead of a second object nobody can delete. The
+  composition instant lives in the trail row the archival writes, where it
+  belongs.
+- The report waits out a **reconciliation grace** after the month ends, and
+  declares the grace it observed. Delivery figures move backwards in time: the
+  rear-guard reconciliation corrects, today, an attempt sent days ago whose
+  provider never reported. A report sealed on the first of the month would
+  archive as unknown what the next round resolves, and the archive cannot be
+  rewritten.
+- The report is aggregate, and nothing else. No recipient identity, no contact
+  value, no rendered content and no variable reaches it. Actor and approver
+  identities do: a change without who approved it is not evidence of a control.
+- Sources moving after a month is archived is a **finding**, not a retry. The
+  rerun recomputes, sees a different digest, refuses to overwrite, and says so.
+  The bounded lookback is what keeps that finding from being reported forever.
+
+## Absence discipline of the report
+
+- A section this hub has a source for is always declared, and an empty list
+  under it is a legitimate fact: nothing of that kind happened in the window.
+  A section this hub has no source for is omitted entirely.
+- Omitted today, with the reason each one is absent rather than empty: the
+  dead-letter queues and the provider-level failures, which are a log entry and
+  a queue disposition and never a row, so counting them is a question for
+  operational metrics; and the privileged-access activations, whose elevation
+  happens in the identity provider and not in this hub. The names are declared
+  in one place so the phase that gains a source knows which member it fills.
+- A delivery rate is withheld under the same discipline, for two reasons that a
+  zero would flatten into one: a channel whose providers never report a
+  delivery, and a channel where nothing was accepted to report on. Push is the
+  first case permanently, and the report says which kind of confirmation each
+  channel has so the rite never reads that silence as a failed measurement.
 
 ## Out of scope for now
 

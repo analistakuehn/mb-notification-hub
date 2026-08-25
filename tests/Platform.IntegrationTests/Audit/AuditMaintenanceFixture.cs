@@ -11,6 +11,7 @@ using Npgsql;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using Testcontainers.LocalStack;
@@ -28,6 +29,10 @@ public sealed class AuditMaintenanceFixture : IAsyncLifetime, IDisposable
 {
     /// <summary>Bucket the tests export into; created with Object Lock enabled.</summary>
     public const string Bucket = "notification-hub-audit-worm-tests";
+
+    /// <summary>Tables of the notification schema partitioned by month on their creation instant.</summary>
+    private static readonly string[] NotificationsPartitionedTables =
+        ["notification", "notification_attempt", "policy_evaluation"];
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:17-alpine")
@@ -85,25 +90,41 @@ public sealed class AuditMaintenanceFixture : IAsyncLifetime, IDisposable
     }
 
     /// <summary>Appends one event through the production writer, in its own committed transaction.</summary>
-    public async Task AppendAsync(string entityId, DateTimeOffset occurredAt, string? detailsJson = null)
+    public Task AppendAsync(string entityId, DateTimeOffset occurredAt, string? detailsJson = null)
+        => AppendEntryAsync(new AuditEntry
+        {
+            ActorType = AuditActorTypes.System,
+            ActorId = "audit-maintenance-tests",
+            Action = AuditActions.TemplateCreated,
+            EntityType = AuditEntityTypes.Template,
+            EntityId = entityId,
+            DetailsJson = detailsJson ?? """{"origin":"audit-maintenance-tests"}""",
+            OccurredAt = occurredAt,
+        });
+
+    /// <summary>
+    /// Appends one entry exactly as composed, through the production writer.
+    /// A test that needs a specific action, actor or details takes this one;
+    /// the shorthand above keeps the shape every export test already relies on.
+    /// </summary>
+    public async Task AppendEntryAsync(AuditEntry entry)
     {
         var trail = new TransactionalAuditTrail();
         await using var connection = new NpgsqlConnection(PostgresConnectionString);
         await connection.OpenAsync();
         await using DbTransaction transaction = await connection.BeginTransactionAsync();
-        await trail.AppendAsync(
-            transaction,
-            new AuditEntry
-            {
-                ActorType = AuditActorTypes.System,
-                ActorId = "audit-maintenance-tests",
-                Action = AuditActions.TemplateCreated,
-                EntityType = AuditEntityTypes.Template,
-                EntityId = entityId,
-                DetailsJson = detailsJson ?? """{"origin":"audit-maintenance-tests"}""",
-                OccurredAt = occurredAt,
-            },
-            CancellationToken.None);
+        await trail.AppendAsync(transaction, entry, CancellationToken.None);
+        await transaction.CommitAsync();
+    }
+
+    /// <summary>Records one approval through the production writer, in its own committed transaction.</summary>
+    public async Task RecordApprovalAsync(ApprovalGrant grant)
+    {
+        var trail = new TransactionalAuditTrail();
+        await using var connection = new NpgsqlConnection(PostgresConnectionString);
+        await connection.OpenAsync();
+        await using DbTransaction transaction = await connection.BeginTransactionAsync();
+        await trail.RecordApprovalAsync(transaction, grant, CancellationToken.None);
         await transaction.CommitAsync();
     }
 
@@ -118,6 +139,27 @@ public sealed class AuditMaintenanceFixture : IAsyncLifetime, IDisposable
             FOR VALUES FROM ('{from:yyyy-MM-dd} 00:00:00+00') TO ('{to:yyyy-MM-dd} 00:00:00+00')
             """;
         await ExecuteAsync(sql);
+    }
+
+    /// <summary>
+    /// Guarantees the monthly partitions of the notification tables, including
+    /// months already in the past. The migrations provision the current month
+    /// and two ahead, which is what production needs and never what a report
+    /// over a closed month needs.
+    /// </summary>
+    public async Task EnsureNotificationsPartitionsAsync(DateTimeOffset instant)
+    {
+        var from = new DateOnly(instant.UtcDateTime.Year, instant.UtcDateTime.Month, 1);
+        DateOnly to = from.AddMonths(1);
+        foreach (var table in NotificationsPartitionedTables)
+        {
+            var sql = $"""
+                CREATE TABLE IF NOT EXISTS notifications."{table}_{from.Year:D4}_{from.Month:D2}"
+                PARTITION OF notifications."{table}"
+                FOR VALUES FROM ('{from:yyyy-MM-dd} 00:00:00+00') TO ('{to:yyyy-MM-dd} 00:00:00+00')
+                """;
+            await ExecuteAsync(sql);
+        }
     }
 
     /// <summary>Runs raw SQL as the owning role; the tests use it to set up and to tamper.</summary>
@@ -230,8 +272,21 @@ public sealed class AuditMaintenanceFixture : IAsyncLifetime, IDisposable
                 .UseNpgsql(PostgresConnectionString, npgsql =>
                     npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "audit"))
                 .Options;
-        await using var audit = new AuditDbContext(auditOptions);
-        await audit.Database.MigrateAsync();
+        await using (var audit = new AuditDbContext(auditOptions))
+        {
+            await audit.Database.MigrateAsync();
+        }
+
+        // The maintenance role composes the notification read surface, because
+        // the recurring evidence report aggregates over it; the database the
+        // role runs against therefore carries that schema too.
+        DbContextOptions<NotificationsDbContext> notificationsOptions =
+            new DbContextOptionsBuilder<NotificationsDbContext>()
+                .UseNpgsql(PostgresConnectionString, npgsql =>
+                    npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "notifications"))
+                .Options;
+        await using var notifications = new NotificationsDbContext(notificationsOptions);
+        await notifications.Database.MigrateAsync();
     }
 }
 

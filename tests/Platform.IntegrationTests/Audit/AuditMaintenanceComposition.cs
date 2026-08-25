@@ -26,6 +26,7 @@ internal static class AuditMaintenanceComposition
         var settings = new Dictionary<string, string?>
         {
             ["Modules:Audit:Persistence:Ef:ConnectionString"] = postgresConnectionString,
+            ["Modules:Notifications:Persistence:Ef:ConnectionString"] = postgresConnectionString,
             ["Modules:Audit:PartitionManager:Enabled"] = "false",
             ["Modules:Audit:ChainVerification:Enabled"] = "false",
             ["Modules:Audit:WormExport:Bucket"] = "audit-worm-tests",
