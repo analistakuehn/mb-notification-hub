@@ -128,7 +128,7 @@ public sealed class ReconciliationFixture : IAsyncLifetime
         var recipientId = seed.RecipientId ?? $"cus_{Guid.NewGuid():N}";
         await ExecuteNotificationsDbAsync(async db =>
         {
-            Notification notification = Notification.Accept(new NotificationDraft
+            var notification = Notification.Accept(new NotificationDraft
             {
                 Application = seed.Application,
                 IdempotencyKey = Guid.NewGuid().ToString("N"),
@@ -199,7 +199,7 @@ public sealed class ReconciliationFixture : IAsyncLifetime
                 RecipientProfile.Create(recipientId, null, null, Clock.GetUtcNow()));
         }
 
-        ContactPoint point = ContactPoint.Declare(
+        var point = ContactPoint.Declare(
             recipientId, channel, protectedValue.Encrypted, protectedValue.Hash, verified: true);
         db.ContactPoints.Add(point);
         await db.SaveChangesAsync();

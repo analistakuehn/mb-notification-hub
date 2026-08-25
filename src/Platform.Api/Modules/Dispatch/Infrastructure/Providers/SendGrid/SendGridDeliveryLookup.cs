@@ -60,7 +60,7 @@ internal sealed class SendGridDeliveryLookup(
                 ProviderLookupRefusal.LookupUnavailable);
         }
 
-        TimeSpan reach = TimeSpan.FromDays(config.ActivityLookbackDays);
+        var reach = TimeSpan.FromDays(config.ActivityLookbackDays);
         if (timeProvider.GetUtcNow() - query.SentAt > reach)
         {
             logger.SendGridLookupOutOfReach(config.ActivityLookbackDays);

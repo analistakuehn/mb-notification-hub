@@ -395,7 +395,7 @@ public sealed class DeliveryReconciliationTests(ReconciliationFixture fixture)
             Options.Create(new DeliveryTrackingOptions()),
             fixture.Clock,
             scope.ServiceProvider.GetRequiredService<ILogger<DeliveryEventMessageProcessor>>());
-        using JsonDocument payload = JsonDocument.Parse(
+        using var payload = JsonDocument.Parse(
             $$"""{"deliveryEventId":"{{recorded.DeliveryEventId}}"}""");
         MessageDisposition disposition = await processor.ProcessAsync(
             new MessageEnvelope
@@ -490,7 +490,7 @@ public sealed class DeliveryReconciliationTests(ReconciliationFixture fixture)
     {
         foreach (var entry in details)
         {
-            using JsonDocument parsed = JsonDocument.Parse(entry);
+            using var parsed = JsonDocument.Parse(entry);
             if (!parsed.RootElement.TryGetProperty("toStatus", out JsonElement toStatus)) continue;
 
             return string.Join(

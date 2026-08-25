@@ -114,7 +114,7 @@ internal sealed class TwilioDeliveryLookup(
         SmsDeliveryTarget target,
         DateTimeOffset sentAt)
     {
-        TimeSpan window = TimeSpan.FromSeconds(config.LookupWindowSeconds);
+        var window = TimeSpan.FromSeconds(config.LookupWindowSeconds);
         var from = Instant(sentAt - window);
         var to = Instant(sentAt + window);
         return $"2010-04-01/Accounts/{Uri.EscapeDataString(config.AccountSid)}/Messages.json"
