@@ -15,7 +15,7 @@ internal sealed class ProviderRateLimitConnection(IOptions<ProviderRateLimitOpti
 {
     private readonly Lazy<ConnectionMultiplexer> _connection = new(() =>
     {
-        ConfigurationOptions configuration = ConfigurationOptions.Parse(
+        var configuration = ConfigurationOptions.Parse(
             options.Value.RedisConnectionString);
         configuration.AbortOnConnectFail = false;
         return ConnectionMultiplexer.Connect(configuration);
