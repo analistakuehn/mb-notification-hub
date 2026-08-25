@@ -17,6 +17,15 @@ internal enum ProbeMode
     /// because the trail arms take hours and answer a different question.
     /// </summary>
     Relay,
+
+    /// <summary>
+    /// The two delivery paths whose budgets the phase-two design states and
+    /// nothing measured: what one scheduler round costs on the fallback path at
+    /// a real table volume, and what one provider callback costs to ingest at
+    /// each batch size. It is separate from the full run because it seeds the
+    /// delivery tables, which the trail arms neither need nor want.
+    /// </summary>
+    Delivery,
 }
 
 /// <summary>
@@ -101,6 +110,27 @@ internal sealed record ProbeSettings
 
     internal string? ReportPath { get; private init; }
 
+    /// <summary>
+    /// Notification rows the delivery run seeds before it measures. The overdue
+    /// attempts are a rare fraction of it, because a scan whose matches are
+    /// common has proved nothing about the plan it gets in production.
+    /// </summary>
+    internal IReadOnlyList<int> DeliveryVolumes { get; private init; } = [50_000, 500_000];
+
+    /// <summary>Batch sizes the callback cost is measured at, up to the route ceiling.</summary>
+    internal IReadOnlyList<int> CallbackBatches { get; private init; } = [1, 10, 50, 200, 500];
+
+    /// <summary>Callbacks measured per cell, and scheduler rounds measured per statement.</summary>
+    internal int DeliveryRepeats { get; private init; } = 30;
+
+    /// <summary>
+    /// Rows one scheduler round claims, which is the deployed default of the
+    /// scan. It is a term of the measurement and not a knob of the probe: a
+    /// round that claimed a different number would answer about a scheduler
+    /// nobody runs.
+    /// </summary>
+    internal int BatchSize { get; private init; } = 200;
+
     internal static ProbeSettings Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -156,6 +186,15 @@ internal sealed record ProbeSettings
                     break;
                 case "--sustained-seconds":
                     settings = settings with { SustainedDuration = TimeSpan.FromSeconds(Number(args, ref index)) };
+                    break;
+                case "--delivery-volumes":
+                    settings = settings with { DeliveryVolumes = ParseVolumes(Value(args, ref index)) };
+                    break;
+                case "--callback-batches":
+                    settings = settings with { CallbackBatches = ParseVolumes(Value(args, ref index)) };
+                    break;
+                case "--delivery-repeats":
+                    settings = settings with { DeliveryRepeats = Number(args, ref index) };
                     break;
                 case "--relay-backlog":
                     settings = settings with { RelayBacklog = Number(args, ref index) };
@@ -243,6 +282,7 @@ internal sealed record ProbeSettings
         "full" => ProbeMode.Full,
         "smoke" => ProbeMode.Smoke,
         "relay" => ProbeMode.Relay,
+        "delivery" => ProbeMode.Delivery,
         _ => throw new ArgumentException($"Modo desconhecido: {value}", nameof(value)),
     };
 

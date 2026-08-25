@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 
@@ -150,6 +151,20 @@ internal sealed class ProbeDatabase : IAsyncDisposable
         await using (var audit = new AuditDbContext(auditOptions))
         {
             await audit.Database.MigrateAsync(cancellationToken);
+        }
+
+        // The delivery tables the scheduler claims from and the webhook path
+        // writes into. They are migrated here and not seeded here: a probe that
+        // measured a schema of its own would measure a table that exists
+        // nowhere else.
+        DbContextOptions<NotificationsDbContext> notificationsOptions =
+            new DbContextOptionsBuilder<NotificationsDbContext>()
+                .UseNpgsql(ConnectionString, npgsql =>
+                    npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "notifications"))
+                .Options;
+        await using (var notifications = new NotificationsDbContext(notificationsOptions))
+        {
+            await notifications.Database.MigrateAsync(cancellationToken);
         }
 
         DbContextOptions<PlatformMessagingDbContext> messagingOptions =

@@ -97,6 +97,8 @@ internal sealed record ProbeOutcome(
     InterferenceResult? Interference,
     IReadOnlyList<RelayPlan> RelayPlans,
     IReadOnlyList<VerificationCost> Verification,
+    IReadOnlyList<FallbackLatency> FallbackLatencies,
+    IReadOnlyList<WebhookIngestionCost> WebhookIngestion,
     PlanBVerdict? Verdict);
 
 /// <summary>Turns the raw arm results into the checks the slice has to answer.</summary>

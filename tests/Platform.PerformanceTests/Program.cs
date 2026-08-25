@@ -41,6 +41,23 @@ internal static class Program
             return ExitRefused;
         }
 
+        // The delivery mode is refused against anything but a throwaway
+        // container, and no flag opens it. The other modes write rows that sit
+        // still; this one writes outbox rows addressed to the delivery tracker,
+        // and an outbox row is not inert: a relay pointed at that database
+        // publishes it. The failure would not be a dirty table, it would be
+        // synthetic delivery events entering a real hub.
+        if (settings.Mode is ProbeMode.Delivery && settings.ConnectionString is not null)
+        {
+            Console.Error.WriteLine(
+                "O modo delivery escreve linhas no outbox, que um relay apontado para esse banco "
+                + "publicaria como evento de entrega real.");
+            Console.Error.WriteLine(
+                "Ele roda apenas contra o contêiner descartável: repita o comando sem "
+                + "--connection-string.");
+            return ExitRefused;
+        }
+
         using var stopping = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
         {
@@ -86,6 +103,11 @@ internal static class Program
         if (settings.Mode is ProbeMode.Relay)
         {
             return await RunRelayAsync(database, settings, cancellationToken);
+        }
+
+        if (settings.Mode is ProbeMode.Delivery)
+        {
+            return await RunDeliveryAsync(database, settings, cancellationToken);
         }
 
         var current = PartitionMonth.Of(DateTimeOffset.UtcNow);
@@ -299,6 +321,8 @@ internal static class Program
             interference,
             relayPlans,
             verification,
+            [],
+            [],
             ProbeAnalysis.Verdict(arms));
     }
 
@@ -344,6 +368,100 @@ internal static class Program
             null,
             plans,
             [],
+            [],
+            [],
+            null);
+    }
+
+    /// <summary>
+    /// The two delivery paths the phase-two design states a budget for and that
+    /// nothing measured: the scheduler round on the fallback path, and the
+    /// ingestion of one provider callback.
+    /// <para>
+    /// They share a mode because they share a seed and a schema, and they are
+    /// outside the full run because the trail arms take hours and answer a
+    /// different question. The report carries no verdict: the escalation ladder
+    /// reads the contention arms this mode never runs, and a budget is compared
+    /// against the accepted window by a person, not by this exit code.
+    /// </para>
+    /// </summary>
+    private static async Task<ProbeOutcome> RunDeliveryAsync(
+        ProbeDatabase database,
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var progress = new Progress<string>(Console.WriteLine);
+
+        // The yardstick, sampled at both ends of the run and merged. It is not
+        // decoration here: every event of the ingestion cell costs five round
+        // trips, so on a bench whose round trip is expensive the measurement is
+        // dominated by the hop and not by the database. Reporting the divisor is
+        // what lets a reader tell the two apart instead of reading a laptop's
+        // port forwarding as the cost of a commit.
+        var roundTripSamples = new LatencyHistogram();
+        await RoundTripProbe.SampleAsync(
+            database.DataSource, roundTripSamples, settings.Appenders, 250, cancellationToken);
+
+        var fallback = new List<FallbackLatency>();
+        foreach (var volume in settings.DeliveryVolumes)
+        {
+            Report($"Volume {volume:N0}: preparando notificações e tentativas.");
+            await DeliverySeeder.FillAttemptsAsync(database, volume, progress, cancellationToken);
+
+            Report($"Volume {volume:N0}: rodada do scheduler no caminho de fallback.");
+            IReadOnlyList<FallbackLatency> measured = await FallbackLatencyScenario.RunAsync(
+                database, volume, settings.BatchSize, settings.DeliveryRepeats, cancellationToken);
+            foreach (FallbackLatency entry in measured)
+            {
+                Report($"  {entry.Statement}: p50 {entry.Round.P50:0.000} ms, p99 {entry.Round.P99:0.000} ms, "
+                    + $"{entry.Claimed} reivindicadas, "
+                    + $"{(entry.ScansSequentially ? "varredura sequencial" : "atendido por índice")}");
+            }
+
+            fallback.AddRange(measured);
+        }
+
+        PhaseStatistics interim = roundTripSamples.Snapshot();
+        Report($"Ida trivial ao banco nesta bancada: p50 {interim.P50:0.000} ms, p99 {interim.P99:0.000} ms.");
+        Report("Custo de ingestão de um callback, por tamanho de lote e por forma de transação.");
+        IReadOnlyList<WebhookIngestionCost> ingestion = await WebhookIngestionCostScenario.RunAsync(
+            database, settings.CallbackBatches, settings.DeliveryRepeats, cancellationToken);
+        foreach (WebhookIngestionCost cost in ingestion)
+        {
+            Report($"  {cost.Shape}, {cost.EventsPerCallback} eventos: callback p50 {cost.Callback.P50:0.000} ms, "
+                + $"por evento p50 {cost.PerEventP50Ms:0.000} ms");
+        }
+
+        await RoundTripProbe.SampleAsync(
+            database.DataSource, roundTripSamples, settings.Appenders, 250, cancellationToken);
+        PhaseStatistics roundTrip = roundTripSamples.Snapshot();
+        Report($"Ida trivial ao banco nesta rodada: p50 {roundTrip.P50:0.000} ms, "
+            + $"p99 {roundTrip.P99:0.000} ms, n={roundTrip.Samples}.");
+
+        return new ProbeOutcome(
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            settings.Mode.ToString(),
+            new ProbeEnvironment(
+                Environment.MachineName,
+                Environment.ProcessorCount,
+                Environment.Version.ToString(),
+                database.IsThrowaway ? "postgres:17-alpine em contêiner" : "conexão informada",
+                database.IsThrowaway,
+                settings.Appenders,
+                settings.ArmDuration.TotalSeconds),
+            [],
+            roundTrip,
+            "não aplicável",
+            [],
+            [],
+            [],
+            null,
+            [],
+            null,
+            [],
+            [],
+            fallback,
+            ingestion,
             null);
     }
 

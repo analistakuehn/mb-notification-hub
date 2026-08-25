@@ -25,6 +25,8 @@ internal static class ReportRenderer
         Interference(text, outcome);
         Relay(text, outcome);
         Verification(text, outcome);
+        FallbackLatencies(text, outcome);
+        WebhookIngestion(text, outcome);
         Verdict(text, outcome);
         return text.ToString();
     }
@@ -317,6 +319,85 @@ internal static class ReportRenderer
                 text.AppendLine(Culture, $"   bifurcações {cost.Forks:N0}, elos que não fecham com o próprio texto {cost.Relinks:N0}");
                 text.AppendLine(Culture, $"   primeira quebra: {cost.FirstDiagnosis}");
             }
+        }
+
+        text.AppendLine();
+    }
+
+    private static void FallbackLatencies(StringBuilder text, ProbeOutcome outcome)
+    {
+        if (outcome.FallbackLatencies.Count == 0)
+        {
+            return;
+        }
+
+        text.AppendLine("-- Rodada do scheduler no caminho de fallback -------------------------");
+        text.AppendLine(" O prazo até o SMS de fallback é uma soma, e todo termo dela é orçamento");
+        text.AppendLine(" fixo menos este: quanto a rodada leva para achar as tentativas vencidas.");
+        text.AppendLine(" É o termo que cresce com a retenção. Os saltos de fila e a chamada ao");
+        text.AppendLine(" provedor estão fora desta medição e pertencem ao gate de carga.");
+        text.AppendLine();
+        text.AppendLine(" statement                       notificações  reivindicadas  varre     p50       p95       p99      máx");
+        foreach (FallbackLatency measured in outcome.FallbackLatencies)
+        {
+            text.AppendLine(Culture,
+                $" {measured.Statement,-30}  {measured.Notifications,12:N0}  {measured.Claimed,13:N0}  "
+                + $"{(measured.ScansSequentially ? "sim" : "não"),5}  {measured.Round.P50,8:0.000}  "
+                + $"{measured.Round.P95,8:0.000}  {measured.Round.P99,8:0.000}  {measured.Round.Max,8:0.000}");
+        }
+
+        text.AppendLine();
+        foreach (FallbackLatency measured in outcome.FallbackLatencies)
+        {
+            text.AppendLine(Culture,
+                $" {measured.Statement}, {measured.Notifications:N0} notificações, n={measured.Round.Samples}");
+            foreach (var line in measured.Plan)
+            {
+                text.AppendLine(Culture, $"   {line}");
+            }
+
+            text.AppendLine();
+        }
+    }
+
+    private static void WebhookIngestion(StringBuilder text, ProbeOutcome outcome)
+    {
+        if (outcome.WebhookIngestion.Count == 0)
+        {
+            return;
+        }
+
+        text.AppendLine("-- Custo de ingestão de um callback de provedor -----------------------");
+        text.AppendLine(" O orçamento do desenho é por evento e a rota responde por callback, então");
+        text.AppendLine(" o que interessa é como o tempo cresce com o tamanho do lote. As duas");
+        text.AppendLine(" formas são a comparação: por evento é o que a produção faz hoje, por lote");
+        text.AppendLine(" é a alternativa, e a diferença entre as linhas é o que mudar valeria.");
+        text.AppendLine(" Fora desta medição: TLS, verificação de assinatura e pipeline HTTP, que");
+        text.AppendLine(" não crescem com o lote.");
+        text.AppendLine();
+        text.AppendLine(" forma                  eventos   callback p50   callback p95   callback p99   por evento p50   por evento p99");
+        foreach (WebhookIngestionCost cost in outcome.WebhookIngestion)
+        {
+            text.AppendLine(Culture,
+                $" {cost.Shape,-21}  {cost.EventsPerCallback,7:N0}  {cost.Callback.P50,13:0.000}  "
+                + $"{cost.Callback.P95,13:0.000}  {cost.Callback.P99,13:0.000}  "
+                + $"{cost.PerEventP50Ms,15:0.000}  {cost.PerEventP99Ms,15:0.000}");
+        }
+
+        text.AppendLine();
+        text.AppendLine(" Tempos em milissegundos. O selo do payload roda uma vez por callback, como");
+        text.AppendLine(" no handler, então ele aparece na coluna do callback e nunca na por evento.");
+        if (outcome.RoundTrip is { } yardstick)
+        {
+            text.AppendLine();
+            text.AppendLine(Culture,
+                $" Cada evento custa cinco idas ao banco: begin, três comandos e commit. Nesta");
+            text.AppendLine(Culture,
+                $" bancada a ida trivial é {yardstick.P50:0.000} ms (p50), então o piso teórico por");
+            text.AppendLine(Culture,
+                $" evento na forma por evento é cerca de {yardstick.P50 * 5:0.000} ms só de ida e volta.");
+            text.AppendLine(" Comparar as duas formas é sempre válido; ler o absoluto como custo do");
+            text.AppendLine(" banco não é, e é por isso que o divisor está aqui.");
         }
 
         text.AppendLine();

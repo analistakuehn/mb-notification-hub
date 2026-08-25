@@ -93,7 +93,7 @@ internal static class TailQueryPlanScenario
         }
 
         TailPlan best = plans.MinBy(plan => plan.ExecutionMs)!;
-        (var _, var chosen) = Array.Find(variants, entry => entry.Variant == best.Variant);
+        (_, var chosen) = Array.Find(variants, entry => entry.Variant == best.Variant);
         return new TailIndexChoice(best.Variant, chosen, plans);
     }
 

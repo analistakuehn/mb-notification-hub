@@ -30,6 +30,31 @@ Só a reivindicação do outbox, sem nada da trilha:
 dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode relay
 ```
 
+Os dois orçamentos do caminho de entrega, que o desenho da fase 2 declara e que
+nenhum teste media:
+
+```bash
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode delivery
+```
+
+Ele responde duas perguntas. A primeira é quanto uma rodada do scheduler leva
+para achar as tentativas com prazo vencido, sobre uma tabela do tamanho pedido e
+com as vencidas como minoria rara: é o único termo do prazo até o SMS de
+fallback que cresce com a retenção, porque os saltos de fila e a chamada ao
+provedor são orçamento fixo. A segunda é quanto custa ingerir um callback de
+provedor em cada tamanho de lote, nas duas formas de transação, uma por evento e
+uma por lote, que é a comparação de que a decisão de mudar a forma depende.
+
+O modo `delivery` roda apenas contra o contêiner descartável, e nenhuma flag abre
+essa porta. Os outros modos escrevem linhas que ficam paradas; este escreve
+linhas no outbox endereçadas ao rastreador de entrega, e linha de outbox não é
+inerte: um relay apontado para aquele banco publica. A falha não seria tabela
+suja, seria evento de entrega sintético entrando num hub real.
+
+O que fica de fora nas duas: TLS, verificação de assinatura, pipeline HTTP e os
+saltos de fila. Nenhum deles cresce com o volume nem com o lote, e medi-los exige
+host e cliente, que é o gate de carga contra ambiente real.
+
 Rodada de guarda por pull request, comparada contra a linha de base versionada:
 
 ```bash
@@ -61,7 +86,7 @@ do que ela escrever poderá ser apagado depois.
 
 | Opção | Default | Efeito |
 |---|---|---|
-| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox |
+| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega |
 | `--connection-string` | contêiner | Aponta para um banco existente |
 | `--allow-trail-writes` | desligado | Autoriza escrita na trilha de um banco informado |
 | `--appenders` | 4 | Appenders concorrentes por braço |
@@ -71,6 +96,9 @@ do que ela escrever poderá ser apagado depois.
 | `--max-appends` | 4000 | Orçamento de transações por braço |
 | `--sustained-rate` | 900 | Taxa oferecida da célula de malha aberta |
 | `--relay-backlog` | 1000000 | Linhas pendentes no outbox para o plano do relay |
+| `--delivery-volumes` | `50000,500000` | Notificações semeadas antes de medir a rodada do scheduler |
+| `--callback-batches` | `1,10,50,200,500` | Tamanhos de lote em que o custo do callback é medido |
+| `--delivery-repeats` | 30 | Callbacks por célula e rodadas por statement |
 | `--purge-backlog` | 1000000 | Marcas de dedupe para o braço de interferência |
 | `--tolerance` | 0,55 | Regressão relativa tolerada na métrica normalizada |
 | `--volume-drift` | 2,00 | Crescimento tolerado da posse entre os dois volumes de guarda (teto 3,0) |

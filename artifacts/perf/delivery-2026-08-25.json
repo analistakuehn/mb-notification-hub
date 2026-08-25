@@ -1,0 +1,376 @@
+{
+  "GeneratedAtUtc": "2026-08-25T19:52:05.6047924\u002B00:00",
+  "Mode": "Delivery",
+  "Environment": {
+    "Host": "DESKTOP-PCIF06A",
+    "ProcessorCount": 22,
+    "Runtime": "10.0.10",
+    "Target": "postgres:17-alpine em cont\u00EAiner",
+    "Throwaway": true,
+    "Appenders": 4,
+    "ArmSeconds": 20
+  },
+  "Arms": [],
+  "RoundTrip": {
+    "Samples": 2000,
+    "P50": 0.51125,
+    "P95": 0.728825,
+    "P99": 0.826104,
+    "Max": 1.031,
+    "Mean": 0.5328408999999995
+  },
+  "TailIndexSource": "n\u00E3o aplic\u00E1vel",
+  "Ratios": [],
+  "Sensitivity": [],
+  "Sustained": [],
+  "TailIndex": null,
+  "ReadPaths": [],
+  "Interference": null,
+  "RelayPlans": [],
+  "Verification": [],
+  "FallbackLatencies": [
+    {
+      "Statement": "prazo vencido (queued e sent)",
+      "Notifications": 50000,
+      "Claimed": 99,
+      "ScansSequentially": false,
+      "Round": {
+        "Samples": 25,
+        "P50": 1.7921,
+        "P95": 9.843579999999994,
+        "P99": 14.82539599999999,
+        "Max": 16.2539,
+        "Mean": 3.098244
+      },
+      "Plan": [
+        "Limit  (cost=33.65..33.66 rows=1 width=70) (actual time=0.597..0.609 rows=99 loops=1)",
+        "  Buffers: shared hit=496",
+        "  -\u003E  Sort  (cost=33.65..33.66 rows=1 width=70) (actual time=0.595..0.601 rows=99 loops=1)",
+        "        Sort Key: attempt.fallback_deadline",
+        "        Sort Method: quicksort  Memory: 38kB",
+        "        Buffers: shared hit=496",
+        "        -\u003E  Nested Loop  (cost=0.56..33.64 rows=1 width=70) (actual time=0.050..0.545 rows=99 loops=1)",
+        "              Buffers: shared hit=496",
+        "              -\u003E  Append  (cost=0.14..8.18 rows=3 width=48) (actual time=0.027..0.143 rows=99 loops=1)",
+        "                    Buffers: shared hit=100",
+        "                    -\u003E  Index Scan using notification_attempt_2026_08_status_fallback_deadline_idx on notification_attempt_2026_08 attempt_1  (cost=0.14..8.16 rows=1 width=48) (actual time=0.026..0.120 rows=99 loops=1)",
+        "                          Index Cond: (((status)::text = ANY (\u0027{queued,sent}\u0027::text[])) AND (fallback_deadline \u003C \u00272026-08-25 19:35:21.287192\u002B00\u0027::timestamp with time zone))",
+        "                          Buffers: shared hit=100",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_09 attempt_2  (cost=0.00..0.00 rows=1 width=48) (actual time=0.007..0.007 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND ((status)::text = ANY (\u0027{queued,sent}\u0027::text[])) AND (fallback_deadline \u003C \u00272026-08-25 19:35:21.287192\u002B00\u0027::timestamp with time zone))",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_10 attempt_3  (cost=0.00..0.00 rows=1 width=48) (actual time=0.008..0.008 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND ((status)::text = ANY (\u0027{queued,sent}\u0027::text[])) AND (fallback_deadline \u003C \u00272026-08-25 19:35:21.287192\u002B00\u0027::timestamp with time zone))",
+        "              -\u003E  Append  (cost=0.42..8.46 rows=3 width=46) (actual time=0.004..0.004 rows=1 loops=99)",
+        "                    Buffers: shared hit=396",
+        "                    -\u003E  Index Scan using notification_2026_08_pkey on notification_2026_08 notification_1  (cost=0.42..8.44 rows=1 width=46) (actual time=0.003..0.003 rows=1 loops=99)",
+        "                          Index Cond: ((id = attempt.notification_id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)) AND (created_at \u003C= attempt.created_at))",
+        "                          Filter: ((status)::text = \u0027dispatched\u0027::text)",
+        "                          Buffers: shared hit=396",
+        "                    -\u003E  Seq Scan on notification_2026_09 notification_2  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: (((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "                    -\u003E  Seq Scan on notification_2026_10 notification_3  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: (((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "Planning:",
+        "  Buffers: shared hit=25",
+        "Planning Time: 0.784 ms",
+        "Execution Time: 0.720 ms"
+      ]
+    },
+    {
+      "Statement": "prazo vencido (unknown)",
+      "Notifications": 50000,
+      "Claimed": 13,
+      "ScansSequentially": false,
+      "Round": {
+        "Samples": 25,
+        "P50": 1.4644,
+        "P95": 1.88064,
+        "P99": 2.187283999999999,
+        "Max": 2.2829,
+        "Mean": 1.5214880000000002
+      },
+      "Plan": [
+        "Limit  (cost=33.65..33.66 rows=1 width=70) (actual time=0.220..0.223 rows=13 loops=1)",
+        "  Buffers: shared hit=251",
+        "  -\u003E  Sort  (cost=33.65..33.66 rows=1 width=70) (actual time=0.220..0.221 rows=13 loops=1)",
+        "        Sort Key: attempt.fallback_deadline",
+        "        Sort Method: quicksort  Memory: 26kB",
+        "        Buffers: shared hit=251",
+        "        -\u003E  Nested Loop  (cost=0.56..33.64 rows=1 width=70) (actual time=0.024..0.208 rows=13 loops=1)",
+        "              Buffers: shared hit=251",
+        "              -\u003E  Append  (cost=0.14..8.17 rows=3 width=48) (actual time=0.009..0.053 rows=50 loops=1)",
+        "                    Buffers: shared hit=51",
+        "                    -\u003E  Index Scan using notification_attempt_2026_08_status_changed_at_idx on notification_attempt_2026_08 attempt_1  (cost=0.14..8.16 rows=1 width=48) (actual time=0.009..0.042 rows=50 loops=1)",
+        "                          Filter: (fallback_deadline \u003C \u00272026-08-25 19:35:21.346618\u002B00\u0027::timestamp with time zone)",
+        "                          Buffers: shared hit=51",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_09 attempt_2  (cost=0.00..0.00 rows=1 width=48) (actual time=0.002..0.002 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND (fallback_deadline \u003C \u00272026-08-25 19:35:21.346618\u002B00\u0027::timestamp with time zone) AND ((status)::text = \u0027unknown\u0027::text))",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_10 attempt_3  (cost=0.00..0.00 rows=1 width=48) (actual time=0.005..0.005 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND (fallback_deadline \u003C \u00272026-08-25 19:35:21.346618\u002B00\u0027::timestamp with time zone) AND ((status)::text = \u0027unknown\u0027::text))",
+        "              -\u003E  Append  (cost=0.42..8.46 rows=3 width=46) (actual time=0.003..0.003 rows=0 loops=50)",
+        "                    Buffers: shared hit=200",
+        "                    -\u003E  Index Scan using notification_2026_08_pkey on notification_2026_08 notification_1  (cost=0.42..8.45 rows=1 width=46) (actual time=0.002..0.002 rows=0 loops=50)",
+        "                          Index Cond: ((id = attempt.notification_id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)) AND (created_at \u003C= attempt.created_at))",
+        "                          Filter: ((((class)::text = \u0027critical\u0027::text) OR auth_flow) AND ((status)::text = \u0027dispatched\u0027::text))",
+        "                          Rows Removed by Filter: 1",
+        "                          Buffers: shared hit=200",
+        "                    -\u003E  Seq Scan on notification_2026_09 notification_2  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: ((((class)::text = \u0027critical\u0027::text) OR auth_flow) AND ((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "                    -\u003E  Seq Scan on notification_2026_10 notification_3  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: ((((class)::text = \u0027critical\u0027::text) OR auth_flow) AND ((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "Planning:",
+        "  Buffers: shared hit=25",
+        "Planning Time: 0.463 ms",
+        "Execution Time: 0.297 ms"
+      ]
+    },
+    {
+      "Statement": "prazo vencido (queued e sent)",
+      "Notifications": 300000,
+      "Claimed": 200,
+      "ScansSequentially": false,
+      "Round": {
+        "Samples": 25,
+        "P50": 4.1077,
+        "P95": 7.247179999999999,
+        "P99": 7.612831999999999,
+        "Max": 7.712,
+        "Mean": 4.501908000000001
+      },
+      "Plan": [
+        "Limit  (cost=38.09..38.10 rows=1 width=71) (actual time=2.834..2.853 rows=200 loops=1)",
+        "  Buffers: shared hit=2995",
+        "  -\u003E  Sort  (cost=38.09..38.10 rows=1 width=71) (actual time=2.833..2.841 rows=200 loops=1)",
+        "        Sort Key: attempt.fallback_deadline",
+        "        Sort Method: top-N heapsort  Memory: 51kB",
+        "        Buffers: shared hit=2995",
+        "        -\u003E  Nested Loop  (cost=0.70..38.08 rows=1 width=71) (actual time=0.043..2.651 rows=598 loops=1)",
+        "              Buffers: shared hit=2995",
+        "              -\u003E  Append  (cost=0.28..12.60 rows=3 width=48) (actual time=0.025..0.575 rows=598 loops=1)",
+        "                    Buffers: shared hit=603",
+        "                    -\u003E  Index Scan using notification_attempt_2026_08_status_fallback_deadline_idx on notification_attempt_2026_08 attempt_1  (cost=0.28..12.58 rows=1 width=48) (actual time=0.024..0.518 rows=598 loops=1)",
+        "                          Index Cond: (((status)::text = ANY (\u0027{queued,sent}\u0027::text[])) AND (fallback_deadline \u003C \u00272026-08-25 19:35:25.844231\u002B00\u0027::timestamp with time zone))",
+        "                          Buffers: shared hit=603",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_09 attempt_2  (cost=0.00..0.00 rows=1 width=48) (actual time=0.004..0.004 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND ((status)::text = ANY (\u0027{queued,sent}\u0027::text[])) AND (fallback_deadline \u003C \u00272026-08-25 19:35:25.844231\u002B00\u0027::timestamp with time zone))",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_10 attempt_3  (cost=0.00..0.00 rows=1 width=48) (actual time=0.015..0.015 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND ((status)::text = ANY (\u0027{queued,sent}\u0027::text[])) AND (fallback_deadline \u003C \u00272026-08-25 19:35:25.844231\u002B00\u0027::timestamp with time zone))",
+        "              -\u003E  Append  (cost=0.42..8.47 rows=3 width=47) (actual time=0.003..0.003 rows=1 loops=598)",
+        "                    Buffers: shared hit=2392",
+        "                    -\u003E  Index Scan using notification_2026_08_pkey on notification_2026_08 notification_1  (cost=0.42..8.45 rows=1 width=47) (actual time=0.003..0.003 rows=1 loops=598)",
+        "                          Index Cond: ((id = attempt.notification_id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)) AND (created_at \u003C= attempt.created_at))",
+        "                          Filter: ((status)::text = \u0027dispatched\u0027::text)",
+        "                          Buffers: shared hit=2392",
+        "                    -\u003E  Seq Scan on notification_2026_09 notification_2  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: (((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "                    -\u003E  Seq Scan on notification_2026_10 notification_3  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: (((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "Planning:",
+        "  Buffers: shared hit=25",
+        "Planning Time: 0.511 ms",
+        "Execution Time: 2.978 ms"
+      ]
+    },
+    {
+      "Statement": "prazo vencido (unknown)",
+      "Notifications": 300000,
+      "Claimed": 76,
+      "ScansSequentially": false,
+      "Round": {
+        "Samples": 25,
+        "P50": 2.9383,
+        "P95": 3.4272199999999997,
+        "P99": 3.4699839999999997,
+        "Max": 3.4804,
+        "Mean": 3.0045319999999993
+      },
+      "Plan": [
+        "Limit  (cost=33.68..33.69 rows=1 width=71) (actual time=1.579..1.587 rows=76 loops=1)",
+        "  Buffers: shared hit=1501",
+        "  -\u003E  Sort  (cost=33.68..33.69 rows=1 width=71) (actual time=1.578..1.582 rows=76 loops=1)",
+        "        Sort Key: attempt.fallback_deadline",
+        "        Sort Method: quicksort  Memory: 35kB",
+        "        Buffers: shared hit=1501",
+        "        -\u003E  Nested Loop  (cost=0.57..33.67 rows=1 width=71) (actual time=0.033..1.529 rows=76 loops=1)",
+        "              Buffers: shared hit=1501",
+        "              -\u003E  Append  (cost=0.14..8.18 rows=3 width=48) (actual time=0.015..0.349 rows=300 loops=1)",
+        "                    Buffers: shared hit=301",
+        "                    -\u003E  Index Scan using notification_attempt_2026_08_status_changed_at_idx on notification_attempt_2026_08 attempt_1  (cost=0.14..8.16 rows=1 width=48) (actual time=0.014..0.316 rows=300 loops=1)",
+        "                          Filter: (fallback_deadline \u003C \u00272026-08-25 19:35:25.93734\u002B00\u0027::timestamp with time zone)",
+        "                          Buffers: shared hit=301",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_09 attempt_2  (cost=0.00..0.00 rows=1 width=48) (actual time=0.005..0.005 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND (fallback_deadline \u003C \u00272026-08-25 19:35:25.93734\u002B00\u0027::timestamp with time zone) AND ((status)::text = \u0027unknown\u0027::text))",
+        "                    -\u003E  Seq Scan on notification_attempt_2026_10 attempt_3  (cost=0.00..0.00 rows=1 width=48) (actual time=0.010..0.010 rows=0 loops=1)",
+        "                          Filter: ((fallback_deadline IS NOT NULL) AND (plan_advanced_at IS NULL) AND (fallback_requested_at IS NULL) AND (fallback_deadline \u003C \u00272026-08-25 19:35:25.93734\u002B00\u0027::timestamp with time zone) AND ((status)::text = \u0027unknown\u0027::text))",
+        "              -\u003E  Append  (cost=0.42..8.47 rows=3 width=47) (actual time=0.004..0.004 rows=0 loops=300)",
+        "                    Buffers: shared hit=1200",
+        "                    -\u003E  Index Scan using notification_2026_08_pkey on notification_2026_08 notification_1  (cost=0.42..8.45 rows=1 width=47) (actual time=0.003..0.003 rows=0 loops=300)",
+        "                          Index Cond: ((id = attempt.notification_id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)) AND (created_at \u003C= attempt.created_at))",
+        "                          Filter: ((((class)::text = \u0027critical\u0027::text) OR auth_flow) AND ((status)::text = \u0027dispatched\u0027::text))",
+        "                          Rows Removed by Filter: 1",
+        "                          Buffers: shared hit=1200",
+        "                    -\u003E  Seq Scan on notification_2026_09 notification_2  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: ((((class)::text = \u0027critical\u0027::text) OR auth_flow) AND ((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "                    -\u003E  Seq Scan on notification_2026_10 notification_3  (cost=0.00..0.00 rows=1 width=301) (never executed)",
+        "                          Filter: ((((class)::text = \u0027critical\u0027::text) OR auth_flow) AND ((status)::text = \u0027dispatched\u0027::text) AND (created_at \u003C= attempt.created_at) AND (attempt.notification_id = id) AND (created_at \u003E (attempt.created_at - \u002760 days\u0027::interval)))",
+        "Planning:",
+        "  Buffers: shared hit=25",
+        "Planning Time: 0.523 ms",
+        "Execution Time: 1.670 ms"
+      ]
+    }
+  ],
+  "WebhookIngestion": [
+    {
+      "Shape": "transa\u00E7\u00E3o por evento",
+      "EventsPerCallback": 1,
+      "Callback": {
+        "Samples": 25,
+        "P50": 1.8612,
+        "P95": 3.2937799999999995,
+        "P99": 3.677971999999999,
+        "Max": 3.7877,
+        "Mean": 2.039652
+      },
+      "PerEventP50Ms": 1.8612,
+      "PerEventP99Ms": 3.677971999999999,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por lote",
+      "EventsPerCallback": 1,
+      "Callback": {
+        "Samples": 25,
+        "P50": 1.7748,
+        "P95": 2.0644199999999997,
+        "P99": 2.199928,
+        "Max": 2.2414,
+        "Mean": 1.8410960000000003
+      },
+      "PerEventP50Ms": 1.7748,
+      "PerEventP99Ms": 2.199928,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por evento",
+      "EventsPerCallback": 10,
+      "Callback": {
+        "Samples": 25,
+        "P50": 18.7778,
+        "P95": 20.834139999999994,
+        "P99": 21.428688,
+        "Max": 21.5346,
+        "Mean": 18.946212000000003
+      },
+      "PerEventP50Ms": 1.87778,
+      "PerEventP99Ms": 2.1428688,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por lote",
+      "EventsPerCallback": 10,
+      "Callback": {
+        "Samples": 25,
+        "P50": 14.5572,
+        "P95": 16.595959999999998,
+        "P99": 17.099652,
+        "Max": 17.2317,
+        "Mean": 14.730696
+      },
+      "PerEventP50Ms": 1.45572,
+      "PerEventP99Ms": 1.7099651999999999,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por evento",
+      "EventsPerCallback": 50,
+      "Callback": {
+        "Samples": 25,
+        "P50": 2215.0567,
+        "P95": 2250.45726,
+        "P99": 2257.622368,
+        "Max": 2259.7828,
+        "Mean": 2221.555956
+      },
+      "PerEventP50Ms": 44.301134000000005,
+      "PerEventP99Ms": 45.15244736,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por lote",
+      "EventsPerCallback": 50,
+      "Callback": {
+        "Samples": 25,
+        "P50": 3421.7817,
+        "P95": 4421.1028799999995,
+        "P99": 4463.524168,
+        "Max": 4465.4014,
+        "Mean": 3200.0925960000004
+      },
+      "PerEventP50Ms": 68.435634,
+      "PerEventP99Ms": 89.27048336,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por evento",
+      "EventsPerCallback": 200,
+      "Callback": {
+        "Samples": 25,
+        "P50": 1373.6917,
+        "P95": 6337.5907999999845,
+        "P99": 12770.862687999987,
+        "Max": 14454.0472,
+        "Mean": 2119.085820000001
+      },
+      "PerEventP50Ms": 6.8684585,
+      "PerEventP99Ms": 63.854313439999935,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por lote",
+      "EventsPerCallback": 200,
+      "Callback": {
+        "Samples": 25,
+        "P50": 1348.5393,
+        "P95": 1927.4954599999999,
+        "P99": 1983.3897879999997,
+        "Max": 2000.8861,
+        "Mean": 1387.52334
+      },
+      "PerEventP50Ms": 6.742696499999999,
+      "PerEventP99Ms": 9.91694894,
+      "Callbacks": 25
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por evento",
+      "EventsPerCallback": 500,
+      "Callback": {
+        "Samples": 15,
+        "P50": 17249.486,
+        "P95": 49577.5271,
+        "P99": 49671.70734,
+        "Max": 49695.2524,
+        "Mean": 23802.653033333332
+      },
+      "PerEventP50Ms": 34.498972,
+      "PerEventP99Ms": 99.34341468,
+      "Callbacks": 15
+    },
+    {
+      "Shape": "transa\u00E7\u00E3o por lote",
+      "EventsPerCallback": 500,
+      "Callback": {
+        "Samples": 15,
+        "P50": 17358.3126,
+        "P95": 47838.95067,
+        "P99": 49330.325813999996,
+        "Max": 49703.1696,
+        "Mean": 24238.57503333333
+      },
+      "PerEventP50Ms": 34.7166252,
+      "PerEventP99Ms": 98.660651628,
+      "Callbacks": 15
+    }
+  ],
+  "Verdict": null
+}
