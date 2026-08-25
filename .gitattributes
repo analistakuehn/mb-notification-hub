@@ -1,0 +1,7 @@
+# Every text file checks out with LF, on every platform. The repository already
+# stores LF and .editorconfig declares it, but core.autocrlf on a Windows clone
+# rewrites the working copy to CRLF. A test that compares a raw string literal
+# against serializer output then fails for a reason that lives in the checkout
+# instead of in the code, and the shell script the container runs stops being
+# readable by a shell that rejects CR.
+* text=auto eol=lf
