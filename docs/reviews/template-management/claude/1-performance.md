@@ -38,8 +38,8 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `PRF-002` | `MEDIUM` | **RESOLVIDO** | `Task.Delay` órfã por render, até 10 temporizadores vivos por... |
 | `PRF-006` | `LOW` | **RESOLVIDO** | Até 100 construções de `Regex` por validação, único ponto fora do... |
 | `PRF-003` | `MEDIUM` | **RESOLVIDO** | Chave de cache montada antes da normalização, e `Clear()` total exposto... |
+| `PRF-004` | `MEDIUM` | **RESOLVIDO** | O validador é o único dos três contratos publicados que não usa o cache |
 | `PRF-008` | `LOW` | **RESOLVIDO** | As consultas administrativas materializam todo o histórico de versões |
-| `PRF-004` | `MEDIUM` | **PENDENTE** | O validador é o único dos três contratos publicados que não usa o cache |
 | `PRF-005` | `MEDIUM` | **PENDENTE** | Render duplo para a forma mascarada, correto por desenho e não medido |
 | `PRF-007` | `LOW` | **PARCIAL** | `ConcurrentDictionary.Count` toma todos os locks no caminho de miss |
 
@@ -274,12 +274,27 @@ Um desvio honesto contra o teste que a ficha pedia: "as mais recentes
 sobrevivem" é falso para exatamente uma entrada. Com `SizeLimit` cheio,
 `MemoryCache.Set` descarta **a entrada que chega** e agenda a compactação, em
 vez de expulsar uma vítima na hora. O teste afirma o que discrimina de fato: o
-residente nunca passa do teto, e quase tudo sobrevive à travessia, contra a
-única entrada que a política de limpeza total deixava.
+residente fica limitado, e quase tudo sobrevive à travessia, contra a única
+entrada que a política de limpeza total deixava.
+
+### Correção posterior no portão que esta ficha introduziu
+
+O portão de contenção entregue aqui afirmava o teto **exato** do residente, com
+um comentário justificando tolerância zero. A justificativa estava errada, pelo
+mesmo mecanismo que o parágrafo acima descreve: a compactação é agendada e não
+síncrona, então escritores que passam pela checagem de tamanho antes de ela rodar
+são todos admitidos. O portão ficou instável e reprovava de forma intermitente,
+por uma ou duas entradas acima do teto, inclusive em árvore sem mudança nenhuma.
+
+O limite passou a ser o teto mais o número de escritores concorrentes, que é o
+que limita o excesso transitório. Não é fator de tolerância arbitrário, e não
+enfraquece o portão: a falha que ele existe para pegar é a política que **deixa
+de limitar**, medida em 11.288.751 entradas contra teto de 4.096, ou seja um
+excesso de ordens de grandeza, nunca de duas entradas.
 
 ---
 
-## `PRF-004` · PENDENTE
+## `PRF-004` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -290,8 +305,8 @@ residente nunca passa do teto, e quase tudo sobrevive à travessia, contra a
 | tipo-de-evidência | leitura-de-código |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-specialist |
-| **estado** | **PENDENTE** |
-| nota de estado | Componente de cache, ainda não tratado. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | O caminho memoizado saiu de dentro do renderizador para um componente compartilhado, e o validador passou a usá-lo. Os dois colidem na mesma entrada `render-context:{app}:{key}`, que é o que o achado pedia. **Medido** por interceptor de comandos do EF: duas execuções por notificação, contra quatro antes. |
 
 **O validador é o único dos três contratos publicados que não usa o cache.**
 
@@ -316,6 +331,42 @@ mesma chave de ponteiro.
 
 Verificação: contar comandos executados por notificação com um interceptor de
 diagnóstico do EF Core, antes e depois. O total deve cair em duas consultas.
+
+### Como foi fechado
+
+O caminho memoizado existia, mas estava privado dentro de
+`PublishedTemplateRenderer.LoadPublishedContextAsync`. Ele saiu para um
+componente compartilhado, injetado no renderizador e no validador, em vez de ser
+copiado: uma terceira cópia da canonização seria exatamente a dívida que a
+correção de `PRF-003` evitou nos outros dois sítios. A chave de ponteiro
+continua `render-context:{app}:{key}`, porque o objetivo é justamente que os dois
+colidam na mesma entrada.
+
+Verificação executada exatamente como a ficha pedia, com interceptor de comandos
+do EF: duas execuções na validação e duas no total depois do render, contra as
+quatro de antes. Falsificabilidade exercida em duas mutações, cada uma
+revertida: devolver o renderizador à consulta direta reprova o oráculo nomeando
+o defeito, com `commands.Executed should be 2 but was 4`; trocar a chave do
+componente pelos argumentos crus reprova os dois testes de identidade com
+espaços em volta.
+
+Suítes: 1.010 unitários, 138 de integração do módulo, 13 de arquitetura, build
+limpo, e o portão de contenção da rodada anterior sem regressão.
+
+### Uma consequência registrada, e não escondida
+
+O validador passa a herdar a janela de obsolescência de 60 segundos dos
+ponteiros. Uma identidade cujo contexto publicado já está em memória continua
+validando contra a versão memoizada por até 60 segundos após uma nova
+publicação, uma depreciação ou uma desativação. Antes, toda chamada de validação
+lia o estado do banco no instante da chamada.
+
+Isso **alinha** o validador com o catálogo e o renderizador, que já viviam nessa
+janela, e não cria classe de risco nova. Mas é mudança de comportamento
+observável, e amplia de dois para três o número de contratos publicados que o
+`SEC-011` alcança: enquanto não houver invalidação por transição de ciclo de
+vida, a desativação de um template agora também demora até um minuto para
+alcançar a validação.
 
 ---
 

@@ -81,8 +81,8 @@ tenha uma resposta em um lugar só.
 
 | Estado | Quantidade | Significado |
 |---|---:|---|
-| `RESOLVIDO` | 15 | corrigido no código e verificado por suíte |
-| `PENDENTE` | 33 | não tratado, e o achado segue válido como escrito |
+| `RESOLVIDO` | 16 | corrigido no código e verificado por suíte |
+| `PENDENTE` | 32 | não tratado, e o achado segue válido como escrito |
 | `PARCIAL` | 3 | parte corrigida, com o risco residual nomeado na ficha |
 | `ADIADO` | 1 | decisão deliberada de não corrigir, com a razão registrada |
 | `OBSOLETO` | 1 | a premissa caiu; **não** aplique a recomendação como escrita |
@@ -106,6 +106,7 @@ tenha uma resposta em um lugar só.
 | `PRF-006` | Performance | expressões regulares içadas para `[GeneratedRegex]` estáticos |
 | `PRF-008` | Performance | janela descendente de 200 com continuação por cursor, decidida com medição |
 | `PRF-003` | Performance | chave canônica nos três sítios e evicção por `MemoryCache`, escolhida com medição |
+| `PRF-004` | Performance | o validador passou a compartilhar o contexto memoizado, de quatro consultas para duas |
 | `TST-002` | Test | `ScribanSandboxTests` cobre a família de fuga que faltava |
 
 ### Parciais, adiado e obsoleto
@@ -130,7 +131,7 @@ ponto de vigilância sobre callback no token em `STK-004`.
 | Security | 8 | `SEC-004` a `SEC-007`, `SEC-011` a `SEC-014` |
 | Software Engineering | 7 | `ENG-001` a `ENG-007` |
 | Test | 7 | `TST-004` a `TST-010` |
-| Performance | 2 | `PRF-004`, `PRF-005` |
+| Performance | 1 | `PRF-005` |
 | .NET Quality | 1 | `STK-005` |
 
 O maior deles é `SEC-001` na sua metade residual, seguido pelos `HIGH` de
@@ -163,11 +164,13 @@ exploração mais curto primeiro, não severidade isolada.
 3. **Controles de conteúdo com furo**: `SEC-004`, `SEC-005`, `SEC-006`,
    `SEC-007`, `ENG-002`, `TST-005`, `TST-009`.
 4. **ReDoS e eixo de erro único**: `SEC-008`, `SEC-009`, `PRF-006`, `ENG-004`.
-5. **Cache de leitura publicada**: `SEC-011`, `SEC-013`, `ARC-006`, `PRF-004`,
-   `TST-006`, `TST-007`. O `PRF-003` fechou e levou junto a metade de `PRF-007`
-   que vivia neste componente. O `SEC-011`, que pede invalidação por transição
-   de ciclo de vida, agora tem uma fachada com ponto de decisão único onde
-   acrescentá-la.
+5. **Cache de leitura publicada**: `SEC-011`, `SEC-013`, `ARC-006`, `TST-006`,
+   `TST-007`. O `PRF-003` fechou e levou junto a metade de `PRF-007` que vivia
+   neste componente; o `PRF-004` fechou em seguida. O `SEC-011`, que pede
+   invalidação por transição de ciclo de vida, agora tem uma fachada com ponto
+   de decisão único onde acrescentá-la, e ficou **mais urgente**: com o
+   validador memoizando, são três contratos publicados na janela de 60
+   segundos, e não mais dois.
 
 ## Dissensos preservados
 
