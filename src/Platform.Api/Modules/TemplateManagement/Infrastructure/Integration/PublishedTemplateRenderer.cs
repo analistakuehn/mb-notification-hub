@@ -171,22 +171,28 @@ internal sealed class PublishedTemplateRenderer(
         LayoutWrapper? wrapper,
         CancellationToken cancellationToken)
     {
+        // The fields of one form share the execution context, which is what a
+        // render mostly pays for, and nothing else: each of them still renders
+        // over its own data, its own buffer and its own deadline. The scope
+        // lives in this call frame and dies with the form, so the masked form
+        // below, which repeats the render, never touches this one.
+        ScribanTemplateEngine.FormRenderScope scope = engine.BeginForm();
         Result<string?> subject = await RenderFieldAsync(
-            TemplateContentFields.Subject, content.Subject, variables, cancellationToken);
+            scope, TemplateContentFields.Subject, content.Subject, variables, cancellationToken);
         if (subject.IsFailure)
         {
             return subject.AsFailure<string?, RenderedForm>();
         }
 
         Result<string?> body = await RenderFieldAsync(
-            TemplateContentFields.Body, content.Body, variables, cancellationToken);
+            scope, TemplateContentFields.Body, content.Body, variables, cancellationToken);
         if (body.IsFailure)
         {
             return body.AsFailure<string?, RenderedForm>();
         }
 
         Result<string?> bodyText = await RenderFieldAsync(
-            TemplateContentFields.BodyText, content.BodyText, variables, cancellationToken);
+            scope, TemplateContentFields.BodyText, content.BodyText, variables, cancellationToken);
         if (bodyText.IsFailure)
         {
             return bodyText.AsFailure<string?, RenderedForm>();
@@ -199,7 +205,7 @@ internal sealed class PublishedTemplateRenderer(
         if (wrapper is not null)
         {
             Result<string> framed = await WrapInLayoutAsync(
-                TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
+                scope, TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
             if (framed.IsFailure)
             {
                 return framed.AsFailure<string, RenderedForm>();
@@ -209,7 +215,7 @@ internal sealed class PublishedTemplateRenderer(
             if (wrappedBodyText is not null && wrapper.BodyText is not null)
             {
                 Result<string> framedText = await WrapInLayoutAsync(
-                    TemplateContentFields.BodyText, wrapper.BodyText, wrappedBodyText, cancellationToken);
+                    scope, TemplateContentFields.BodyText, wrapper.BodyText, wrappedBodyText, cancellationToken);
                 if (framedText.IsFailure)
                 {
                     return framedText.AsFailure<string, RenderedForm>();
@@ -310,16 +316,18 @@ internal sealed class PublishedTemplateRenderer(
     /// template variable and no template source, only the finished text.
     /// </summary>
     private async Task<Result<string>> WrapInLayoutAsync(
+        ScribanTemplateEngine.FormRenderScope scope,
         string field,
         string layoutSource,
         string renderedContent,
         CancellationToken cancellationToken)
     {
-        JsonElement globals = JsonSerializer.SerializeToElement(new Dictionary<string, string>
-        {
-            [LayoutValidation.ContentPlaceholderVariable] = renderedContent,
-        });
-        Result<string> wrapped = await engine.RenderAsync(layoutSource, globals, cancellationToken);
+        Result<string> wrapped = await engine.RenderContentAsync(
+            scope,
+            layoutSource,
+            LayoutValidation.ContentPlaceholderVariable,
+            renderedContent,
+            cancellationToken);
         return wrapped.IsFailure
             ? Result.ValidationError<string>(DomainError.Format(
                 ErrorCodes.TemplateRenderFailed,
@@ -328,6 +336,7 @@ internal sealed class PublishedTemplateRenderer(
     }
 
     private async Task<Result<string?>> RenderFieldAsync(
+        ScribanTemplateEngine.FormRenderScope scope,
         string field,
         string? source,
         JsonElement? variables,
@@ -338,7 +347,7 @@ internal sealed class PublishedTemplateRenderer(
             return Result.Success<string?>(null);
         }
 
-        Result<string> rendered = await engine.RenderAsync(source, variables, cancellationToken);
+        Result<string> rendered = await engine.RenderAsync(scope, source, variables, cancellationToken);
         return rendered.IsFailure
             ? Result.ValidationError<string?>(DomainError.Format(
                 ErrorCodes.TemplateRenderFailed,

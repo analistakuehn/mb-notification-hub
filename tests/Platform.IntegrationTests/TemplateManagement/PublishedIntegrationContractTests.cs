@@ -247,6 +247,61 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
     }
 
     [RequiresDockerFact]
+    public async Task A_layout_that_reads_a_template_variable_is_refused_the_payload()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+
+        // The layout asks for a variable of the template payload. Publication
+        // allows it, because a layout is only required to read the content
+        // placeholder; the render is what has to refuse it, since the layout
+        // sees the finished text and never the data it was rendered from.
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            author,
+            body: "<html>{{ content }}<!-- {{ code }} --></html>");
+        await LayoutApi.PublishAsync(publisher, layoutKey, layoutVersion);
+
+        var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey(), defaultLocale: "pt-BR");
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
+        {
+            subject = "Código de acesso",
+            body = "<p>Código {{ code }}</p>",
+            bodyText = "Código {{ code }}",
+        }, etag);
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new { code = new { type = "string" } },
+            required = RequiredCode,
+        }, etag);
+        HttpResponseMessage pinned = await author.SendAsync(TemplateApi.PutJson(
+            $"/v1/templates/{key}/versions/{version}/layout",
+            new { layoutKey, layoutVersion },
+            etag));
+        pinned.EnsureSuccessStatusCode();
+        await TemplateApi.PublishAsync(publisher, key, version);
+
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedTemplateRenderer renderer =
+            scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>();
+        Result<PublishedTemplateRender> rendered = await renderer.RenderAsync(new PublishedRenderRequest
+        {
+            Application = "araia-cambio",
+            TemplateKey = key,
+            Channel = "email",
+            Locale = "pt-BR",
+            Variables = Variables("""{ "code": "998877" }"""),
+        }, CancellationToken.None);
+
+        // Refused, not resolved to nothing: the failure is what keeps a value
+        // out of a frame the caller never exposed it to.
+        rendered.IsFailure.ShouldBeTrue();
+        rendered.Error!.ShouldContain("code");
+        rendered.Error!.ShouldNotContain("998877");
+    }
+
+    [RequiresDockerFact]
     public async Task A_payload_without_sensitive_variables_shares_one_form_and_one_hash()
     {
         HttpClient author = fixture.CreateAuthorClient("author-1");

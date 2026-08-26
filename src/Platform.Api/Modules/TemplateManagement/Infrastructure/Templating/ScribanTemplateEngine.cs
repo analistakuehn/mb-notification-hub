@@ -77,9 +77,48 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         string source,
         JsonElement? variables,
         CancellationToken cancellationToken)
-        => Task.FromResult(Render(source, variables, cancellationToken));
+        => Task.FromResult(Render(scope: null, source, RenderInput.OfPayload(variables), cancellationToken));
 
-    private Result<string> Render(string source, JsonElement? variables, CancellationToken cancellationToken)
+    /// <summary>
+    /// Renders one field of a form on the context that form's renders share.
+    /// </summary>
+    internal Task<Result<string>> RenderAsync(
+        FormRenderScope scope,
+        string source,
+        JsonElement? variables,
+        CancellationToken cancellationToken)
+        => Task.FromResult(Render(scope, source, RenderInput.OfPayload(variables), cancellationToken));
+
+    /// <summary>
+    /// Renders a source over one finished text, exposed under the single
+    /// variable name the caller gives. The globals are synthetic and carry no
+    /// payload, so a layout that reads a template variable is refused exactly
+    /// as it is with a payload the caller never passed. Going through JSON to
+    /// say the same thing would escape every angle bracket of an HTML body,
+    /// only to unescape it on the way back in.
+    /// </summary>
+    internal Task<Result<string>> RenderContentAsync(
+        FormRenderScope scope,
+        string source,
+        string variableName,
+        string content,
+        CancellationToken cancellationToken)
+        => Task.FromResult(
+            Render(scope, source, RenderInput.OfContent(variableName, content), cancellationToken));
+
+    /// <summary>
+    /// Opens the execution context the renders of one form share. The caller
+    /// owns the scope and lets it go with the form: this engine is a singleton,
+    /// so a scope reachable from a field of it would put two notifications in
+    /// the same context.
+    /// </summary>
+    internal FormRenderScope BeginForm() => new(this);
+
+    private Result<string> Render(
+        FormRenderScope? scope,
+        string source,
+        RenderInput input,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(source);
 
@@ -89,7 +128,8 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         }
 
         // Published sources are immutable, so the parse memoizes per source
-        // text; each render still gets its own context over the shared AST.
+        // text; the shared AST is read-only during a render, and every render
+        // still pushes its own data and its own buffer over it.
         Template template = parseCache.GetOrParse(source);
         if (template.HasErrors)
         {
@@ -101,36 +141,22 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         // wall-clock deadline, and the engine observes it at its own
         // checkpoints. The render therefore stops, rather than being abandoned
         // to a pool thread that keeps burning CPU long after the caller already
-        // has its answer.
+        // has its answer. The deadline belongs to the render and never to the
+        // form: one source shared by every field would charge each field with
+        // the time its predecessors spent.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(options.Value.RenderTimeoutMilliseconds);
 
+        // A single source renders on a scope of its own. The context is built
+        // the same way either way; what a form buys by passing one in is
+        // building it once instead of once per field.
+        FormRenderScope active = scope ?? BeginForm();
         var output = new BoundedScriptOutput(options.Value.MaxOutputChars);
-        var context = new TemplateContext(SandboxBuiltin)
-        {
-            LoopLimit = options.Value.LoopLimit,
-            RecursiveLimit = options.Value.RecursionLimit,
-            StrictVariables = true,
-            MemberFilter = static _ => false,
-            CancellationToken = deadline.Token,
-
-            // Deliberately one character above the sink's ceiling. The sink is
-            // what must stop an oversized render, because it fails; the engine's
-            // own limit truncates and appends an ellipsis, which would ship a
-            // silently corrupted message that still passes normalization,
-            // hashing and audit as if it were complete.
-            LimitToString = options.Value.MaxOutputChars + 1,
-
-            // Aligned with the wall-clock deadline: a catastrophic regex stops
-            // burning the thread at the same moment the caller gives up.
-            RegexTimeOut = TimeSpan.FromMilliseconds(options.Value.RenderTimeoutMilliseconds),
-        };
-        context.PushGlobal(BuildGlobals(variables));
-        context.PushOutput(output);
+        active.BeginRender(input.Globals(), output, deadline.Token);
 
         try
         {
-            return Result.Success(template.Render(context));
+            return Result.Success(template.Render(active.Context));
         }
         catch (OperationCanceledException)
         {
@@ -154,9 +180,38 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
             // identifies the deadline, not the exception shape.
             return deadline.IsCancellationRequested
                 ? Cancelled(cancellationToken)
-                : Result.ValidationError<string>(DescribeFailure(exception, variables));
+                : Result.ValidationError<string>(DescribeFailure(exception, input));
+        }
+        finally
+        {
+            active.EndRender();
         }
     }
+
+    /// <summary>
+    /// Builds one sandboxed execution context. Its constructor eagerly fills a
+    /// pool of reflection argument arrays sized by the engine's own parameter
+    /// ceiling, so the cost is the same for the shortest subject and for the
+    /// richest body, and it dominates what a small render costs.
+    /// </summary>
+    private TemplateContext NewContext() => new(SandboxBuiltin)
+    {
+        LoopLimit = options.Value.LoopLimit,
+        RecursiveLimit = options.Value.RecursionLimit,
+        StrictVariables = true,
+        MemberFilter = static _ => false,
+
+        // Deliberately one character above the sink's ceiling. The sink is
+        // what must stop an oversized render, because it fails; the engine's
+        // own limit truncates and appends an ellipsis, which would ship a
+        // silently corrupted message that still passes normalization,
+        // hashing and audit as if it were complete.
+        LimitToString = options.Value.MaxOutputChars + 1,
+
+        // Aligned with the wall-clock deadline: a catastrophic regex stops
+        // burning the thread at the same moment the caller gives up.
+        RegexTimeOut = TimeSpan.FromMilliseconds(options.Value.RenderTimeoutMilliseconds),
+    };
 
     /// <summary>
     /// Separates the two reasons a render stops early. The caller giving up is
@@ -175,10 +230,10 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     /// the values passed in are not, and at dispatch time they are the
     /// recipient's own data.
     /// </summary>
-    private string DescribeFailure(ScriptRuntimeException exception, JsonElement? variables)
+    private string DescribeFailure(ScriptRuntimeException exception, RenderInput input)
         => exception.InnerException is RegexMatchTimeoutException
             ? TimeLimitMessage()
-            : RedactVariableValues(exception.Message, variables);
+            : RedactCallerValues(exception.Message, input);
 
     /// <summary>
     /// Removes caller-supplied values from an engine message. Some engine
@@ -186,15 +241,10 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     /// argument is reported with its text), and that message travels to the
     /// HTTP boundary as problem detail.
     /// </summary>
-    private static string RedactVariableValues(string message, JsonElement? variables)
+    private static string RedactCallerValues(string message, RenderInput input)
     {
-        if (variables is not { ValueKind: JsonValueKind.Object } root)
-        {
-            return message;
-        }
-
         var redacted = message;
-        foreach (var value in ScalarTexts(root))
+        foreach (var value in input.CallerTexts())
         {
             if (value.Length >= MinRedactableLength && redacted.Contains(value, StringComparison.Ordinal))
             {
@@ -286,23 +336,6 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     private string OutputLimitMessage()
         => $"The rendered output exceeded the {options.Value.MaxOutputChars} character limit and was discarded.";
 
-    /// <summary>Builds the sandbox globals from a JSON object; only data crosses the boundary.</summary>
-    private static ScriptObject BuildGlobals(JsonElement? variables)
-    {
-        var globals = new ScriptObject();
-        if (variables is not { ValueKind: JsonValueKind.Object } root)
-        {
-            return globals;
-        }
-
-        foreach (JsonProperty property in root.EnumerateObject())
-        {
-            globals.SetValue(property.Name, ToScriptValue(property.Value), readOnly: false);
-        }
-
-        return globals;
-    }
-
     private string SizeLimitMessage(int length)
         => $"The template has {length} characters and exceeds the {options.Value.MaxTemplateSizeChars} character limit.";
 
@@ -336,6 +369,139 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
                 return false;
             default:
                 return null;
+        }
+    }
+
+    /// <summary>
+    /// What one render exposes to the template, and, from the very same source,
+    /// which caller-supplied texts a failure message must not echo back. The
+    /// two answers come from one place on purpose: globals built from one input
+    /// while redaction reads another is how a recipient's own data reaches an
+    /// error message.
+    /// </summary>
+    private readonly struct RenderInput
+    {
+        private readonly JsonElement? _payload;
+        private readonly string? _variableName;
+        private readonly string? _content;
+
+        private RenderInput(JsonElement? payload, string? variableName, string? content)
+        {
+            _payload = payload;
+            _variableName = variableName;
+            _content = content;
+        }
+
+        /// <summary>The caller's payload, as a JSON object or as nothing at all.</summary>
+        internal static RenderInput OfPayload(JsonElement? variables) => new(variables, null, null);
+
+        /// <summary>One finished text under one name, and nothing else in scope.</summary>
+        internal static RenderInput OfContent(string variableName, string content)
+            => new(null, variableName, content);
+
+        /// <summary>Builds the sandbox globals; only data crosses the boundary.</summary>
+        internal ScriptObject Globals()
+        {
+            var globals = new ScriptObject();
+            if (_variableName is not null)
+            {
+                globals.SetValue(_variableName, _content, readOnly: false);
+                return globals;
+            }
+
+            if (_payload is not { ValueKind: JsonValueKind.Object } root)
+            {
+                return globals;
+            }
+
+            foreach (JsonProperty property in root.EnumerateObject())
+            {
+                globals.SetValue(property.Name, ToScriptValue(property.Value), readOnly: false);
+            }
+
+            return globals;
+        }
+
+        /// <summary>Every text the caller supplied to this render, as written.</summary>
+        internal IEnumerable<string> CallerTexts()
+        {
+            if (_content is not null)
+            {
+                return [_content];
+            }
+
+            return _payload is { ValueKind: JsonValueKind.Object } root ? ScalarTexts(root) : [];
+        }
+    }
+
+    /// <summary>
+    /// The sandboxed context that the renders of one form share, and the only
+    /// thing they share.
+    /// </summary>
+    /// <remarks>
+    /// Each render pushes its own globals, its own output sink and its own
+    /// deadline, and pops all three before it returns, so no field reads the
+    /// data of another one, writes into its buffer or spends its time budget.
+    /// Sharing the globals instead would hand the layout render the payload the
+    /// body was rendered with, and a layout that reads a template variable
+    /// would resolve it silently instead of being refused; sharing the sink
+    /// would append each field to the previous one, because the engine only
+    /// clears a buffer it owns.
+    /// <para>
+    /// The type is not thread-safe and is not shareable: one scope belongs to
+    /// the call frame that renders one form, and two forms never meet in one.
+    /// </para>
+    /// </remarks>
+    internal sealed class FormRenderScope
+    {
+        private readonly int _globalDepth;
+        private readonly int _outputDepth;
+
+        internal FormRenderScope(ScribanTemplateEngine engine)
+        {
+            ArgumentNullException.ThrowIfNull(engine);
+            Context = engine.NewContext();
+            _globalDepth = Context.GlobalCount;
+            _outputDepth = Context.OutputCount;
+        }
+
+        internal TemplateContext Context { get; }
+
+        /// <summary>Puts everything one render owns on the context.</summary>
+        internal void BeginRender(ScriptObject globals, IScriptOutput output, CancellationToken deadline)
+        {
+            Context.CancellationToken = deadline;
+            Context.PushGlobal(globals);
+            Context.PushOutput(output);
+        }
+
+        /// <summary>
+        /// Takes it all back off, including the deadline, which is expired by
+        /// the time the next render starts. The depth is verified rather than
+        /// assumed: an engine that returned without balancing its own frames
+        /// would leave this render's data resident and the next one reading it.
+        /// </summary>
+        internal void EndRender()
+        {
+            Context.PopOutput();
+            Context.PopGlobal();
+            Context.CancellationToken = CancellationToken.None;
+            if (Context.OutputCount != _outputDepth || Context.GlobalCount != _globalDepth)
+            {
+                throw new InvalidOperationException(
+                    "The render left the sandbox context unbalanced, which would expose the data "
+                    + "of one field to the next one.");
+            }
+
+            // Popping is not enough. The engine counts the characters it has
+            // written against its own output limit on the context, not on the
+            // sink, and that count only clears here: without this, the fields
+            // of one form would share a single budget and the engine would
+            // start truncating a field and marking it with an ellipsis, which
+            // is exactly the silently incomplete message the limits above are
+            // set to prevent. The call is safe because the frames are balanced
+            // and the context's bottom output is the one the engine created.
+            Context.Reset();
         }
     }
 

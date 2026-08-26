@@ -73,6 +73,11 @@ internal static class Program
             return await RunMemoizationAsync(settings, stopping.Token);
         }
 
+        if (settings.Mode is ProbeMode.Render)
+        {
+            return await RunRenderCostAsync(settings, stopping.Token);
+        }
+
         var started = Stopwatch.GetTimestamp();
         var poolSize = Math.Max(settings.Appenders + 8, 64);
         await using ProbeDatabase database =
@@ -542,6 +547,78 @@ internal static class Program
 
         Console.Error.WriteLine(
             " Portão reprovado: a memoização regrediu contra a linha de base versionada.");
+        return ExitGateFailed;
+    }
+
+    /// <summary>
+    /// The render guard: measure one form on a shared context and on one
+    /// context per render, then compare the first against the versioned
+    /// reference. Only bytes are compared, so the same file is honest on any
+    /// host.
+    /// </summary>
+    private static async Task<int> RunRenderCostAsync(
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        RenderCostOutcome outcome = PublishedRenderCostScenario.Run(settings.RenderForms, Report);
+
+        if (settings.ReportPath is not null)
+        {
+            var directory = Path.GetDirectoryName(settings.ReportPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await File.WriteAllTextAsync(
+                settings.ReportPath, JsonSerializer.Serialize(outcome, ReportOptions), cancellationToken);
+            Report($"Relatório em JSON: {settings.ReportPath}");
+        }
+
+        RenderCostArm shared = outcome.Arms.Single(arm =>
+            string.Equals(arm.ArmId, PublishedRenderCostScenario.SharedArm, StringComparison.Ordinal));
+        if (settings.UpdateBaseline)
+        {
+            RenderCostBaseline recorded = RenderCostBaseline.From(
+                shared, $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
+            await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
+            Report($"Linha de base gravada em {settings.BaselinePath}.");
+            return ExitPass;
+        }
+
+        if (!File.Exists(settings.BaselinePath))
+        {
+            Console.Error.WriteLine(
+                $"Não existe linha de base em {settings.BaselinePath}; grave uma com --update-baseline.");
+            return ExitRefused;
+        }
+
+        RenderCostBaseline baseline = await RenderCostBaseline.LoadAsync(
+            settings.BaselinePath, cancellationToken);
+        GateOutcome gate = RenderCostGate.Evaluate(baseline, outcome);
+        Console.WriteLine();
+        Console.WriteLine("-- Portão do custo de uma forma renderizada ----------------------------");
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $" Linha de base de {baseline.RecordedAtUtc} em {baseline.RecordedOn}, "
+            + $"folga {gate.Tolerance:P0}."));
+        foreach (GateCheck check in gate.Checks)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $" {check.Metric,-45} referência {check.Reference,12:N0}  medido {check.Measured,12:N0}  "
+                + $"limite {check.Limit,12:N0}  {(check.Passes ? "passa" : "REPROVA")}"));
+        }
+
+        Console.WriteLine();
+        if (gate.Passes)
+        {
+            Console.WriteLine(" Portão aprovado: uma forma segue custando o que a referência registrou.");
+            return ExitPass;
+        }
+
+        Console.Error.WriteLine(
+            " Portão reprovado: o custo de uma forma regrediu contra a linha de base versionada.");
         return ExitGateFailed;
     }
 

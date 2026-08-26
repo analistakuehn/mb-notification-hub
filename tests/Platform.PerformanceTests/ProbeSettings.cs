@@ -33,6 +33,13 @@ internal enum ProbeMode
     /// it is the one mode that runs anywhere.
     /// </summary>
     Memoization,
+
+    /// <summary>
+    /// What one notification form costs to render, on the context its fields
+    /// share and on one context per render. Like the memoization mode it needs
+    /// no database, so it runs anywhere.
+    /// </summary>
+    Render,
 }
 
 /// <summary>
@@ -146,6 +153,13 @@ internal sealed record ProbeSettings
     /// </summary>
     internal int MemoizationWorkers { get; private init; } = Environment.ProcessorCount;
 
+    /// <summary>
+    /// Forms one render arm measures. The cost of a form is a few tens of
+    /// microseconds, so thousands of them are what turn the timer resolution
+    /// and the odd background collection into a rounding error.
+    /// </summary>
+    internal int RenderForms { get; private init; } = 2_000;
+
     internal static ProbeSettings Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -237,6 +251,9 @@ internal sealed record ProbeSettings
                 case "--memoization-workers":
                     settings = settings with { MemoizationWorkers = Number(args, ref index) };
                     break;
+                case "--render-forms":
+                    settings = settings with { RenderForms = Number(args, ref index) };
+                    break;
                 case "--guard-repeats":
                     settings = settings with { GuardRepeats = Number(args, ref index) };
                     explicitRepeats = true;
@@ -260,6 +277,11 @@ internal sealed record ProbeSettings
                     ? settings.BaselinePath
                     : BaselinePathOf("published-read-memoization.json"),
             };
+        }
+
+        if (settings.Mode is ProbeMode.Render && !explicitBaseline)
+        {
+            settings = settings with { BaselinePath = BaselinePathOf("published-render-cost.json") };
         }
 
         if (settings.Mode is ProbeMode.Smoke)
@@ -317,6 +339,7 @@ internal sealed record ProbeSettings
         "relay" => ProbeMode.Relay,
         "delivery" => ProbeMode.Delivery,
         "memoization" => ProbeMode.Memoization,
+        "render" => ProbeMode.Render,
         _ => throw new ArgumentException($"Modo desconhecido: {value}", nameof(value)),
     };
 

@@ -78,6 +78,28 @@ e disputa sem ninguém olhando; o braço `M2` repete a carga com um observador d
 residente, separado porque os locks do observador entrariam na contagem de
 disputa do primeiro. Uma passagem descartada antecede os dois.
 
+O custo de uma forma renderizada, que é a unidade que o renderizador publicado
+monta por notificação:
+
+```bash
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode render
+```
+
+O modo `render` também não toca banco. Uma forma são cinco renders: assunto,
+corpo e variante em texto sobre o payload do chamador, mais o layout fixado em
+volta dos dois corpos. O braço `F1` renderiza a forma no contexto que os campos
+compartilham, e o braço `F0` renderiza a mesma forma com um contexto por render,
+que é como o preview de uma versão continua renderizando. O segundo braço não é
+enfeite: ele é a referência medida na mesma rodada, então a comparação entre os
+dois não depende de máquina nenhuma.
+
+O portão lê bytes por forma, e só. Bytes por operação são determinísticos para um
+runtime dado, o que é o que torna honesta uma referência versionada; o tempo por
+forma é reportado e não entra em portão nenhum, porque ele pertence ao host que
+mediu. A segunda checagem exige que a forma compartilhada custe uma fração da
+forma com um contexto por render, e é ela que reprova, sozinha, se o
+compartilhamento for desfeito.
+
 Rodada de guarda por pull request, comparada contra a linha de base versionada:
 
 ```bash
@@ -109,7 +131,7 @@ do que ela escrever poderá ser apagado depois.
 
 | Opção | Default | Efeito |
 |---|---|---|
-| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega; `memoization` roda a memoização de leitura publicada, sem banco |
+| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega; `memoization` roda a memoização de leitura publicada, sem banco; `render` roda o custo de uma forma renderizada, sem banco |
 | `--connection-string` | contêiner | Aponta para um banco existente |
 | `--allow-trail-writes` | desligado | Autoriza escrita na trilha de um banco informado |
 | `--appenders` | 4 | Appenders concorrentes por braço |
@@ -128,6 +150,7 @@ do que ela escrever poderá ser apagado depois.
 | `--gate-arm` | `A5` | Braço que o portão lê |
 | `--guard-repeats` | 3 | Rodadas do braço de guarda antes de tomar a mediana |
 | `--memoization-workers` | núcleos | Threads que erram na memoização ao mesmo tempo |
+| `--render-forms` | 2000 | Formas que cada braço do modo `render` mede |
 | `--report` | ausente | Caminho do relatório em JSON |
 
 ## O desenho
