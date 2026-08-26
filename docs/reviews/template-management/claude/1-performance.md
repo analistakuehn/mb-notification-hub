@@ -39,8 +39,8 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `PRF-006` | `LOW` | **RESOLVIDO** | Até 100 construções de `Regex` por validação, único ponto fora do... |
 | `PRF-003` | `MEDIUM` | **RESOLVIDO** | Chave de cache montada antes da normalização, e `Clear()` total exposto... |
 | `PRF-004` | `MEDIUM` | **RESOLVIDO** | O validador é o único dos três contratos publicados que não usa o cache |
+| `PRF-005` | `MEDIUM` | **RESOLVIDO** | Render duplo para a forma mascarada, correto por desenho e não medido |
 | `PRF-008` | `LOW` | **RESOLVIDO** | As consultas administrativas materializam todo o histórico de versões |
-| `PRF-005` | `MEDIUM` | **PENDENTE** | Render duplo para a forma mascarada, correto por desenho e não medido |
 | `PRF-007` | `LOW` | **PARCIAL** | `ConcurrentDictionary.Count` toma todos os locks no caminho de miss |
 
 ---
@@ -370,7 +370,7 @@ alcançar a validação.
 
 ---
 
-## `PRF-005` · PENDENTE
+## `PRF-005` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -381,8 +381,8 @@ alcançar a validação.
 | tipo-de-evidência | leitura-de-código |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-specialist |
-| **estado** | **PENDENTE** |
-| nota de estado | Componente do renderizador publicado, ainda não tratado. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | **Medido com BenchmarkDotNet**, como a ficha pedia, e a medição inverteu o achado: o custo dominante não é o que ele nomeia, e a recomendação, aplicada como escrita, seria regressão de segurança. A duplicação foi preservada. O `TemplateContext` passou a ser um por forma, e a alocação por forma caiu 71,2%. |
 
 **Render duplo para a forma mascarada, correto por desenho e não medido.**
 
@@ -413,6 +413,86 @@ Recomendação: manter a semântica e reduzir o custo fixo por render, reusando 
 Verificação: BenchmarkDotNet sobre `IPublishedTemplateRenderer.RenderAsync` com
 `IncludeMaskedForm = true`, layout fixado e payload representativo, reportando
 `Allocated` e `Mean` antes e depois.
+
+### A medição foi feita, e inverteu o achado
+
+O experimento é o que a ficha pedia, executado. Fim a fim, e-mail com layout
+fixado e forma mascarada ligada: perfil típico 59,23 us e 224,57 KB; perfil rico,
+com doze variáveis de topo e corpo HTML com laço, 170,39 us e 404,72 KB.
+
+**O termo dominante não é o que a ficha nomeia.** O construtor de
+`TemplateContext` preenche avidamente um pool de argumentos de reflexão,
+`new object?[65][]`, alocando 18.744 bytes por instância, independente de payload
+e de template. Medido por `GC.GetAllocatedBytesForCurrentThread`: o
+`TemplateContext` custa 20.976 bytes e o `ScriptObject` custa 112. No perfil
+típico, o trabalho de template é 234 ns de um render de 5.226 ns, ou seja 95,5%
+de cada render é custo fixo, e 97% desse custo fixo é aquela alocação.
+`BuildGlobals`, alvo da recomendação, é **1,6%** da alocação.
+
+Duas premissas da ficha também envelheceram, porque `PRF-001` e `PRF-002` foram
+resolvidos: não há mais `Task.Run` por render nem temporizador órfão.
+
+### A recomendação, como escrita, seria regressão de segurança
+
+"Convertendo o payload uma única vez em `ScriptObject` reaproveitado nos cinco
+renders da mesma forma" não pode ser aplicado: **os cinco renders não usam os
+mesmos globais**. Os três de campo recebem o payload; os dois de layout recebem
+globais sintéticos `{content: <texto já renderizado>}`, porque o layout não pode
+ver variável de template.
+
+Confirmado por execução: com globais do payload o layout renderizou o valor
+sensível dentro do HTML; com globais sintéticos falhou com "The variable or
+function `cpf` was not found". Hoje o `StrictVariables = true` faz o layout
+**falhar fechado**, e compartilhar globais destrói essa garantia. Há ainda dois
+vazamentos adicionais, ambos confirmados: `GetStoreForWrite` devolve o
+`ScriptObject` empurrado, então uma atribuição de topo no `Subject` define
+variável para o `Body`, e a saída passa a depender da ordem.
+
+### O que foi aplicado, e o que ficou de fora
+
+Compartilhado por forma: **apenas o `TemplateContext`**, criado como local do
+quadro de chamada, nunca campo do engine, que é singleton. Continuam por render
+os globais, o `BoundedScriptOutput` (porque `Template.Render` só zera o buffer
+quando o sink é `StringBuilderOutput`, e o do módulo não é: medido, o segundo
+render devolvia a saída do primeiro concatenada) e a `CancellationTokenSource`
+(porque uma por forma faria o prazo cobrir a forma inteira, e ela é menos de 2%
+do custo fixo). Nada é compartilhado entre a forma completa e a mascarada.
+
+Resultado medido, por forma: de 122.368 para **35.256 bytes**, menos 71,2%. Os
+bytes repetiram exatos em todas as rodadas e em dois tamanhos de amostra, então
+o portão lê alocação e não tempo.
+
+Junto, e sem lado de segurança: `WrapInLayoutAsync` montava os globais com
+`JsonSerializer.SerializeToElement` sobre o corpo renderizado inteiro, e o
+encoder padrão escapa `<`, `>` e `"`, inflando o HTML para em seguida reparseá-lo.
+Eram 9.260 ns e 2.848 bytes por wrap no perfil rico, cerca de 22% do total. Os
+globais passaram a ser `ScriptObject` construído direto, e seguem sintéticos.
+
+### O que a implementação achou e a medição não tinha visto
+
+Reusar o `TemplateContext` compartilha também `_currentOutputLength`, o contador
+com que o motor cobra `LimitToString`. Ele pertence ao contexto, não ao sink, e só
+zera em `Reset()`. Sem tratamento, os cinco renders de uma forma passariam a
+dividir **um único orçamento de saída**, e ao cruzá-lo o Scriban **trunca, anexa
+reticências e devolve sucesso**.
+
+Isso é material de segurança de conteúdo, não de performance: é exatamente a
+mensagem silenciosamente incompleta que o `LimitToString` deste módulo existe
+para impedir, e ela passaria por normalização, hash e auditoria como se fosse
+completa. O teste de isolamento de saída pegou na primeira execução. A correção é
+`Context.Reset()` no `finally`, depois dos pops.
+
+Fica registrado o que isso implica: a proteção contra truncamento silencioso
+passou a depender também dessa chamada, cuja remoção só reprova no teste de
+isolamento de saída.
+
+Verificação: 1.018 unitários, 139 de integração do módulo e 581 da suíte
+completa de integração serializada, todos com `Skipped` só nos dois testes de
+provedor real, 13 de arquitetura, build limpo, e portão de alocação novo com
+linha de base versionada. Falsificabilidade exercida em sete mutações, cada uma
+revertida. Registrado com honestidade que uma oitava **não** discriminou: deixar
+de desempilhar o global sozinho passa, porque o `Reset()` neutraliza. A rede
+contra vazamento de globais é o par pop mais `Reset`.
 
 ---
 

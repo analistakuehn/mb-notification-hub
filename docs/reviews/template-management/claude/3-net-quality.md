@@ -82,6 +82,19 @@ em reticências, e que acima do teto a falha é explícita.
 
 ---
 
+
+### A proteção ganhou uma segunda dependência
+
+O fim do truncamento silencioso passou a depender também de `Context.Reset()` no
+`finally` do escopo de render, introduzido quando o `TemplateContext` virou um por
+forma. O contador `_currentOutputLength`, com que o motor cobra `LimitToString`,
+pertence ao contexto e não ao sink: sem o `Reset()`, os renders de uma mesma forma
+dividem um único orçamento de saída, e ao cruzá-lo o Scriban trunca, anexa
+reticências e devolve sucesso. A remoção dessa chamada só reprova no teste de
+isolamento de saída.
+
+---
+
 ## `STK-002` · ADIADO
 
 | Campo | Valor |

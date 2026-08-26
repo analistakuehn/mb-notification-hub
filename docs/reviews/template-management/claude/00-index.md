@@ -81,8 +81,8 @@ tenha uma resposta em um lugar só.
 
 | Estado | Quantidade | Significado |
 |---|---:|---|
-| `RESOLVIDO` | 16 | corrigido no código e verificado por suíte |
-| `PENDENTE` | 32 | não tratado, e o achado segue válido como escrito |
+| `RESOLVIDO` | 17 | corrigido no código e verificado por suíte |
+| `PENDENTE` | 31 | não tratado, e o achado segue válido como escrito |
 | `PARCIAL` | 3 | parte corrigida, com o risco residual nomeado na ficha |
 | `ADIADO` | 1 | decisão deliberada de não corrigir, com a razão registrada |
 | `OBSOLETO` | 1 | a premissa caiu; **não** aplique a recomendação como escrita |
@@ -107,6 +107,7 @@ tenha uma resposta em um lugar só.
 | `PRF-008` | Performance | janela descendente de 200 com continuação por cursor, decidida com medição |
 | `PRF-003` | Performance | chave canônica nos três sítios e evicção por `MemoryCache`, escolhida com medição |
 | `PRF-004` | Performance | o validador passou a compartilhar o contexto memoizado, de quatro consultas para duas |
+| `PRF-005` | Performance | um `TemplateContext` por forma no lugar de um por render, menos 71,2% de alocação |
 | `TST-002` | Test | `ScribanSandboxTests` cobre a família de fuga que faltava |
 
 ### Parciais, adiado e obsoleto
@@ -131,7 +132,7 @@ ponto de vigilância sobre callback no token em `STK-004`.
 | Security | 8 | `SEC-004` a `SEC-007`, `SEC-011` a `SEC-014` |
 | Software Engineering | 7 | `ENG-001` a `ENG-007` |
 | Test | 7 | `TST-004` a `TST-010` |
-| Performance | 1 | `PRF-005` |
+| Performance | 0 | nenhum; resta a metade de `PRF-007` |
 | .NET Quality | 1 | `STK-005` |
 
 O maior deles é `SEC-001` na sua metade residual, seguido pelos `HIGH` de
