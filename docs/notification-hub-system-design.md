@@ -351,7 +351,7 @@ O relatório completo (`checks[]`) é devolvido por `validate` e `publish` (§7.
 
 | Ponto de extensão | O que a v1 faz no lugar |
 |---|---|
-| **Template Studio** (UI interna) e o cliente TypeScript gerado (Kiota/NSwag) para ele | Autoria e publicação via API REST; o OpenAPI continua gerado em build; Studio registrado como evolução no roadmap (§15) |
+| **Template Studio** (UI interna) e o cliente TypeScript gerado (Kiota/NSwag) para ele | Autoria e publicação via API REST; o contrato de máquina é o documento OpenAPI que a própria API serve em `GET /openapi/v1.json`, autenticado (ADR-0007, errata de 2026-08-26); Studio registrado como evolução no roadmap (§15) |
 | **Aprovação dupla por classe** (técnica + compliance) e o fluxo formal de review (`submit`, `reviews`, diff obrigatório) | Quatro olhos no publish + validação automática integral + auditoria transacional; ativável por classe quando Compliance exigir (§9.2) |
 | **Promoção entre ambientes** (bundle assinado) | Cada ambiente publica via API pelo seu próprio pipeline; `content_hash` permite conferir igualdade entre ambientes |
 | **Envio de teste** para destino real e casos de teste salvos por template | Render de teste por API, sem envio |
@@ -481,7 +481,7 @@ public sealed record ProviderResult(
 - Mesmo host/projeto da Ingestion API, mas grupo de rotas separado por autorização, não por prefixo: `POST /v1/notifications` é a ingestão dos produtores, enquanto `GET /v1/notifications/{id}`, `GET /v1/notifications?correlationId=`, `GET /v1/recipients/{recipientId}/notifications`, `/v1/audit/*`, `/v1/templates/*`, `/v1/layouts/*` e `/v1/applications/{app}/classes/{class}/policy` atendem humanos e ferramentas internas. O prefixo `/v1/notifications` é compartilhado por dois públicos, e quem separa os dois é a política de autorização de cada rota, mais a política de rate limit própria da consulta, dimensionada para leitura humana e não para produção. Leitura sobre réplica; escrita de gestão sobre o primário. As rotas `/v1/audit/*` leem na réplica e gravam `audit.read` no primário; o atendimento pode observar staleness de replicação logo após o `202`.
 - AuthN Entra (usuários via grupos; serviços via app roles). Autorização **por rota** com políticas nomeadas: `Notifications.Read`, `Notifications.Audit`, `Templates.Author`, `Templates.Publish` (§9.1); a ativação da aprovação dupla por classe (ponto de extensão, §9.2) reintroduz os papéis de revisor.
 - Conteúdo renderizado e contato completo ficam em **endpoints próprios** sob `/v1/audit/...`; cada chamada grava `audit_event(action = "audit.read")` com o `oid` do Entra. Não há "campo opcional" que vaze dado auditável por acidente — o endpoint é a fronteira.
-- OpenAPI gerado em build. Contrato versionado por rota (`/v1`), Problem Details (RFC 9457), paginação por cursor, `ETag`/`If-Match` para edição concorrente de rascunhos.
+- OpenAPI gerado e servido pela própria API em `GET /openapi/v1.json`, autenticado e disponível em todos os ambientes (ADR-0007, errata de 2026-08-26). Contrato versionado por rota (`/v1`), Problem Details (RFC 9457), paginação por cursor, `ETag`/`If-Match` para edição concorrente de rascunhos.
 - Acompanhamento em tempo real para atendimento: `GET /v1/notifications/{id}/events` em **SSE** — opcional na v1.
 
 ### 4.4 Fronteira de PII

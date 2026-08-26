@@ -94,8 +94,9 @@ docker compose ps
 curl http://localhost:8080/health
 ```
 
-A especificação OpenAPI fica em `http://localhost:8080/openapi/v1.json` e
-continua sujeita à autenticação padrão da API.
+A especificação OpenAPI fica em `http://localhost:8080/openapi/v1.json`, em
+todos os ambientes, e exige autenticação: a rota declara `RequireAuthorization()`
+e política própria de limite de taxa, e uma chamada anônima recebe `401`.
 
 O PostgreSQL usa `postgres` como usuário e senha, e o banco `notificationhub`.
 Esses valores, assim como as credenciais `test/test` do LocalStack, são somente
@@ -152,7 +153,10 @@ Commit `packages.lock.json` after the first verified restore. The generator perf
      .RequireRateLimiting("customers-write");
   ```
 
-- OpenAPI is exposed at `/openapi/v1.json` via `Microsoft.AspNetCore.OpenApi`.
+- OpenAPI is exposed at `/openapi/v1.json` via `Microsoft.AspNetCore.OpenApi`, in every
+  environment, because that document is the machine contract clients generate from. The
+  route declares `RequireAuthorization()` and its own rate-limit policy like every other
+  route, so an anonymous request gets `401`.
 
 ### EF Core persistence
 

@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # ADR-0005: Templates, layouts e políticas como dados geridos pelo hub, com workflow próprio
 
 | | |
@@ -55,7 +59,7 @@ Adotar a opção 1: templates, layouts e políticas são dados geridos pelo hub,
 
 **v1: o que não existe (pontos de extensão nomeados).**
 
-- **Template Studio.** A v1 opera via API; o OpenAPI continua gerado em build e é o contrato para qualquer cliente administrativo futuro. O Studio e seu cliente TypeScript gerado são itens de roadmap, não da v1.
+- **Template Studio.** A v1 opera via API; o contrato para qualquer cliente administrativo futuro é o documento OpenAPI que a própria API serve em `GET /openapi/v1.json`, autenticado e disponível em todos os ambientes (ADR-0007, errata de 2026-08-26). O Studio e seu cliente TypeScript gerado são itens de roadmap, não da v1.
 - **Aprovação dupla e fluxo formal de review** (`/submit`, `/reviews`, diff obrigatório, evento `review.diff_viewed`). Ponto de extensão: exigência de aprovação dupla por classe, ativável quando Compliance exigir, reaproveitando o registro `approval` existente.
 - **Promoção entre ambientes.** Cada ambiente publica via seu pipeline, pela API; não há mecanismo de promoção.
 - **Envio de teste** para destino real e casos de teste salvos com o template.
@@ -80,23 +84,23 @@ Adotar a opção 1: templates, layouts e políticas são dados geridos pelo hub,
 
 ## Prós e contras das opções
 
-### Opção 1 — Dados no hub, gestão essencial via API
+### Opção 1: Dados no hub, gestão essencial via API
 - Prós: fronteira estrutural (dados, nunca código) entregue já na v1; sem custo de UI; superfície privilegiada menor.
 - Contras: autoria por API na v1; aprovação dupla e promoção dependem dos pontos de extensão.
 
-### Opção 2 — Dados no hub, gestão completa na v1
+### Opção 2: Dados no hub, gestão completa na v1
 - Prós: autonomia máxima de Produto e Compliance desde o primeiro dia; governança formal de review imediata.
 - Contras: Studio, fluxo de review e bundles assinados de promoção seriam construídos antes do primeiro template em produção; superfície privilegiada adicional (UI que edita o que chega ao cliente) exigindo ZTNA, Conditional Access e PIM desde o dia 1. Rejeitada pelo custo de construção antes do primeiro template em produção.
 
-### Opção 3 — Templates como código (Git + CODEOWNERS)
+### Opção 3: Templates como código (Git + CODEOWNERS)
 - Prós: trilha de aprovação nativa do Git; sem UI.
 - Contras: Produto/Compliance dependem de engenharia; PR pode receber commits após aprovação; validação duplicada (CI vs. runtime); mudança em produção vira deploy; trilha fora da auditoria do hub.
 
-### Opção 4 — Texto em código
+### Opção 4: Texto em código
 - Prós: nenhum.
 - Contras: texto regulado espalhado por N serviços; mudança de vírgula é deploy; sem aprovação de Compliance; impossível reconstruir com prova.
 
-### Opção 5 — SaaS de templates
+### Opção 5: SaaS de templates
 - Prós: UI pronta.
 - Contras: a parte regulada (aprovação, auditoria, reconstrução) ficaria em terceiro fora do controle; mais um operador LGPD; ADR-0009.
 
@@ -110,4 +114,4 @@ Adotar a opção 1: templates, layouts e políticas são dados geridos pelo hub,
 
 ## Referências
 
-- Design de Sistema — §4.3, §6, §7.4, §9.2, §9.5, §16 riscos 12 a 14.
+- Design de Sistema, §4.3, §6, §7.4, §9.2, §9.5, §16 riscos 12 a 14.
