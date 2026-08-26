@@ -65,6 +65,14 @@ internal static class Program
             stopping.Cancel();
         };
 
+        // Before anything reaches for a database: this mode measures an
+        // in-process cache and starting a container for it would only add the
+        // one dependency that keeps the guard from running everywhere.
+        if (settings.Mode is ProbeMode.Memoization)
+        {
+            return await RunMemoizationAsync(settings, stopping.Token);
+        }
+
         var started = Stopwatch.GetTimestamp();
         var poolSize = Math.Max(settings.Appenders + 8, 64);
         await using ProbeDatabase database =
@@ -463,6 +471,78 @@ internal static class Program
             fallback,
             ingestion,
             null);
+    }
+
+    /// <summary>
+    /// The memoization guard: run the two arms, then compare the run against the
+    /// versioned reference or record a new one. It shares the tolerance knob with
+    /// the trail guard and nothing else, because it measures a different thing.
+    /// </summary>
+    private static async Task<int> RunMemoizationAsync(
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        MemoizationOutcome outcome = PublishedReadMemoizationScenario.Run(
+            settings.MemoizationWorkers, settings.ArmDuration, Report);
+
+        if (settings.ReportPath is not null)
+        {
+            var directory = Path.GetDirectoryName(settings.ReportPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await File.WriteAllTextAsync(
+                settings.ReportPath, JsonSerializer.Serialize(outcome, ReportOptions), cancellationToken);
+            Report($"Relatório em JSON: {settings.ReportPath}");
+        }
+
+        MemoizationArm throughput = outcome.Arms.Single(arm =>
+            string.Equals(arm.ArmId, PublishedReadMemoizationScenario.ThroughputArm, StringComparison.Ordinal));
+        if (settings.UpdateBaseline)
+        {
+            MemoizationBaseline recorded = MemoizationBaseline.From(
+                throughput, $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
+            await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
+            Report($"Linha de base gravada em {settings.BaselinePath}.");
+            return ExitPass;
+        }
+
+        if (!File.Exists(settings.BaselinePath))
+        {
+            Console.Error.WriteLine(
+                $"Não existe linha de base em {settings.BaselinePath}; grave uma com --update-baseline.");
+            return ExitRefused;
+        }
+
+        MemoizationBaseline baseline = await MemoizationBaseline.LoadAsync(
+            settings.BaselinePath, cancellationToken);
+        GateOutcome gate = MemoizationGate.Evaluate(baseline, outcome, settings.Tolerance);
+        Console.WriteLine();
+        Console.WriteLine("-- Portão da memoização de leitura publicada --------------------------");
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $" Linha de base de {baseline.RecordedAtUtc} em {baseline.RecordedOn}, "
+            + $"tolerância {gate.Tolerance:P0}."));
+        foreach (GateCheck check in gate.Checks)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $" {check.Metric,-40} referência {check.Reference,10:0.000}  medido {check.Measured,10:0.000}  "
+                + $"limite {check.Limit,10:0.000}  {(check.Passes ? "passa" : "REPROVA")}"));
+        }
+
+        Console.WriteLine();
+        if (gate.Passes)
+        {
+            Console.WriteLine(" Portão aprovado: a política de evicção não regrediu e o residente ficou no teto.");
+            return ExitPass;
+        }
+
+        Console.Error.WriteLine(
+            " Portão reprovado: a memoização regrediu contra a linha de base versionada.");
+        return ExitGateFailed;
     }
 
     /// <summary>

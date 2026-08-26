@@ -55,6 +55,29 @@ O que fica de fora nas duas: TLS, verificação de assinatura, pipeline HTTP e o
 saltos de fila. Nenhum deles cresce com o volume nem com o lote, e medi-los exige
 host e cliente, que é o gate de carga contra ambiente real.
 
+A memoização de leitura publicada sob falta concorrente, com o orçamento dela
+cheio:
+
+```bash
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode memoization
+```
+
+O modo `memoization` não toca banco nenhum e não sobe contêiner: é a única
+rodada que roda em qualquer máquina. Ele responde duas perguntas que só existem
+com o orçamento cheio, que é o único estado em que a política de evicção roda.
+A primeira é quanto custa uma operação no caminho de falta quando o processo
+inteiro pede ao mesmo tempo, com a disputa de lock que essa operação compra. A
+segunda é se o residente passa do teto declarado sob escrita concorrente, e essa
+não tem tolerância nem referência: o teto é a promessa da própria política, e um
+residente acima dele é memória que o processo nunca devolve, com todo teste em
+processo passando enquanto ela cresce.
+
+O espaço de chaves fica logo acima do teto de propósito, para que quase toda
+operação erre, escreva e encontre o portão de admissão. O braço `M1` mede vazão
+e disputa sem ninguém olhando; o braço `M2` repete a carga com um observador do
+residente, separado porque os locks do observador entrariam na contagem de
+disputa do primeiro. Uma passagem descartada antecede os dois.
+
 Rodada de guarda por pull request, comparada contra a linha de base versionada:
 
 ```bash
@@ -86,7 +109,7 @@ do que ela escrever poderá ser apagado depois.
 
 | Opção | Default | Efeito |
 |---|---|---|
-| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega |
+| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega; `memoization` roda a memoização de leitura publicada, sem banco |
 | `--connection-string` | contêiner | Aponta para um banco existente |
 | `--allow-trail-writes` | desligado | Autoriza escrita na trilha de um banco informado |
 | `--appenders` | 4 | Appenders concorrentes por braço |
@@ -104,6 +127,7 @@ do que ela escrever poderá ser apagado depois.
 | `--volume-drift` | 2,00 | Crescimento tolerado da posse entre os dois volumes de guarda (teto 3,0) |
 | `--gate-arm` | `A5` | Braço que o portão lê |
 | `--guard-repeats` | 3 | Rodadas do braço de guarda antes de tomar a mediana |
+| `--memoization-workers` | núcleos | Threads que erram na memoização ao mesmo tempo |
 | `--report` | ausente | Caminho do relatório em JSON |
 
 ## O desenho
@@ -264,3 +288,17 @@ separar espera de posse e que o appender não tem por que pagar.
 Uma mudança lá que este projeto não acompanhe aparece como medição que deixa de
 corresponder à produção, e o cenário de verificação da cadeia é o oráculo que
 denuncia: ele reconstrói a partição inteira e recusa uma cadeia que bifurcou.
+
+## Por que a sonda alcança a memoização por reflexão
+
+Vale aqui a mesma restrição da seção acima: a memoização de leitura publicada é
+interna ao assembly da API e este projeto está fora da lista de amigos dele. A
+saída é outra porque o risco é outro. A cadeia de auditoria tem forma estável e
+um oráculo que denuncia divergência, então reimplementá-la custa pouco; uma
+política de evicção reimplementada mediria uma cópia, e a pergunta toda é como
+o tipo publicado se comporta no teto. `Contention/PublishedReadCacheHandle.cs`
+liga cada membro uma vez em delegate, de modo que o braço paga uma chamada de
+delegate por operação e nenhuma reflexão, e recusa a rodada com mensagem clara
+se o tipo deixar de expor o que ela liga. Conceder visibilidade de internos a
+este projeto trocaria o arquivo inteiro por um `using`, e essa é uma decisão de
+produção que a fatia da medição não toma sozinha.

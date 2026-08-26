@@ -18,19 +18,39 @@ internal sealed class PublishedCatalog(
     TemplateManagementDbContext dbContext,
     PublishedReadCache cache) : IPublishedCatalog
 {
+    /// <summary>
+    /// Resolves the identity to its canonical form before anything else, so one
+    /// published template owns exactly one entry however the caller spelled the
+    /// request, and a spelling the domain refuses never reaches the store and
+    /// never occupies a slot.
+    /// </summary>
     public async Task<Result<PublishedTemplateLookup>> FindTemplateAsync(
         string application,
         string templateKey,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"template:{application}:{templateKey}";
+        Result<string> canonicalApplication = ApplicationName.Create(application);
+        if (canonicalApplication.IsFailure)
+        {
+            return canonicalApplication.AsFailure<string, PublishedTemplateLookup>();
+        }
+
+        Result<TemplateKey> canonicalKey = TemplateKey.Create(templateKey);
+        if (canonicalKey.IsFailure)
+        {
+            return canonicalKey.AsFailure<TemplateKey, PublishedTemplateLookup>();
+        }
+
+        var app = canonicalApplication.Value!;
+        var key = canonicalKey.Value!.Value;
+        var cacheKey = $"template:{app}:{key}";
         if (cache.TryGetPointer(cacheKey, out PublishedTemplateLookup cached))
         {
             return Result.Success(cached);
         }
 
         Result<PublishedTemplateLookup> lookedUp =
-            await FindTemplateFromStoreAsync(application, templateKey, cancellationToken);
+            await FindTemplateFromStoreAsync(app, key, cancellationToken);
         if (lookedUp.IsSuccess)
         {
             cache.SetPointer(cacheKey, lookedUp.Value!);
@@ -90,19 +110,38 @@ internal sealed class PublishedCatalog(
         }));
     }
 
+    /// <summary>
+    /// Same canonical-first shape as the template lookup, over the pair the
+    /// policy query itself keys on: the class resolves to one of the three
+    /// accepted values, so the entry cannot fork on how the caller wrote it.
+    /// </summary>
     public async Task<Result<PublishedClassPolicy>> FindClassPolicyAsync(
         string application,
         string notificationClass,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"policy:{application}:{notificationClass}";
+        Result<string> canonicalApplication = ApplicationName.Create(application);
+        if (canonicalApplication.IsFailure)
+        {
+            return canonicalApplication.AsFailure<string, PublishedClassPolicy>();
+        }
+
+        Result<NotificationClass> canonicalClass = NotificationClasses.Create(notificationClass);
+        if (canonicalClass.IsFailure)
+        {
+            return canonicalClass.AsFailure<NotificationClass, PublishedClassPolicy>();
+        }
+
+        var app = canonicalApplication.Value!;
+        var policyClass = canonicalClass.Value.Canonical();
+        var cacheKey = $"policy:{app}:{policyClass}";
         if (cache.TryGetPointer(cacheKey, out PublishedClassPolicy cached))
         {
             return Result.Success(cached);
         }
 
         Result<PublishedClassPolicy> published =
-            await FindClassPolicyFromStoreAsync(application, notificationClass, cancellationToken);
+            await FindClassPolicyFromStoreAsync(app, policyClass, cancellationToken);
         if (published.IsSuccess)
         {
             cache.SetPointer(cacheKey, published.Value!);

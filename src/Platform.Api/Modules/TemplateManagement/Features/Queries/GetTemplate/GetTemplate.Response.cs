@@ -33,9 +33,28 @@ internal static partial class GetTemplate
 
         public required IReadOnlyList<string> SensitiveVariables { get; init; }
 
+        /// <summary>
+        /// One window of the version history, oldest first. It carries the whole
+        /// history only while <see cref="VersionsTruncated"/> is false.
+        /// </summary>
         public required IReadOnlyList<VersionSummary> Versions { get; init; }
 
-        internal static Response From(Template template, IReadOnlyList<VersionSummary> versions) => new()
+        /// <summary>
+        /// True when the history holds versions older than the ones listed here.
+        /// </summary>
+        public required bool VersionsTruncated { get; init; }
+
+        /// <summary>
+        /// Cursor for the next, older window of versions. Null when the listed
+        /// versions reach the beginning of the history.
+        /// </summary>
+        public string? VersionsNextCursor { get; init; }
+
+        internal static Response From(
+            Template template,
+            IReadOnlyList<VersionSummary> versions,
+            bool versionsTruncated,
+            string? versionsNextCursor) => new()
         {
             Key = template.Key.Value,
             Application = template.Application,
@@ -48,6 +67,8 @@ internal static partial class GetTemplate
             LinkDomainsAllowed = template.LinkDomainsAllowed,
             SensitiveVariables = template.SensitiveVariables,
             Versions = versions,
+            VersionsTruncated = versionsTruncated,
+            VersionsNextCursor = versionsNextCursor,
         };
     }
 }
