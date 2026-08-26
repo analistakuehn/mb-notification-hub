@@ -40,8 +40,8 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `PRF-003` | `MEDIUM` | **RESOLVIDO** | Chave de cache montada antes da normalização, e `Clear()` total exposto... |
 | `PRF-004` | `MEDIUM` | **RESOLVIDO** | O validador é o único dos três contratos publicados que não usa o cache |
 | `PRF-005` | `MEDIUM` | **RESOLVIDO** | Render duplo para a forma mascarada, correto por desenho e não medido |
+| `PRF-007` | `LOW` | **RESOLVIDO** | `ConcurrentDictionary.Count` toma todos os locks no caminho de miss |
 | `PRF-008` | `LOW` | **RESOLVIDO** | As consultas administrativas materializam todo o histórico de versões |
-| `PRF-007` | `LOW` | **PARCIAL** | `ConcurrentDictionary.Count` toma todos os locks no caminho de miss |
 
 ---
 ## `PRF-001` · RESOLVIDO
@@ -549,7 +549,7 @@ posição de URL já garantem.
 
 ---
 
-## `PRF-007` · PARCIAL
+## `PRF-007` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -560,8 +560,8 @@ posição de URL já garantem.
 | tipo-de-evidência | leitura-de-código, depois **medição executada** na remediação |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-specialist |
-| **estado** | **PARCIAL** |
-| nota de estado | O mecanismo foi **confirmado** por desmontagem do IL, e a metade em `PublishedReadCache.cs:51-53` e `:75-77` saiu junto com a correção de `PRF-003`. Continua aberto em `ScribanParseCache.cs`, que não foi tocado e não foi medido. A **recomendação como escrita foi refutada por medição** e não deve ser aplicada; a forma correta está abaixo. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | Fechado em duas etapas, e a segunda reformulou o achado. A metade em `PublishedReadCache` saiu com `PRF-003`. A de `ScribanParseCache` foi medida e mostrou que **o `Count` não é o defeito, é o amplificador**: o defeito é a política, porque um teto por contagem não limita memória num espaço de chaves cujas entradas pesam entre 3 KB e 18,7 MB. A **recomendação como escrita continua refutada** e não deve ser aplicada. |
 
 **`ConcurrentDictionary.Count` toma todos os locks no caminho de miss.**
 
@@ -627,12 +627,66 @@ compacta primeiro expirados, depois por prioridade, depois por último acesso, c
 o contador de tamanho mantido internamente com `Interlocked`. Não custa
 dependência nova.
 
-**Escopo remanescente.** `ScribanParseCache` continua com `Count` mais `Clear`.
-Deliberadamente **não** se extraiu abstração comum: a chave ali é o texto-fonte
-inteiro do template, não um identificador curto, e o portão só é avaliado em
-miss de parse, o que é exposição estruturalmente menor. Registrar essa decisão
-importa, para que a próxima revisão não relate a duplicação como defeito. Medir
-o caminho do Scriban antes de agir: ele não foi medido.
+**Escopo remanescente**, depois fechado. `ScribanParseCache` foi medido numa
+segunda rodada, e o resultado reformulou o achado. Deliberadamente **não** se
+extraiu abstração comum entre os dois caches: a chave ali é o texto-fonte
+inteiro do template, não um identificador curto. Registrar essa decisão importa,
+para que a próxima revisão não relate a duplicação como defeito.
+
+### O `Count` não é o defeito, é o amplificador
+
+A medição do caminho do parse mudou o enquadramento. Em regime, abaixo do teto e
+sem miss, o portão custa **exatamente zero**: com 150 formas e 22 threads, um
+milhão de buscas, os braços com e sem portão são indistinguíveis, sem parses,
+limpezas ou disputas. Não é isso que motiva a correção.
+
+O que motiva são três outras medidas.
+
+**O teto não limitava memória.** `MaxEntries = 1024` conta objetos cujo peso
+varia por um fator de cerca de 6.000: de 3,05 KB a **18,66 MB** por entrada,
+conforme a forma da fonte, no teto de `MaxTemplateSizeChars`. Com 1024 entradas,
+o retido chegava a 18,66 GB numa forma de membro aninhado denso e 3,69 GB numa
+forma realista. Um autor autenticado alcança isso dentro do limite de taxa
+configurado, pela via de editar rascunho e pré-visualizar: `RenderTemplateVersion`
+renderiza rascunho, e a entrada é memoizada quando o parse não tem erros, mesmo
+que o render seguinte falhe.
+
+**O penhasco é abrupto e sem aviso.** Medido, 200 mil formas, 22 threads, sem
+cauda fria: 204 formas (1.020 fontes) dão 12,85 a 20,33 Mops/s com zero parses e
+zero limpezas; **205 formas (1.025 fontes) dão 0,21 a 1,35 Mops/s**, com 20.611 a
+78.301 reparses. Cinco fontes a mais, uma única forma de notificação, separam um
+cache perfeito de um cache que se apaga sozinho. São cerca de 28 a 48 templates
+publicados num catálogo de 4 canais e 3 locales, e nenhuma métrica do processo
+distingue os dois estados.
+
+**A limpeza custa de 91x a 362x** sobre as mesmas buscas. E `Clear()` **não
+encolhe o array de locks**: medido, `Count` sobre o dicionário vazio logo depois
+da limpeza continua custando 18,3 us, então o portão cobra preço cheio durante
+toda a recomposição das 1024 entradas.
+
+**Correção aplicada**: `MemoryCache` com `SizeLimit` **em caracteres**, orçamento
+de 1.048.576 e `Size = source.Length` por entrada. Rende 12.026 fontes residentes
+contra 1.024, e limita o pior caso retido a cerca de 154 MB contra 18,66 GB. O
+imposto no caminho quente é de 64 a 156 ns por notificação, ou 0,1% a 0,5% de um
+render de forma. O `[Range]` de `MaxTemplateSizeChars` passou a ser amarrado ao
+orçamento em tempo de compilação, porque uma fonte maior que ele é recusada pelo
+armazenamento **em silêncio** e reparseada em toda chamada, o que se lê como
+renderizador lento e nunca como configuração errada.
+
+Verificação: oráculo do penhasco, da fonte grande e do orçamento, mais portão de
+desempenho com linha de base versionada. Falsificabilidade exercida: restaurar a
+política antiga reprova os três oráculos e o portão nas quatro checagens, com
+0,17 a 0,28 Mops/s medidos de forma independente, corroborando a bancada.
+
+### Uma correção no portão irmão, feita na mesma rodada
+
+O portão de memoização de leitura publicada media **uma passagem** de uma métrica
+sensível a relógio, e reprovava 5 rodadas em 11 contra árvore sem mudança, com
+comparação pareada mostrando as duas distribuições sobrepostas e o braço que roda
+primeiro sempre mais rápido. É uma peça móvel baixando o próprio clock sob braço
+sustentado, não regressão. Um portão que reprova metade das rodadas limpas é um
+portão que alguém silencia. Ele passou a ler a mediana de três passagens, como o
+portão de parse já fazia.
 
 ---
 

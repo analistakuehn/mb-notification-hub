@@ -81,9 +81,9 @@ tenha uma resposta em um lugar só.
 
 | Estado | Quantidade | Significado |
 |---|---:|---|
-| `RESOLVIDO` | 17 | corrigido no código e verificado por suíte |
+| `RESOLVIDO` | 18 | corrigido no código e verificado por suíte |
 | `PENDENTE` | 31 | não tratado, e o achado segue válido como escrito |
-| `PARCIAL` | 3 | parte corrigida, com o risco residual nomeado na ficha |
+| `PARCIAL` | 2 | parte corrigida, com o risco residual nomeado na ficha |
 | `ADIADO` | 1 | decisão deliberada de não corrigir, com a razão registrada |
 | `OBSOLETO` | 1 | a premissa caiu; **não** aplique a recomendação como escrita |
 | **Total** | **53** | 52 da revisão original, mais `PRF-008` |
@@ -108,6 +108,7 @@ tenha uma resposta em um lugar só.
 | `PRF-003` | Performance | chave canônica nos três sítios e evicção por `MemoryCache`, escolhida com medição |
 | `PRF-004` | Performance | o validador passou a compartilhar o contexto memoizado, de quatro consultas para duas |
 | `PRF-005` | Performance | um `TemplateContext` por forma no lugar de um por render, menos 71,2% de alocação |
+| `PRF-007` | Performance | o teto por contagem, que não limitava memória, virou orçamento em caracteres |
 | `TST-002` | Test | `ScribanSandboxTests` cobre a família de fuga que faltava |
 
 ### Parciais, adiado e obsoleto
@@ -115,7 +116,6 @@ tenha uma resposta em um lugar só.
 | Id | Estado | O que exige atenção |
 |---|---|---|
 | `SEC-001` | `PARCIAL` | publicação bloqueada, mas **templates já publicados seguem mascarando nada**. É questão de dados: pede auditoria dos publicados cujos nomes sensíveis não constem do schema da versão. |
-| `PRF-007` | `PARCIAL` | o mecanismo foi confirmado por desmontagem do IL e a metade em `PublishedReadCache` saiu com `PRF-003`, mas `ScribanParseCache` continua com o padrão. **A recomendação da ficha foi refutada por medição**: contador sem portão mediu a pior contenção de todas as formas, e despejo parcial com vítima arbitrária mediu pior taxa de acerto que a limpeza total. |
 | `TST-001` | `PARCIAL` | o defeito ficou bloqueado na publicação, mas o oráculo de mascaramento sobre payload aninhado continua não existindo. |
 | `STK-002` | `ADIADO` | ligar o modo estrito trocaria entrega degradada por entrega zero em mensagem de autenticação. A metade correta é detectar em publicação. |
 | `TST-003` | `OBSOLETO` | a recomendação manda observar trabalho abandonado que não existe mais. Aplicá-la como escrita é trabalho perdido. |
@@ -132,7 +132,6 @@ ponto de vigilância sobre callback no token em `STK-004`.
 | Security | 8 | `SEC-004` a `SEC-007`, `SEC-011` a `SEC-014` |
 | Software Engineering | 7 | `ENG-001` a `ENG-007` |
 | Test | 7 | `TST-004` a `TST-010` |
-| Performance | 0 | nenhum; resta a metade de `PRF-007` |
 | .NET Quality | 1 | `STK-005` |
 
 O maior deles é `SEC-001` na sua metade residual, seguido pelos `HIGH` de
