@@ -11,8 +11,10 @@ implementado, não do desenho pretendido, e o guia diz explicitamente o que a
 versão atual **não** faz.
 
 O contrato de máquina é o documento OpenAPI publicado pela própria API, em
-`GET /openapi/v1.json`. Este guia explica o que o OpenAPI não consegue dizer:
-ordem das checagens, semântica de cada desfecho e o que cada afirmação vale.
+`GET /openapi/v1.json`. A rota existe em todos os ambientes e exige o mesmo
+token Bearer das demais, sem papel específico: uma chamada anônima recebe
+`401`. Este guia explica o que o OpenAPI não consegue dizer: ordem das
+checagens, semântica de cada desfecho e o que cada afirmação vale.
 
 ## 1. O que o hub faz, em uma frase
 

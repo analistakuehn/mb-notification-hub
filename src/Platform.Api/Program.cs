@@ -4,6 +4,7 @@ using NotificationHub.Api.Composition;
 using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.EndpointFilters;
 using NotificationHub.Api.Infrastructure.Messaging;
+using NotificationHub.Api.Infrastructure.RateLimiting;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -38,6 +39,7 @@ builder.Services.AddModules(builder.Configuration, SolutionAssemblies.All);
 
 builder.Services.AddScoped<RequestLoggingFilter>();
 builder.Services.AddOpenApi();
+builder.Services.AddOpenApiRateLimiting();
 
 WebApplication app = builder.Build();
 
@@ -83,7 +85,18 @@ app.UseAuthorization();
 app.UseRateLimiter();
 app.MapHealthChecks("/health").AllowAnonymous();
 
-app.MapOpenApi();
+// Served in every environment on purpose: this document is the machine
+// contract that producers and administrative clients generate their clients
+// from, and no build step publishes it anywhere else. Both requirements are
+// stated even though the fallback policy already covers authorization and
+// nothing else competes for the budget: MapOpenApi carries no authorization
+// metadata of its own, so without the explicit call the route's protection
+// would rest entirely on the fallback policy registered at the top of this
+// file, and would turn public the day that policy is relaxed or the package
+// starts shipping AllowAnonymous. Every other route in the API declares both.
+app.MapOpenApi()
+    .RequireAuthorization()
+    .RequireRateLimiting(OpenApiRateLimitingSetup.PolicyName);
 
 app.MapModuleEndpoints(SolutionAssemblies.All);
 
