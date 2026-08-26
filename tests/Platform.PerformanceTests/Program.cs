@@ -536,7 +536,7 @@ internal static class Program
         Console.WriteLine();
         if (gate.Passes)
         {
-            Console.WriteLine(" Portão aprovado: a política de evicção não regrediu e o residente ficou no teto.");
+            Console.WriteLine(" Portão aprovado: a política de evicção não regrediu e o residente seguiu limitado.");
             return ExitPass;
         }
 

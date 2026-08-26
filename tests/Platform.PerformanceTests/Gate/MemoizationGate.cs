@@ -39,17 +39,29 @@ internal static class MemoizationGate
                 throughput.ContentionsPerThousand
                     <= (baseline.ContentionsPerThousand * (1 + tolerance)) + ContentionHeadroom),
 
-            // No reference and no tolerance: the budget is the policy's own
-            // promise, and a resident set above it is memory the process never
-            // gives back. Every in-process test passes while it grows.
-            new GateCheck(
-                "residente máximo sob escrita concorrente",
-                bound.Ceiling,
-                bound.ResidentMax,
-                bound.Ceiling,
-                bound.ResidentMax <= bound.Ceiling),
+            // The budget is the policy's own promise, and a resident set that
+            // climbs past it is memory the process never gives back: every
+            // in-process test passes while it grows. The allowance is not a
+            // fudge factor. Compaction is scheduled rather than synchronous, so
+            // writers that clear the size check before it runs are all admitted,
+            // and the overshoot is bounded by how many of them are in flight.
+            // Anything beyond that is a policy that stopped bounding, which is
+            // the failure this check exists for and which overshoots by orders
+            // of magnitude, never by a handful.
+            ResidentBound(bound),
         ];
         return new GateOutcome(Array.TrueForAll(checks, check => check.Passes), tolerance, checks);
+    }
+
+    private static GateCheck ResidentBound(MemoizationArm bound)
+    {
+        var limit = bound.Ceiling + bound.Workers;
+        return new GateCheck(
+            "residente máximo sob escrita concorrente",
+            bound.Ceiling,
+            bound.ResidentMax,
+            limit,
+            bound.ResidentMax <= limit);
     }
 
     private static MemoizationArm ArmOf(MemoizationOutcome outcome, string armId)
