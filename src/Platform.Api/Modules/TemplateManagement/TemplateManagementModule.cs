@@ -60,8 +60,10 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<GetClassPolicyVersion.Handler>();
         services.AddScoped<DiffClassPolicyVersions.Handler>();
 
-        // Published read contracts consumed in-process by sibling modules.
+        // Published read contracts consumed in-process by sibling modules,
+        // over the loader that memoizes the context they read in common.
         services.AddSingleton<PublishedReadCache>();
+        services.AddScoped<PublishedContextLoader>();
         services.AddScoped<IPublishedCatalog, PublishedCatalog>();
         services.AddScoped<IPublishedVariablesValidator, PublishedVariablesValidator>();
         services.AddScoped<IPublishedTemplateRenderer, PublishedTemplateRenderer>();

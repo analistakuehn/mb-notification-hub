@@ -20,6 +20,7 @@ internal sealed class PublishedTemplateRenderer(
     TemplateManagementDbContext dbContext,
     ScribanTemplateEngine engine,
     PublishedReadCache cache,
+    PublishedContextLoader contextLoader,
     ILogger<PublishedTemplateRenderer> logger) : IPublishedTemplateRenderer
 {
     public async Task<Result<PublishedTemplateRender>> RenderAsync(
@@ -40,7 +41,7 @@ internal sealed class PublishedTemplateRenderer(
             return locale.AsFailure<Locale, PublishedTemplateRender>();
         }
 
-        Result<PublishedTemplateContext> context = await LoadPublishedContextAsync(
+        Result<PublishedTemplateContext> context = await contextLoader.LoadAsync(
             request.Application, request.TemplateKey, cancellationToken);
         if (context.IsFailure)
         {
@@ -123,52 +124,6 @@ internal sealed class PublishedTemplateRenderer(
             Full = full.Value!,
             Masked = masked,
         });
-    }
-
-    /// <summary>
-    /// The published context of (application, templateKey), memoized as a
-    /// "current published" pointer: hot renders skip the store and converge
-    /// on a new publication within the pointer window. The entities are
-    /// no-tracking reads of immutable published state, safe to share.
-    /// <para>
-    /// The identity resolves to its canonical form first, so a render and a
-    /// catalog lookup for the same template agree on one entry however the
-    /// request spelled it, and a spelling the domain refuses stops here.
-    /// </para>
-    /// </summary>
-    private async Task<Result<PublishedTemplateContext>> LoadPublishedContextAsync(
-        string application,
-        string templateKey,
-        CancellationToken cancellationToken)
-    {
-        Result<string> canonicalApplication = ApplicationName.Create(application);
-        if (canonicalApplication.IsFailure)
-        {
-            return canonicalApplication.AsFailure<string, PublishedTemplateContext>();
-        }
-
-        Result<TemplateKey> canonicalKey = TemplateKey.Create(templateKey);
-        if (canonicalKey.IsFailure)
-        {
-            return canonicalKey.AsFailure<TemplateKey, PublishedTemplateContext>();
-        }
-
-        var app = canonicalApplication.Value!;
-        var key = canonicalKey.Value!.Value;
-        var cacheKey = $"render-context:{app}:{key}";
-        if (cache.TryGetPointer(cacheKey, out PublishedTemplateContext cached))
-        {
-            return Result.Success(cached);
-        }
-
-        Result<PublishedTemplateContext> loaded = await dbContext.FindPublishedTemplateAsync(
-            app, key, cancellationToken);
-        if (loaded.IsSuccess)
-        {
-            cache.SetPointer(cacheKey, loaded.Value!);
-        }
-
-        return loaded;
     }
 
     /// <summary>

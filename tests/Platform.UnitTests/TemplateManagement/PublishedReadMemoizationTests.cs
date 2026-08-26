@@ -142,11 +142,7 @@ public sealed class PublishedReadMemoizationTests
         var clock = new SteppingClock(Start);
         using var cache = new PublishedReadCache(clock);
         using TemplateManagementDbContext store = StoreOutOfReach();
-        var renderer = new PublishedTemplateRenderer(
-            store,
-            new ScribanTemplateEngine(Options.Create(new TemplatingOptions()), new ScribanParseCache()),
-            cache,
-            NullLogger<PublishedTemplateRenderer>.Instance);
+        PublishedTemplateRenderer renderer = RendererOver(store, cache, new PublishedContextLoader(store, cache));
 
         await Assert.ThrowsAnyAsync<Exception>(
             () => renderer.RenderAsync(
@@ -163,6 +159,108 @@ public sealed class PublishedReadMemoizationTests
         rendered.IsFailure.ShouldBeTrue();
         cache.PointerLoads.ShouldBe(1);
         cache.PointerHits.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task The_validator_answers_a_padded_template_identity_from_the_canonical_entry()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        using TemplateManagementDbContext store = StoreOutOfReach();
+        var validator = new PublishedVariablesValidator(new PublishedContextLoader(store, cache));
+
+        // Same tripwire as the sibling contracts: the first call has nothing in
+        // memory and reaches for a store this test deliberately does not
+        // provide, so a later call that misses the entry raises it again.
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => validator.ValidateAsync(
+                $"  {Application} ", $" {Key}  ", Variables("""{"orderId":"42"}"""), CancellationToken.None));
+
+        cache.SetPointer($"render-context:{Application}:{Key}", PublishedContextOf());
+
+        Result<VariablesValidationReport> report = await validator.ValidateAsync(
+            $" {Application}", $"{Key} ", Variables("""{"cupom":"MB10"}"""), CancellationToken.None);
+
+        // The report is the one the memoized version's schema produces: it names
+        // the variable that schema never declared.
+        report.IsSuccess.ShouldBeTrue(report.Error);
+        VariablesValidationCheck declared = report.Value!.Checks.Single(
+            check => check.Name == ValidationCheckNames.VariablesDeclared);
+        declared.Status.ShouldBe(VariablesValidationStatuses.Failed);
+        declared.Message.ShouldContain("'cupom'");
+        cache.PointerLoads.ShouldBe(1);
+        cache.PointerHits.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task The_validator_and_the_renderer_read_one_memoized_published_context()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        using TemplateManagementDbContext store = StoreOutOfReach();
+        var loader = new PublishedContextLoader(store, cache);
+        var validator = new PublishedVariablesValidator(loader);
+        PublishedTemplateRenderer renderer = RendererOver(store, cache, loader);
+        cache.SetPointer($"render-context:{Application}:{Key}", PublishedContextOf());
+
+        Result<VariablesValidationReport> report = await validator.ValidateAsync(
+            Application, Key, Variables("""{"orderId":"42"}"""), CancellationToken.None);
+        Result<PublishedTemplateRender> rendered = await renderer.RenderAsync(
+            RenderRequest(Application, Key), CancellationToken.None);
+
+        // One entry answered both, and neither reached a store this test does
+        // not provide: the render stops on the version having no content, which
+        // is a decision taken after the context is already in hand.
+        report.IsSuccess.ShouldBeTrue(report.Error);
+        rendered.ErrorKind.ShouldBe(ResultErrorKind.NotFound);
+        cache.PointerHits.ShouldBe(2);
+        cache.PointerLoads.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task The_validator_goes_back_to_the_store_once_the_pointer_window_closes()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        using TemplateManagementDbContext store = StoreOutOfReach();
+        var validator = new PublishedVariablesValidator(new PublishedContextLoader(store, cache));
+        cache.SetPointer($"render-context:{Application}:{Key}", PublishedContextOf());
+
+        Result<VariablesValidationReport> inside = await validator.ValidateAsync(
+            Application, Key, Variables("""{"orderId":"42"}"""), CancellationToken.None);
+
+        // Reading the published context in memory means reading it as stale as
+        // the pointer window allows, exactly like the sibling contracts: once
+        // the window closes the next validation pays for the store again.
+        clock.Now = clock.Now.Add(PublishedReadCache.PointerLifetime).AddSeconds(1);
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => validator.ValidateAsync(
+                Application, Key, Variables("""{"orderId":"42"}"""), CancellationToken.None));
+
+        inside.IsSuccess.ShouldBeTrue(inside.Error);
+        cache.PointerHits.ShouldBe(1);
+        cache.PointerLoads.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task The_validator_refuses_a_template_key_the_domain_rejects_without_reaching_the_store()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        using TemplateManagementDbContext store = StoreOutOfReach();
+        var validator = new PublishedVariablesValidator(new PublishedContextLoader(store, cache));
+
+        Result<VariablesValidationReport> refused = await validator.ValidateAsync(
+            Application, "Auth OTP", Variables("""{"orderId":"42"}"""), CancellationToken.None);
+
+        refused.IsFailure.ShouldBeTrue();
+        refused.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+        refused.Error.ShouldBe(DomainError.Format(
+            ErrorCodes.InvalidRequest,
+            $"A template key must be 1-{TemplateKey.MaxLength} lowercase alphanumeric characters "
+            + "in segments separated by '.', '-' or '_'."));
+        cache.PointerLoads.ShouldBe(0);
+        cache.PointerCount.ShouldBe(0);
     }
 
     [Fact]
@@ -330,6 +428,17 @@ public sealed class PublishedReadMemoizationTests
         settled.ShouldBeTrue("a compactação agendada não devolveu orçamento dentro da espera");
     }
 
+    private static PublishedTemplateRenderer RendererOver(
+        TemplateManagementDbContext store,
+        PublishedReadCache cache,
+        PublishedContextLoader loader)
+        => new(
+            store,
+            new ScribanTemplateEngine(Options.Create(new TemplatingOptions()), new ScribanParseCache()),
+            cache,
+            loader,
+            NullLogger<PublishedTemplateRenderer>.Instance);
+
     private static TemplateManagementDbContext StoreOutOfReach()
         => new(new DbContextOptionsBuilder<TemplateManagementDbContext>().UseNpgsql().Options);
 
@@ -374,7 +483,14 @@ public sealed class PublishedReadMemoizationTests
             Purpose = "authentication",
             LegalBasis = "execucao-de-contrato",
         }).Value!;
-        return new PublishedTemplateContext(template, TemplateVersion.CreateDraft(key, 1, "autora", Start));
+        TemplateVersion version = TemplateVersion.CreateDraft(key, 1, "autora", Start);
+
+        // The schema is what a validation report is computed against, so the
+        // memoized context has to carry one for the report to say anything.
+        version.SetVariablesSchema(
+            """{"type":"object","properties":{"orderId":{"type":"string"}}}""",
+            "autora").IsSuccess.ShouldBeTrue();
+        return new PublishedTemplateContext(template, version);
     }
 
     private static PublishedRenderRequest RenderRequest(string application, string templateKey) => new()

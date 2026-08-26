@@ -54,6 +54,7 @@ public static class IntegrationSurfaceSetup
         services.AddTemplateManagementTemplating(configuration);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<PublishedReadCache>();
+        services.TryAddScoped<PublishedContextLoader>();
         services.TryAddScoped<IPublishedCatalog, PublishedCatalog>();
         services.TryAddScoped<IPublishedVariablesValidator, PublishedVariablesValidator>();
         services.TryAddScoped<IPublishedTemplateRenderer, PublishedTemplateRenderer>();

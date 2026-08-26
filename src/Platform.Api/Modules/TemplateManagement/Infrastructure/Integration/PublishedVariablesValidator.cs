@@ -1,7 +1,6 @@
 using System.Text.Json;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
-using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
@@ -10,9 +9,11 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integrat
 /// <summary>
 /// Validates a variables payload against the variables schema of the
 /// published version, projecting the domain report into the published checks
-/// vocabulary.
+/// vocabulary. It reads the published context through the shared loader, so a
+/// caller that also renders the same template pays for that context once.
 /// </summary>
-internal sealed class PublishedVariablesValidator(TemplateManagementDbContext dbContext) : IPublishedVariablesValidator
+internal sealed class PublishedVariablesValidator(PublishedContextLoader contextLoader)
+    : IPublishedVariablesValidator
 {
     public async Task<Result<VariablesValidationReport>> ValidateAsync(
         string application,
@@ -21,7 +22,7 @@ internal sealed class PublishedVariablesValidator(TemplateManagementDbContext db
         CancellationToken cancellationToken)
     {
         Result<PublishedTemplateContext> context =
-            await dbContext.FindPublishedTemplateAsync(application, templateKey, cancellationToken);
+            await contextLoader.LoadAsync(application, templateKey, cancellationToken);
         if (context.IsFailure)
         {
             return context.AsFailure<PublishedTemplateContext, VariablesValidationReport>();
