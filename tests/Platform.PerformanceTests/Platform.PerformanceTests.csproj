@@ -22,6 +22,7 @@
     <None Include="baselines\audit-chain-contention.json" />
     <None Include="baselines\published-read-memoization.json" />
     <None Include="baselines\published-render-cost.json" />
+    <None Include="baselines\scriban-parse-memoization.json" />
   </ItemGroup>
 
 </Project>

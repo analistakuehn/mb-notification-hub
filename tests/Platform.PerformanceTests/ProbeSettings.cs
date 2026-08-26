@@ -40,6 +40,13 @@ internal enum ProbeMode
     /// no database, so it runs anywhere.
     /// </summary>
     Render,
+
+    /// <summary>
+    /// What a published catalogue already in memory costs to look up in the
+    /// parse memoization, and whether it survives being read. In process like
+    /// the two modes above, so it runs anywhere.
+    /// </summary>
+    Parse,
 }
 
 /// <summary>
@@ -146,10 +153,10 @@ internal sealed record ProbeSettings
     internal int BatchSize { get; private init; } = 200;
 
     /// <summary>
-    /// Threads that miss on the memoization at the same time. It defaults to
-    /// every core because the question is what the policy costs when the whole
-    /// machine asks at once, which is what a burst of distinct template keys
-    /// does to a worker role.
+    /// Threads that drive an in-process memoization at the same time, whether
+    /// they miss on it or read it hot. It defaults to every core because the
+    /// question is what the policy costs when the whole machine asks at once,
+    /// which is what a burst of distinct template keys does to a worker role.
     /// </summary>
     internal int MemoizationWorkers { get; private init; } = Environment.ProcessorCount;
 
@@ -159,6 +166,15 @@ internal sealed record ProbeSettings
     /// and the odd background collection into a rounding error.
     /// </summary>
     internal int RenderForms { get; private init; } = 2_000;
+
+    /// <summary>
+    /// Notification forms the parse arm keeps hot, five sources each. The
+    /// default sits just past a thousand sources, which is the size a published
+    /// catalogue of a few dozen templates reaches across channels and locales,
+    /// and it is the size at which a memoization bounded by counting entries
+    /// stops holding one.
+    /// </summary>
+    internal int ParseForms { get; private init; } = 205;
 
     internal static ProbeSettings Parse(string[] args)
     {
@@ -254,6 +270,9 @@ internal sealed record ProbeSettings
                 case "--render-forms":
                     settings = settings with { RenderForms = Number(args, ref index) };
                     break;
+                case "--parse-forms":
+                    settings = settings with { ParseForms = Number(args, ref index) };
+                    break;
                 case "--guard-repeats":
                     settings = settings with { GuardRepeats = Number(args, ref index) };
                     explicitRepeats = true;
@@ -282,6 +301,26 @@ internal sealed record ProbeSettings
         if (settings.Mode is ProbeMode.Render && !explicitBaseline)
         {
             settings = settings with { BaselinePath = BaselinePathOf("published-render-cost.json") };
+        }
+
+        if (settings.Mode is ProbeMode.Parse)
+        {
+            // Seconds, like the sibling in-process mode and for the same
+            // reason: the arm is a tight loop over memory and collects tens of
+            // millions of samples in five.
+            settings = settings with
+            {
+                ArmDuration = explicitDuration ? settings.ArmDuration : TimeSpan.FromSeconds(5),
+                BaselinePath = explicitBaseline
+                    ? settings.BaselinePath
+                    : BaselinePathOf("scriban-parse-memoization.json"),
+
+                // Three passes, like the guard run of the trail: the spread
+                // between two honest passes of this arm is a quarter of the
+                // value, which is half the tolerance, so a reference from a
+                // single pass grades the luck of that pass.
+                GuardRepeats = explicitRepeats ? settings.GuardRepeats : 3,
+            };
         }
 
         if (settings.Mode is ProbeMode.Smoke)
@@ -340,6 +379,7 @@ internal sealed record ProbeSettings
         "delivery" => ProbeMode.Delivery,
         "memoization" => ProbeMode.Memoization,
         "render" => ProbeMode.Render,
+        "parse" => ProbeMode.Parse,
         _ => throw new ArgumentException($"Modo desconhecido: {value}", nameof(value)),
     };
 

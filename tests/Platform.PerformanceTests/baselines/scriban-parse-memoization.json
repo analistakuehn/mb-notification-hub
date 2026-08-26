@@ -1,0 +1,12 @@
+{
+  "FormatVersion": 1,
+  "RecordedAtUtc": "2026-08-26T22:52:53.0517592\u002B00:00",
+  "RecordedOn": "DESKTOP-PCIF06A / 22 n\u00FAcleos / .NET 10.0.10",
+  "Workers": 22,
+  "Forms": 205,
+  "Sources": 1025,
+  "OfferedChars": 81655,
+  "Budget": 1048576,
+  "MicrosecondsPerOperation": 0.0655,
+  "ContentionsPerThousand": 0
+}

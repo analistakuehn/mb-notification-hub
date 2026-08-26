@@ -78,6 +78,11 @@ internal static class Program
             return await RunRenderCostAsync(settings, stopping.Token);
         }
 
+        if (settings.Mode is ProbeMode.Parse)
+        {
+            return await RunParseMemoizationAsync(settings, stopping.Token);
+        }
+
         var started = Stopwatch.GetTimestamp();
         var poolSize = Math.Max(settings.Appenders + 8, 64);
         await using ProbeDatabase database =
@@ -619,6 +624,84 @@ internal static class Program
 
         Console.Error.WriteLine(
             " Portão reprovado: o custo de uma forma regrediu contra a linha de base versionada.");
+        return ExitGateFailed;
+    }
+
+    /// <summary>
+    /// The parse guard: read a catalogue that is already in memory with every
+    /// thread on the machine, then compare what one lookup cost against the
+    /// versioned reference and check that the catalogue survived being read.
+    /// </summary>
+    private static async Task<int> RunParseMemoizationAsync(
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        ParseMemoizationOutcome outcome = ScribanParseMemoizationScenario.Run(
+            settings.MemoizationWorkers,
+            settings.ParseForms,
+            Math.Max(settings.GuardRepeats, 1),
+            settings.ArmDuration,
+            Report);
+
+        if (settings.ReportPath is not null)
+        {
+            var directory = Path.GetDirectoryName(settings.ReportPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await File.WriteAllTextAsync(
+                settings.ReportPath, JsonSerializer.Serialize(outcome, ReportOptions), cancellationToken);
+            Report($"Relatório em JSON: {settings.ReportPath}");
+        }
+
+        ParseMemoizationArm hot = outcome.Arms.Single(arm =>
+            string.Equals(arm.ArmId, ScribanParseMemoizationScenario.HotArm, StringComparison.Ordinal));
+        if (settings.UpdateBaseline)
+        {
+            ParseMemoizationBaseline recorded = ParseMemoizationBaseline.From(
+                hot, $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
+            await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
+            Report($"Linha de base gravada em {settings.BaselinePath}.");
+            return ExitPass;
+        }
+
+        if (!File.Exists(settings.BaselinePath))
+        {
+            Console.Error.WriteLine(
+                $"Não existe linha de base em {settings.BaselinePath}; grave uma com --update-baseline.");
+            return ExitRefused;
+        }
+
+        ParseMemoizationBaseline baseline = await ParseMemoizationBaseline.LoadAsync(
+            settings.BaselinePath, cancellationToken);
+        GateOutcome gate = ParseMemoizationGate.Evaluate(baseline, outcome, settings.Tolerance);
+        Console.WriteLine();
+        Console.WriteLine("-- Portão da memoização de parse -------------------------------------");
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $" Linha de base de {baseline.RecordedAtUtc} em {baseline.RecordedOn}, "
+            + $"tolerância {gate.Tolerance:P0}."));
+        foreach (GateCheck check in gate.Checks)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $" {check.Metric,-40} referência {check.Reference,10:0.000}  medido {check.Measured,10:0.000}  "
+                + $"limite {check.Limit,10:0.000}  {(check.Passes ? "passa" : "REPROVA")}"));
+        }
+
+        Console.WriteLine();
+        if (gate.Passes)
+        {
+            Console.WriteLine(
+                " Portão aprovado: o catálogo seguiu inteiro na memória e a busca custou "
+                + "o que a referência registrou.");
+            return ExitPass;
+        }
+
+        Console.Error.WriteLine(
+            " Portão reprovado: a memoização de parse regrediu contra a linha de base versionada.");
         return ExitGateFailed;
     }
 

@@ -100,6 +100,36 @@ mediu. A segunda checagem exige que a forma compartilhada custe uma fração da
 forma com um contexto por render, e é ela que reprova, sozinha, se o
 compartilhamento for desfeito.
 
+O que uma busca custa na memoização de parse, com o catálogo publicado já
+inteiro na memória:
+
+```bash
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode parse
+```
+
+O modo `parse` também não toca banco. O braço `S1` mantém 205 formas quentes,
+cinco fontes cada, e as lê com uma thread por núcleo. Ele não tem cauda fria de
+propósito: toda fonte que ele pede foi parseada na passagem descartada, então o
+que sobra para medir é o custo da busca em si e se o catálogo continua lá no
+fim. A segunda resposta é a que se move com a política de evicção. Uma política
+que limita a memoização contando entradas derruba um catálogo desse tamanho
+enquanto ele está sendo lido, e o braço passa a pagar parse por fonte que já
+tinha parseado, de novo e de novo.
+
+Duas das quatro checagens não têm referência nem tolerância. A primeira é
+reparse: o braço oferece bem menos do que o orçamento cabe, então uma fonte
+parseada durante ele é uma fonte que a política jogou fora enquanto era lida. A
+segunda é o catálogo no fim da rodada, caractere a caractere. Zero não é limiar
+a calibrar nem número a afrouxar: o custo de errar aqui se mede em passagens
+inteiras, nunca numa busca ou duas.
+
+A referência é a mediana de três passagens, e não de uma. A dispersão entre duas
+passagens honestas deste braço chega a um quarto do valor, que é metade da
+tolerância, então uma referência de passagem única mede a sorte daquela
+passagem. O reparse foge da mediana de propósito e é somado sobre as três: uma
+passagem que teve de parsear uma fonte que já tinha é falha, tenha ou não sido a
+do meio.
+
 Rodada de guarda por pull request, comparada contra a linha de base versionada:
 
 ```bash
@@ -131,7 +161,7 @@ do que ela escrever poderá ser apagado depois.
 
 | Opção | Default | Efeito |
 |---|---|---|
-| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega; `memoization` roda a memoização de leitura publicada, sem banco; `render` roda o custo de uma forma renderizada, sem banco |
+| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega; `memoization` roda a memoização de leitura publicada, sem banco; `render` roda o custo de uma forma renderizada, sem banco; `parse` roda a memoização de parse com o catálogo quente, sem banco |
 | `--connection-string` | contêiner | Aponta para um banco existente |
 | `--allow-trail-writes` | desligado | Autoriza escrita na trilha de um banco informado |
 | `--appenders` | 4 | Appenders concorrentes por braço |
@@ -149,8 +179,9 @@ do que ela escrever poderá ser apagado depois.
 | `--volume-drift` | 2,00 | Crescimento tolerado da posse entre os dois volumes de guarda (teto 3,0) |
 | `--gate-arm` | `A5` | Braço que o portão lê |
 | `--guard-repeats` | 3 | Rodadas do braço de guarda antes de tomar a mediana |
-| `--memoization-workers` | núcleos | Threads que erram na memoização ao mesmo tempo |
+| `--memoization-workers` | núcleos | Threads que leem uma memoização em processo ao mesmo tempo |
 | `--render-forms` | 2000 | Formas que cada braço do modo `render` mede |
+| `--parse-forms` | 205 | Formas que o modo `parse` mantém quentes, cinco fontes cada |
 | `--report` | ausente | Caminho do relatório em JSON |
 
 ## O desenho
@@ -319,9 +350,10 @@ interna ao assembly da API e este projeto está fora da lista de amigos dele. A
 saída é outra porque o risco é outro. A cadeia de auditoria tem forma estável e
 um oráculo que denuncia divergência, então reimplementá-la custa pouco; uma
 política de evicção reimplementada mediria uma cópia, e a pergunta toda é como
-o tipo publicado se comporta no teto. `Contention/PublishedReadCacheHandle.cs`
-liga cada membro uma vez em delegate, de modo que o braço paga uma chamada de
-delegate por operação e nenhuma reflexão, e recusa a rodada com mensagem clara
-se o tipo deixar de expor o que ela liga. Conceder visibilidade de internos a
+o tipo publicado se comporta no teto. `Contention/PublishedReadCacheHandle.cs` e
+`Infrastructure/ScribanParseCacheHandle.cs` ligam cada membro uma vez em
+delegate, de modo que o braço paga uma chamada de delegate por operação e
+nenhuma reflexão, e recusam a rodada com mensagem clara se o tipo deixar de
+expor o que elas ligam. Conceder visibilidade de internos a
 este projeto trocaria o arquivo inteiro por um `using`, e essa é uma decisão de
 produção que a fatia da medição não toma sozinha.

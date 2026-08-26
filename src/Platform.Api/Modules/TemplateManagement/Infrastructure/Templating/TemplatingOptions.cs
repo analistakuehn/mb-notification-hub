@@ -17,7 +17,12 @@ public sealed class TemplatingOptions
     [Range(1, 1000)]
     public int RecursionLimit { get; init; } = 64;
 
-    [Range(1, 4_000_000)]
+    // Bounded by the parse memoization budget, and bound at compile time on
+    // purpose. A source larger than that budget is refused by the store
+    // without a signal and reparsed on every single call, which reads as a
+    // slow renderer and never as a misconfiguration. Failing at startup is the
+    // loud version of the same fact.
+    [Range(1, ScribanParseCache.MaxSourceChars)]
     public int MaxTemplateSizeChars { get; init; } = 131_072;
 
     [Range(1, 60_000)]
