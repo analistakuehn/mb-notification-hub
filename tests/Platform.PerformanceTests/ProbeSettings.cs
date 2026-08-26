@@ -26,6 +26,13 @@ internal enum ProbeMode
     /// delivery tables, which the trail arms neither need nor want.
     /// </summary>
     Delivery,
+
+    /// <summary>
+    /// The published-read memoization under concurrent misses with its budget
+    /// full. It touches no database at all, so it never starts a container and
+    /// it is the one mode that runs anywhere.
+    /// </summary>
+    Memoization,
 }
 
 /// <summary>
@@ -104,7 +111,7 @@ internal sealed record ProbeSettings
     /// </summary>
     internal int GuardRepeats { get; private init; } = 1;
 
-    internal string BaselinePath { get; private init; } = DefaultBaselinePath();
+    internal string BaselinePath { get; private init; } = BaselinePathOf("audit-chain-contention.json");
 
     internal bool UpdateBaseline { get; private init; }
 
@@ -131,6 +138,14 @@ internal sealed record ProbeSettings
     /// </summary>
     internal int BatchSize { get; private init; } = 200;
 
+    /// <summary>
+    /// Threads that miss on the memoization at the same time. It defaults to
+    /// every core because the question is what the policy costs when the whole
+    /// machine asks at once, which is what a burst of distinct template keys
+    /// does to a worker role.
+    /// </summary>
+    internal int MemoizationWorkers { get; private init; } = Environment.ProcessorCount;
+
     internal static ProbeSettings Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -140,6 +155,7 @@ internal sealed record ProbeSettings
         var explicitAppends = false;
         var explicitArms = false;
         var explicitRepeats = false;
+        var explicitBaseline = false;
 
         for (var index = 0; index < args.Length; index++)
         {
@@ -213,9 +229,13 @@ internal sealed record ProbeSettings
                     break;
                 case "--baseline":
                     settings = settings with { BaselinePath = Value(args, ref index) };
+                    explicitBaseline = true;
                     break;
                 case "--update-baseline":
                     settings = settings with { UpdateBaseline = true };
+                    break;
+                case "--memoization-workers":
+                    settings = settings with { MemoizationWorkers = Number(args, ref index) };
                     break;
                 case "--guard-repeats":
                     settings = settings with { GuardRepeats = Number(args, ref index) };
@@ -227,6 +247,19 @@ internal sealed record ProbeSettings
                 default:
                     throw new ArgumentException($"Opção desconhecida: {name}", nameof(args));
             }
+        }
+
+        if (settings.Mode is ProbeMode.Memoization)
+        {
+            // Seconds, not the twenty of a trail arm: the arm is a tight
+            // in-process loop, so it collects millions of samples in five.
+            settings = settings with
+            {
+                ArmDuration = explicitDuration ? settings.ArmDuration : TimeSpan.FromSeconds(5),
+                BaselinePath = explicitBaseline
+                    ? settings.BaselinePath
+                    : BaselinePathOf("published-read-memoization.json"),
+            };
         }
 
         if (settings.Mode is ProbeMode.Smoke)
@@ -261,20 +294,20 @@ internal sealed record ProbeSettings
     /// run against whatever the last build happened to copy there, which is the
     /// one thing a gate must never do.
     /// </summary>
-    private static string DefaultBaselinePath()
+    private static string BaselinePathOf(string fileName)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory is not null)
         {
             if (File.Exists(Path.Combine(directory.FullName, "Platform.PerformanceTests.csproj")))
             {
-                return Path.Combine(directory.FullName, "baselines", "audit-chain-contention.json");
+                return Path.Combine(directory.FullName, "baselines", fileName);
             }
 
             directory = directory.Parent;
         }
 
-        return Path.Combine(AppContext.BaseDirectory, "baselines", "audit-chain-contention.json");
+        return Path.Combine(AppContext.BaseDirectory, "baselines", fileName);
     }
 
     private static ProbeMode ParseMode(string value) => value switch
@@ -283,6 +316,7 @@ internal sealed record ProbeSettings
         "smoke" => ProbeMode.Smoke,
         "relay" => ProbeMode.Relay,
         "delivery" => ProbeMode.Delivery,
+        "memoization" => ProbeMode.Memoization,
         _ => throw new ArgumentException($"Modo desconhecido: {value}", nameof(value)),
     };
 

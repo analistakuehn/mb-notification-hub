@@ -20,6 +20,7 @@
          file that is versioned, and a copy in the output directory would let a
          run compare against, or write to, a stale duplicate. -->
     <None Include="baselines\audit-chain-contention.json" />
+    <None Include="baselines\published-read-memoization.json" />
   </ItemGroup>
 
 </Project>

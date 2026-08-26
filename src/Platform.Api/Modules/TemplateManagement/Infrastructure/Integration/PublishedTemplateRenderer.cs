@@ -130,20 +130,39 @@ internal sealed class PublishedTemplateRenderer(
     /// "current published" pointer: hot renders skip the store and converge
     /// on a new publication within the pointer window. The entities are
     /// no-tracking reads of immutable published state, safe to share.
+    /// <para>
+    /// The identity resolves to its canonical form first, so a render and a
+    /// catalog lookup for the same template agree on one entry however the
+    /// request spelled it, and a spelling the domain refuses stops here.
+    /// </para>
     /// </summary>
     private async Task<Result<PublishedTemplateContext>> LoadPublishedContextAsync(
         string application,
         string templateKey,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"render-context:{application}:{templateKey}";
+        Result<string> canonicalApplication = ApplicationName.Create(application);
+        if (canonicalApplication.IsFailure)
+        {
+            return canonicalApplication.AsFailure<string, PublishedTemplateContext>();
+        }
+
+        Result<TemplateKey> canonicalKey = TemplateKey.Create(templateKey);
+        if (canonicalKey.IsFailure)
+        {
+            return canonicalKey.AsFailure<TemplateKey, PublishedTemplateContext>();
+        }
+
+        var app = canonicalApplication.Value!;
+        var key = canonicalKey.Value!.Value;
+        var cacheKey = $"render-context:{app}:{key}";
         if (cache.TryGetPointer(cacheKey, out PublishedTemplateContext cached))
         {
             return Result.Success(cached);
         }
 
         Result<PublishedTemplateContext> loaded = await dbContext.FindPublishedTemplateAsync(
-            application, templateKey, cancellationToken);
+            app, key, cancellationToken);
         if (loaded.IsSuccess)
         {
             cache.SetPointer(cacheKey, loaded.Value!);
