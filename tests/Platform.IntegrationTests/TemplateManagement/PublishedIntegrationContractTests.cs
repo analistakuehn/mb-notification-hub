@@ -33,10 +33,17 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         {
             body = "Pedido {{ orderId }} atualizado.",
         }, etag);
+        // 'cpf' is declared sensitive on the identity, so the schema has to
+        // declare it too: a sensitive name the schema never declares masks
+        // nothing, and publication now refuses that false assurance.
         await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
-            properties = new { orderId = new { type = "string" } },
+            properties = new
+            {
+                orderId = new { type = "string" },
+                cpf = new { type = "string" },
+            },
             required = RequiredOrderId,
         }, etag);
         await TemplateApi.PublishAsync(publisher, key, version);

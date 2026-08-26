@@ -176,6 +176,7 @@ public sealed class TemplateValidationTests
         Template template = MakeTemplate(linkDomains: ["montebravo.com.br"], sensitiveVariables: ["cpf"]);
         TemplateVersion version = MakeVersion(
             ("email", "pt-BR", "Oi", "Documento https://montebravo.com.br/consulta?doc={{ cpf }}", "texto"));
+        SetSchema(version, """{ "type": "object", "properties": { "cpf": { "type": "string" } } }""");
 
         ValidationReport report = TemplateValidation.Validate(template, version, []);
 
@@ -190,6 +191,7 @@ public sealed class TemplateValidationTests
     {
         Template template = MakeTemplate(sensitiveVariables: ["cpf"]);
         TemplateVersion version = MakeVersion(("sms", "pt-BR", null, "Documento final {{ cpf }}", null));
+        SetSchema(version, """{ "type": "object", "properties": { "cpf": { "type": "string" } } }""");
 
         ValidationReport report = TemplateValidation.Validate(template, version, []);
 

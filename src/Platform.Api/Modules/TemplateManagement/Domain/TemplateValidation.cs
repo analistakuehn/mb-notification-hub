@@ -49,6 +49,13 @@ public sealed record ContentAnalysis(
 /// </summary>
 public static partial class TemplateValidation
 {
+    /// <summary>
+    /// How far back a URL scheme may sit from the placeholder it wraps. Bounds
+    /// the backward scan, so a field carrying no whitespace at all cannot make
+    /// the sensitive-variable check quadratic in its own length.
+    /// </summary>
+    private const int MaxUrlPrefixScan = 2048;
+
     public const int SmsMaxBodyChars = 1600;
     public const int PushMaxSubjectChars = 200;
     public const int PushMaxBodyChars = 4000;
@@ -77,7 +84,25 @@ public static partial class TemplateValidation
     /// that clean.
     /// </summary>
     public static bool ContainsLinkLikeText(string? text)
-        => !string.IsNullOrEmpty(text) && LinkLike().IsMatch(text);
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        try
+        {
+            return LinkLike().IsMatch(text);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // Fails closed, and stays on the Result axis. This predicate also
+            // runs at dispatch, inside a contract whose consumer does not
+            // handle exceptions: letting one escape turns a single message into
+            // a poison message that burns a worker on every redelivery.
+            return true;
+        }
+    }
 
     public static ValidationReport Validate(
         Template template,
@@ -375,33 +400,124 @@ public static partial class TemplateValidation
 
     private static void AddSensitiveVariableChecks(List<ValidationCheck> checks, Template template, TemplateVersion version)
     {
-        var before = checks.Count;
-        foreach (var variable in template.SensitiveVariables)
+        if (template.SensitiveVariables.Count == 0)
         {
-            var inUrlPosition = new Regex(
-                @"https?://[^\s<>""']*\{\{[^{}]*\b" + Regex.Escape(variable) + @"\b",
-                RegexOptions.None,
-                TimeSpan.FromSeconds(1));
-            foreach (TemplateContent content in version.Contents)
+            checks.Add(Passed(ValidationCheckNames.SensitiveVariables, "The template declares no sensitive variable."));
+            return;
+        }
+
+        var before = checks.Count;
+        var sensitive = new HashSet<string>(template.SensitiveVariables, StringComparer.Ordinal);
+
+        AddSensitiveVariableDeclarationChecks(checks, template, version);
+
+        foreach (TemplateContent content in version.Contents)
+        {
+            foreach ((var field, var text) in Fields(content))
             {
-                foreach ((var field, var text) in Fields(content))
+                foreach (var variable in SensitiveVariablesInUrlPosition(text, sensitive))
                 {
-                    if (inUrlPosition.IsMatch(text))
-                    {
-                        checks.Add(Failed(
-                            ValidationCheckNames.SensitiveVariables,
-                            $"Sensitive variable '{variable}' must not appear in a URL position.",
-                            At(content.Channel, content.Locale, field)));
-                    }
+                    checks.Add(Failed(
+                        ValidationCheckNames.SensitiveVariables,
+                        $"Sensitive variable '{variable}' must not appear in a URL position.",
+                        At(content.Channel, content.Locale, field)));
                 }
             }
         }
 
         if (checks.Count == before)
         {
-            checks.Add(Passed(ValidationCheckNames.SensitiveVariables, "No sensitive variable appears in a URL position."));
+            checks.Add(Passed(
+                ValidationCheckNames.SensitiveVariables,
+                "Every sensitive variable is declared by the schema and none appears in a URL position."));
         }
     }
+
+    /// <summary>
+    /// A sensitive name only masks when it addresses a variable the payload
+    /// carries at its top level, because that is the shape the mask walks. A
+    /// name the schema never declares therefore masks nothing, and the render
+    /// stores the full form as if it were the masked one: the value travels in
+    /// clear into an append-only trail that cannot be corrected afterwards.
+    /// Refusing publication is the only point where this is still cheap.
+    /// </summary>
+    private static void AddSensitiveVariableDeclarationChecks(
+        List<ValidationCheck> checks,
+        Template template,
+        TemplateVersion version)
+    {
+        if (!VariablesSchema.TryParse(version.VariablesSchemaJson, out IReadOnlyList<VariableDeclaration> declarations))
+        {
+            // The schema itself is unusable, which `variables-schema` already
+            // reports. Naming it twice would only crowd the report.
+            return;
+        }
+
+        var declared = new HashSet<string>(
+            declarations.Select(declaration => declaration.Name),
+            StringComparer.Ordinal);
+
+        foreach (var variable in template.SensitiveVariables.Where(name => !declared.Contains(name)))
+        {
+            checks.Add(Failed(
+                ValidationCheckNames.SensitiveVariables,
+                $"Sensitive variable '{variable}' is not declared by the variables schema, so it would never be masked.",
+                null));
+        }
+    }
+
+    /// <summary>
+    /// Sensitive variables read inside a placeholder that sits within a URL.
+    /// Walks placeholders and looks back a bounded distance for the scheme,
+    /// rather than asking one expression to span from the scheme to the name:
+    /// that shape backtracks quadratically on a field carrying many schemes and
+    /// no placeholder, which turns an authoring endpoint into a CPU sink.
+    /// </summary>
+    private static IEnumerable<string> SensitiveVariablesInUrlPosition(string text, HashSet<string> sensitive)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            yield break;
+        }
+
+        foreach (Match placeholder in Placeholder().Matches(text))
+        {
+            if (!SitsInUrlPosition(text, placeholder.Index))
+            {
+                continue;
+            }
+
+            foreach (Match identifier in Identifier().Matches(placeholder.Groups[1].Value))
+            {
+                if (sensitive.Contains(identifier.Value))
+                {
+                    yield return identifier.Value;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether the placeholder is preceded by a URL scheme with no delimiter in
+    /// between, which is what puts its value inside the address rather than
+    /// beside it.
+    /// </summary>
+    private static bool SitsInUrlPosition(string text, int placeholderStart)
+    {
+        var floor = Math.Max(0, placeholderStart - MaxUrlPrefixScan);
+        var start = placeholderStart;
+        while (start > floor && !IsUrlBoundary(text[start - 1]))
+        {
+            start--;
+        }
+
+        ReadOnlySpan<char> prefix = text.AsSpan(start, placeholderStart - start);
+        return prefix.Contains("http://", StringComparison.OrdinalIgnoreCase)
+            || prefix.Contains("https://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUrlBoundary(char character)
+        => char.IsWhiteSpace(character) || character is '<' or '>' or '"' or '\'';
 
     private static void AddChannelLimitChecks(List<ValidationCheck> checks, TemplateVersion version)
     {
@@ -581,9 +697,22 @@ public static partial class TemplateValidation
     // Three shapes, in the order an attacker reaches for them: the full
     // address, the host that only announces itself with www, and the bare host
     // followed by a path, which is what every link shortener produces.
+    //
+    // NonBacktracking is load-bearing, not a preference. The third alternative
+    // nests quantifiers, and a backtracking engine walks it quadratically over
+    // a long run of dotted labels with no trailing slash, which is text a
+    // caller can supply through a variable at render time.
     [GeneratedRegex(
         @"https?://\S|\bwww\.[a-z0-9-]+\.[a-z]{2,}|\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+/",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex LinkLike();
+
+    /// <summary>Placeholders and their inner expression; linear by construction.</summary>
+    [GeneratedRegex(@"\{\{([^{}]*)\}\}", RegexOptions.NonBacktracking, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex Placeholder();
+
+    /// <summary>Identifiers read inside one placeholder expression.</summary>
+    [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_]*", RegexOptions.NonBacktracking, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex Identifier();
 }

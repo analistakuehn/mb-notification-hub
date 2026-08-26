@@ -24,9 +24,32 @@ internal sealed record TemplateSourceAnalysis(
 /// </summary>
 internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options, ScribanParseCache parseCache)
 {
-    /// <summary>Globals every template can read without declaring them (engine builtins).</summary>
+    /// <summary>Replaces a caller-supplied value that surfaced in an engine message.</summary>
+    private const string RedactedValue = "***";
+
+    /// <summary>
+    /// Shortest value worth redacting from an engine message. One and two
+    /// character values are substrings of ordinary engine vocabulary, so
+    /// redacting them would destroy the message without protecting anything a
+    /// four digit code is the shortest secret this module actually carries.
+    /// </summary>
+    private const int MinRedactableLength = 3;
+
+    /// <summary>
+    /// Builtin surface the sandbox exposes, derived once from the engine
+    /// default and stripped of every member that turns data into code, loads an
+    /// external template, or allocates by width outside the output ceiling.
+    /// </summary>
+    private static readonly ScriptObject SandboxBuiltin = BuildSandboxBuiltin();
+
+    /// <summary>
+    /// Globals every template can read without declaring them. Derived from the
+    /// sandbox surface itself, so a member removed above stops being an
+    /// undeclared-variable exemption in the same edit, and an engine upgrade
+    /// that adds a builtin cannot drift from this list.
+    /// </summary>
     private static readonly string[] BuiltinGlobals =
-        ["array", "blank", "date", "empty", "html", "include", "math", "object", "regex", "string", "timespan"];
+        [.. SandboxBuiltin.GetMembers().Order(StringComparer.Ordinal)];
 
     internal TemplateSourceAnalysis Analyze(string source, string sourcePath)
     {
@@ -50,10 +73,13 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         return new TemplateSourceAnalysis(true, null, collector.UsedVariables());
     }
 
-    internal async Task<Result<string>> RenderAsync(
+    internal Task<Result<string>> RenderAsync(
         string source,
         JsonElement? variables,
         CancellationToken cancellationToken)
+        => Task.FromResult(Render(source, variables, cancellationToken));
+
+    private Result<string> Render(string source, JsonElement? variables, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(source);
 
@@ -71,73 +97,187 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
                 string.Join(" ", template.Messages.Select(message => message.ToString())));
         }
 
-        using var renderCancellation = new CancellationTokenSource();
-        var context = new TemplateContext
+        // One linked source carries both the caller's cancellation and the
+        // wall-clock deadline, and the engine observes it at its own
+        // checkpoints. The render therefore stops, rather than being abandoned
+        // to a pool thread that keeps burning CPU long after the caller already
+        // has its answer.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(options.Value.RenderTimeoutMilliseconds);
+
+        var output = new BoundedScriptOutput(options.Value.MaxOutputChars);
+        var context = new TemplateContext(SandboxBuiltin)
         {
             LoopLimit = options.Value.LoopLimit,
             RecursiveLimit = options.Value.RecursionLimit,
             StrictVariables = true,
             MemberFilter = static _ => false,
-            CancellationToken = renderCancellation.Token,
+            CancellationToken = deadline.Token,
+
+            // Deliberately one character above the sink's ceiling. The sink is
+            // what must stop an oversized render, because it fails; the engine's
+            // own limit truncates and appends an ellipsis, which would ship a
+            // silently corrupted message that still passes normalization,
+            // hashing and audit as if it were complete.
+            LimitToString = options.Value.MaxOutputChars + 1,
 
             // Aligned with the wall-clock deadline: a catastrophic regex stops
-            // burning the worker thread at the same moment the caller gives up.
+            // burning the thread at the same moment the caller gives up.
             RegexTimeOut = TimeSpan.FromMilliseconds(options.Value.RenderTimeoutMilliseconds),
         };
         context.PushGlobal(BuildGlobals(variables));
-        var output = new BoundedScriptOutput(options.Value.MaxOutputChars);
         context.PushOutput(output);
-
-        Task<string> renderTask = Task.Run(() => template.Render(context));
-        Task first = await Task.WhenAny(
-                renderTask,
-                Task.Delay(TimeSpan.FromMilliseconds(options.Value.RenderTimeoutMilliseconds), cancellationToken))
-            .ConfigureAwait(false);
-        if (first != renderTask)
-        {
-            // Deadline or caller cancellation: either way the in-flight render
-            // is discarded before anything propagates, so the engine is asked
-            // to stop and its eventual failure is never orphaned.
-            await DiscardInFlightRenderAsync(renderCancellation, renderTask).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            return Result.ValidationError<string>(TimeLimitMessage());
-        }
 
         try
         {
-            return Result.Success(await renderTask.ConfigureAwait(false));
+            return Result.Success(template.Render(context));
         }
-        catch (ScriptRuntimeException exception)
+        catch (OperationCanceledException)
         {
+            return Cancelled(cancellationToken);
+        }
+        // The engine wraps every exception it meets, including a system one. An
+        // allocation failure is not something the author wrote wrong, so it
+        // must not come back as a validation error: that would answer a memory
+        // event with a 400 and hide it from every operational signal.
+        catch (ScriptRuntimeException exception) when (exception.InnerException is not OutOfMemoryException)
+        {
+            // The ceiling is a definite cause and outranks the deadline, which
+            // an oversized render tends to cross on its way out anyway.
             if (output.LimitExceeded)
             {
                 return Result.ValidationError<string>(OutputLimitMessage());
             }
 
-            return Result.ValidationError<string>(exception.InnerException is RegexMatchTimeoutException
-                ? TimeLimitMessage()
-                : exception.Message);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return Result.ValidationError<string>(TimeLimitMessage());
+            // The engine reports cancellation as its own runtime error rather
+            // than propagating the token's exception, so the token state is what
+            // identifies the deadline, not the exception shape.
+            return deadline.IsCancellationRequested
+                ? Cancelled(cancellationToken)
+                : Result.ValidationError<string>(DescribeFailure(exception, variables));
         }
     }
 
     /// <summary>
-    /// Signals the engine to stop and attaches an observer to the in-flight
-    /// render task so its eventual exception never surfaces as unobserved.
+    /// Separates the two reasons a render stops early. The caller giving up is
+    /// its own control flow and propagates; the deadline is an expected outcome
+    /// of this module and stays on the <c>Result</c> axis.
     /// </summary>
-    private static async Task DiscardInFlightRenderAsync(
-        CancellationTokenSource renderCancellation,
-        Task<string> renderTask)
+    private Result<string> Cancelled(CancellationToken cancellationToken)
     {
-        await renderCancellation.CancelAsync().ConfigureAwait(false);
-        _ = renderTask.ContinueWith(
-            static task => _ = task.Exception,
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Result.ValidationError<string>(TimeLimitMessage());
+    }
+
+    /// <summary>
+    /// Builds the caller-facing failure text. Engine vocabulary (variable name,
+    /// type name, limit, position) is what an author needs to fix a template;
+    /// the values passed in are not, and at dispatch time they are the
+    /// recipient's own data.
+    /// </summary>
+    private string DescribeFailure(ScriptRuntimeException exception, JsonElement? variables)
+        => exception.InnerException is RegexMatchTimeoutException
+            ? TimeLimitMessage()
+            : RedactVariableValues(exception.Message, variables);
+
+    /// <summary>
+    /// Removes caller-supplied values from an engine message. Some engine
+    /// diagnostics interpolate the offending value itself (a non-numeric
+    /// argument is reported with its text), and that message travels to the
+    /// HTTP boundary as problem detail.
+    /// </summary>
+    private static string RedactVariableValues(string message, JsonElement? variables)
+    {
+        if (variables is not { ValueKind: JsonValueKind.Object } root)
+        {
+            return message;
+        }
+
+        var redacted = message;
+        foreach (var value in ScalarTexts(root))
+        {
+            if (value.Length >= MinRedactableLength && redacted.Contains(value, StringComparison.Ordinal))
+            {
+                redacted = redacted.Replace(value, RedactedValue, StringComparison.Ordinal);
+            }
+        }
+
+        return redacted;
+    }
+
+    /// <summary>Every scalar the payload carries, at any depth, as written.</summary>
+    private static IEnumerable<string> ScalarTexts(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (JsonProperty property in element.EnumerateObject())
+                {
+                    foreach (var text in ScalarTexts(property.Value))
+                    {
+                        yield return text;
+                    }
+                }
+
+                break;
+            case JsonValueKind.Array:
+                foreach (JsonElement item in element.EnumerateArray())
+                {
+                    foreach (var text in ScalarTexts(item))
+                    {
+                        yield return text;
+                    }
+                }
+
+                break;
+            case JsonValueKind.String:
+                if (element.GetString() is { Length: > 0 } value)
+                {
+                    yield return value;
+                }
+
+                break;
+            case JsonValueKind.Number:
+                yield return element.GetRawText();
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Derives the sandbox builtin surface from the engine default, then removes
+    /// what the module's static checks cannot see through. The deep clone keeps
+    /// the edit local to this sandbox instead of mutating the engine default.
+    /// </summary>
+    private static ScriptObject BuildSandboxBuiltin()
+    {
+        var builtin = (ScriptObject)new TemplateContext().BuiltinObject.Clone(deep: true);
+
+        // Data must never become code. Both members evaluate a string as a
+        // template or an expression at render time, so a published template can
+        // carry an effective body that no validation check ever saw.
+        RemoveMember(builtin, "object", "eval");
+        RemoveMember(builtin, "object", "eval_template");
+
+        // Width-based allocation escapes the output ceiling: the string is
+        // built in full before a single character reaches the bounded sink.
+        RemoveMember(builtin, "string", "pad_left");
+        RemoveMember(builtin, "string", "pad_right");
+
+        // No template loads another template inside this sandbox.
+        builtin.Remove("include");
+        builtin.Remove("include_join");
+
+        return builtin;
+    }
+
+    private static void RemoveMember(ScriptObject builtin, string group, string member)
+    {
+        if (builtin[group] is ScriptObject target)
+        {
+            target.Remove(member);
+        }
     }
 
     private string TimeLimitMessage()
