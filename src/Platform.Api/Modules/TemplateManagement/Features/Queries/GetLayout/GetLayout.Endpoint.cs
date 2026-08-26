@@ -16,10 +16,11 @@ internal static partial class GetLayout
 
     private static async Task<IResult> HandleHttpAsync(
         string key,
+        string? versionsCursor,
         Handler handler,
         CancellationToken cancellationToken)
     {
-        Result<Response> result = await handler.HandleAsync(key, cancellationToken);
+        Result<Response> result = await handler.HandleAsync(key, versionsCursor, cancellationToken);
         return result.IsSuccess ? Results.Ok(result.Value) : ApiResults.Problem(result);
     }
 }
