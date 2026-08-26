@@ -49,6 +49,9 @@ internal static class PublishedReadMemoizationScenario
 
     private const string Value = "published-read-value";
 
+    /// <summary>Passes the throughput arm takes, so the gate reads a median instead of one draw.</summary>
+    private const int ThroughputPasses = 3;
+
     private static readonly TimeSpan ObserverPeriod = TimeSpan.FromMilliseconds(20);
 
     internal static MemoizationOutcome Run(int workers, TimeSpan duration, Action<string> report)
@@ -68,9 +71,28 @@ internal static class PublishedReadMemoizationScenario
         // all of which would otherwise land whole on the first measured arm.
         Drive(cache, keys, workers, TimeSpan.FromSeconds(2), observe: false);
 
-        report($"Braço {ThroughputArm}: {workers} threads sobre {keySpace:N0} chaves, teto {cache.Ceiling:N0}.");
-        MemoizationArm throughput = Measure(ThroughputArm, cache, keys, workers, duration, observe: false);
-        Describe(throughput, report);
+        report($"Braço {ThroughputArm}: {workers} threads sobre {keySpace:N0} chaves, "
+            + $"teto {cache.Ceiling:N0}, {ThroughputPasses} passagens.");
+
+        // The median of the passes, never a single one. This arm measures wall
+        // clock on a host that lowers its own frequency under a sustained run,
+        // and a single pass made it reprove five runs out of eleven against an
+        // unchanged tree, with whichever arm ran first always the faster one. A
+        // check that reprove half the clean runs is a check somebody silences.
+        var passes = new List<MemoizationArm>();
+        for (var pass = 0; pass < ThroughputPasses; pass++)
+        {
+            MemoizationArm result = Measure(ThroughputArm, cache, keys, workers, duration, observe: false);
+            Describe(result, report);
+            passes.Add(result);
+        }
+
+        passes.Sort((left, right) => left.OperationsPerSecond.CompareTo(right.OperationsPerSecond));
+        MemoizationArm throughput = passes[passes.Count / 2];
+        report(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  mediana: {throughput.OperationsPerSecond:N0} op/s, "
+            + $"{throughput.ContentionsPerThousand:0.000} disputas de lock por mil."));
 
         report($"Braço {BoundArm}: mesma carga com observador do residente a cada {ObserverPeriod.TotalMilliseconds:N0} ms.");
         MemoizationArm bound = Measure(BoundArm, cache, keys, workers, duration, observe: true);
