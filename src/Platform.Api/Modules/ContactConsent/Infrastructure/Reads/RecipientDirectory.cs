@@ -59,21 +59,35 @@ internal sealed class RecipientDirectory(
                 (consent, point) => new { consent, point.Channel })
             .ToListAsync(cancellationToken);
 
+        // The pair is keyed on the canonical purpose, and the decision carries
+        // that key rather than the spelling of the record that won. Records
+        // written before the aggregate canonicalized resolve into the same
+        // lineage here, which is how the ledger repairs them: the table
+        // rejects UPDATE, and the raw declaration stays readable through the
+        // ledger read that exists to show what was declared.
         var consents = consentRecords
-            .GroupBy(record => (record.consent.Purpose, record.Channel))
-            .Select(group => group
-                .OrderByDescending(record => record.consent.RecordedAt)
-                .ThenByDescending(record => record.consent.Id)
-                .First())
-            .OrderBy(record => record.consent.Purpose, StringComparer.Ordinal)
-            .ThenBy(record => record.Channel, StringComparer.Ordinal)
-            .Select(record => new ConsentDecision(
-                record.consent.Purpose,
-                record.Channel,
-                record.consent.Granted,
-                record.consent.Source,
-                record.consent.TermsVersion,
-                record.consent.RecordedAt))
+            .GroupBy(record => (
+                Purpose: ConsentPurpose.Canonicalize(record.consent.Purpose),
+                record.Channel))
+            .Select(group => new
+            {
+                group.Key.Purpose,
+                group.Key.Channel,
+                Latest = group
+                    .OrderByDescending(record => record.consent.RecordedAt)
+                    .ThenByDescending(record => record.consent.Id)
+                    .First()
+                    .consent,
+            })
+            .OrderBy(entry => entry.Purpose, StringComparer.Ordinal)
+            .ThenBy(entry => entry.Channel, StringComparer.Ordinal)
+            .Select(entry => new ConsentDecision(
+                entry.Purpose,
+                entry.Channel,
+                entry.Latest.Granted,
+                entry.Latest.Source,
+                entry.Latest.TermsVersion,
+                entry.Latest.RecordedAt))
             .ToList();
 
         List<DeviceRegistration> devices = await db.DeviceTokens

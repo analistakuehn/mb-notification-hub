@@ -31,8 +31,13 @@ internal sealed class RecipientSnapshotCache(
     /// fail to deserialize or, worse, deserialize into a snapshot missing the
     /// member a caller now decides on. Moving the segment retires the whole
     /// generation at once, and the old keys expire on their own TTL.
+    ///
+    /// It moves for a change of meaning too, not only of shape. The v3
+    /// generation keys the consent state on the canonical purpose; a v2 entry
+    /// can hold two decisions for one purpose, one per spelling, and a caller
+    /// reading it would find a grant the recipient had already revoked.
     /// </summary>
-    private const string EntryVersion = "v2";
+    private const string EntryVersion = "v3";
 
     public async Task<CachedRecipientSnapshot?> FindAsync(
         string recipientId,

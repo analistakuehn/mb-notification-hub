@@ -28,7 +28,7 @@
 |---|---|
 | `src/Platform.Api/Modules/ContactConsent/Domain/` | profile, contact point, consent, device and suppression entities; channel, source and platform vocabularies; the per-channel accumulation rule; value normalization |
 | `src/Platform.Api/Modules/ContactConsent/Features/` | vertical slices for this context |
-| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, `ISuppressionLedger`, the degradation-aware read fallback, the snapshot records other modules consume (including the suppressions in force), the masked contact-point record, and the refusal vocabulary of the contact ingestion |
+| `src/Platform.Api/Modules/ContactConsent/Integration/V1/` | `IRecipientDirectory`, `ISuppressionLedger`, the degradation-aware read fallback, the canonical consent-purpose key, the snapshot records other modules consume (including the suppressions in force), the masked contact-point record, and the refusal vocabulary of the contact ingestion |
 | `src/Platform.Api/Modules/ContactConsent/Infrastructure/` | persistence (schema `contactconsent`), value protection, transactional writer, invalidation events, snapshot cache, invalidation consumer, bus ingestion topology and dead-letter writer, the suppression ledger, authorization, problems |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentModule.cs` | service registration and endpoint mapping for this context |
 | `src/Platform.Api/Modules/ContactConsent/ContactConsentWorkerRole.cs` | composition of the `contact-consent` worker role, discovered by the worker host |
@@ -145,6 +145,21 @@ appending a second entry to the hash-chained trail.
   identical state is an idempotent no-op answering the state in force; the
   first declaration of a pair always records, even a revocation. The ledger
   rejects UPDATE and DELETE by trigger.
+- **The purpose half of that pair is a canonical key**
+  (`Integration/V1/ConsentPurpose.cs`): trimmed and lowercased, because casing
+  and surrounding whitespace carry no meaning and two spellings of one purpose
+  would otherwise open two independent lineages, where a revocation revokes
+  nothing. The vocabulary itself stays open: a purpose is minted outside the
+  hub, so a closed list would turn every new one into a deploy and would
+  refuse an opt-out the declaring system is obliged to record. The aggregate
+  canonicalizes on write, every resolution keys on the canonical form (which
+  is what folds records written before that rule into a single lineage,
+  the only repair an append-only table admits), the response and the outgoing
+  announcement carry the key, and a consumer comparing its own purpose
+  against the snapshot canonicalizes it first. Two spellings inside one
+  request are the same pair declared twice and the validator refuses the
+  request whole. The ledger read of `IContactHistory` is the exception on
+  purpose: it answers what was declared, spelling included.
 - `POST .../devices` registers a token and creates the profile row on first
   contact; re-posting the same token refreshes `last_seen_at` and
   `app_version` without duplicating and without an invalidation event.

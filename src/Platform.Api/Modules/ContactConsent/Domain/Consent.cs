@@ -1,3 +1,5 @@
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
+
 namespace NotificationHub.Api.Modules.ContactConsent.Domain;
 
 /// <summary>Canonical origins of a consent record.</summary>
@@ -20,6 +22,12 @@ public static class ConsentSources
 /// has no mutators by construction and the table rejects UPDATE and DELETE:
 /// the current state of a (purpose, channel) pair is always the latest record,
 /// never an edited one.
+///
+/// The purpose is stored canonical (<see cref="ConsentPurpose"/>), because it
+/// is the key the pair is resolved under. A declaration that spells it
+/// otherwise lands on the same lineage as every other spelling of it, so a
+/// revocation revokes the grant it was meant to revoke instead of opening an
+/// independent one beside it.
 /// </summary>
 public sealed class Consent
 {
@@ -35,6 +43,7 @@ public sealed class Consent
 
     public Guid ContactPointId { get; private set; }
 
+    /// <summary>Canonical key of the purpose this entry declares a state for.</summary>
     public string Purpose { get; private set; }
 
     public bool Granted { get; private set; }
@@ -65,11 +74,19 @@ public sealed class Consent
             throw new ArgumentException($"Origem de consentimento desconhecida: '{source}'.", nameof(source));
         }
 
+        var canonicalPurpose = ConsentPurpose.Canonicalize(purpose);
+        if (canonicalPurpose.Length > ConsentPurpose.MaxLength)
+        {
+            throw new ArgumentException(
+                $"A finalidade de consentimento excede {ConsentPurpose.MaxLength} caracteres.",
+                nameof(purpose));
+        }
+
         return new Consent
         {
             Id = Guid.CreateVersion7(),
             ContactPointId = contactPointId,
-            Purpose = purpose,
+            Purpose = canonicalPurpose,
             Granted = granted,
             Source = source,
             ActorId = actorId,

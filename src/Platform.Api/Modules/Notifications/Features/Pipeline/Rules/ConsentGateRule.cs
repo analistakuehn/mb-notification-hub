@@ -10,6 +10,12 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Pipeline.Rules;
 /// evidence records that basis explicitly. With a purpose, only channels
 /// whose latest ledger decision grants it survive; no surviving channel
 /// rejects the notification with the canonical no-consent reason.
+///
+/// The class policy authors its purpose in another module, under its own
+/// validation and a wider cap, so the rule canonicalizes it before comparing
+/// it with the snapshot, which already carries the canonical key. The
+/// evidence records the key that was compared, not the spelling the policy
+/// happens to hold.
 /// </summary>
 internal sealed class ConsentGateRule : IPolicyRule<NotificationContext>
 {
@@ -23,7 +29,7 @@ internal sealed class ConsentGateRule : IPolicyRule<NotificationContext>
         ClassPolicyDefinition policy,
         CancellationToken cancellationToken)
     {
-        if (policy.ConsentPurpose is not { Length: > 0 } purpose)
+        if (policy.ConsentPurpose is not { Length: > 0 } declared)
         {
             return Task.FromResult<PolicyRuleResult>(new PolicyRuleResult.Allow
             {
@@ -31,6 +37,7 @@ internal sealed class ConsentGateRule : IPolicyRule<NotificationContext>
             });
         }
 
+        var purpose = ConsentPurpose.Canonicalize(declared);
         RecipientSnapshot recipient = context.Recipient
             ?? throw new InvalidOperationException("A regra de consentimento requer o destinatário resolvido.");
         var granted = new List<string>();

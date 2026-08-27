@@ -93,6 +93,84 @@ public sealed class DeclareConsentsEndpointTests(ContactConsentApiFixture fixtur
     }
 
     [RequiresDockerFact]
+    public async Task A_revocation_spelled_in_another_case_revokes_the_grant_it_names()
+    {
+        HttpClient writer = fixture.CreateClientWithRoles("contacts-writer", ContactConsentApi.ContactsWrite);
+        var recipientId = await SeedContactAsync(writer);
+
+        (await ContactConsentApi.PutConsentsAsync(writer, recipientId,
+            ContactConsentApi.ConsentEntry("marketing", "email", granted: true)))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        HttpResponseMessage revocation = await ContactConsentApi.PutConsentsAsync(writer, recipientId,
+            ContactConsentApi.ConsentEntry(" Marketing ", "email", granted: false));
+
+        revocation.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = JsonDocument.Parse(await revocation.Content.ReadAsStringAsync());
+        JsonElement consents = body.RootElement.GetProperty("consents");
+        consents.GetArrayLength().ShouldBe(1);
+        consents[0].GetProperty("purpose").GetString().ShouldBe("marketing");
+        consents[0].GetProperty("granted").GetBoolean().ShouldBeFalse();
+
+        (await LedgerAsync(recipientId)).Count.ShouldBe(2);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_grant_redeclared_in_another_case_is_the_same_state_and_records_nothing()
+    {
+        HttpClient writer = fixture.CreateClientWithRoles("contacts-writer", ContactConsentApi.ContactsWrite);
+        var recipientId = await SeedContactAsync(writer);
+
+        (await ContactConsentApi.PutConsentsAsync(writer, recipientId,
+            ContactConsentApi.ConsentEntry("marketing", "email", granted: true)))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        HttpResponseMessage replay = await ContactConsentApi.PutConsentsAsync(writer, recipientId,
+            ContactConsentApi.ConsentEntry("MARKETING", "email", granted: true));
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await LedgerAsync(recipientId)).Count.ShouldBe(1);
+
+        var outboxCount = await fixture.QueryPlatformDbAsync(db => db.OutboxMessages
+            .AsNoTracking()
+            .CountAsync(message => message.MessageKey == recipientId && message.EventType == "consent.changed"));
+        outboxCount.ShouldBe(1);
+    }
+
+    [RequiresDockerFact]
+    public async Task One_request_declaring_two_spellings_of_a_purpose_is_refused_whole()
+    {
+        HttpClient writer = fixture.CreateClientWithRoles("contacts-writer", ContactConsentApi.ContactsWrite);
+        var recipientId = await SeedContactAsync(writer);
+
+        HttpResponseMessage response = await ContactConsentApi.PutConsentsAsync(writer, recipientId,
+            ContactConsentApi.ConsentEntry("marketing", "email", granted: true),
+            ContactConsentApi.ConsentEntry("Marketing", "email", granted: false));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await LedgerAsync(recipientId)).ShouldBeEmpty();
+    }
+
+    [RequiresDockerFact]
+    public async Task The_announcement_carries_the_canonical_key_the_domains_correlate_on()
+    {
+        HttpClient writer = fixture.CreateClientWithRoles("contacts-writer", ContactConsentApi.ContactsWrite);
+        var recipientId = await SeedContactAsync(writer);
+
+        (await ContactConsentApi.PutConsentsAsync(writer, recipientId,
+            ContactConsentApi.ConsentEntry(" Marketing ", "email", granted: true)))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var payload = await fixture.QueryPlatformDbAsync(db => db.OutboxMessages
+            .AsNoTracking()
+            .Where(message => message.MessageKey == recipientId
+                && message.EventType == "araia.notification.consent_changed.v1")
+            .Select(message => message.PayloadJson)
+            .SingleAsync());
+
+        var announced = JsonDocument.Parse(payload);
+        announced.RootElement.GetProperty("data").GetProperty("purpose").GetString().ShouldBe("marketing");
+    }
+
+    [RequiresDockerFact]
     public async Task A_consent_for_a_channel_without_an_active_contact_point_is_rejected()
     {
         HttpClient writer = fixture.CreateClientWithRoles("contacts-writer", ContactConsentApi.ContactsWrite);

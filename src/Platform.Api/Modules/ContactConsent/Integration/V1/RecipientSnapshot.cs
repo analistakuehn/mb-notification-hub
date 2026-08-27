@@ -31,7 +31,11 @@ public sealed record RecipientSnapshot
     /// <summary>Active contact points only; removed values stay internal to the ledger.</summary>
     public required IReadOnlyList<ContactPointSnapshot> ContactPoints { get; init; }
 
-    /// <summary>The latest declared consent state per (purpose, channel).</summary>
+    /// <summary>
+    /// The latest declared consent state per (purpose, channel), keyed on the
+    /// canonical purpose. A consumer comparing its own purpose against these
+    /// canonicalizes it first, through <see cref="ConsentPurpose"/>.
+    /// </summary>
     public required IReadOnlyList<ConsentDecision> Consents { get; init; }
 
     /// <summary>Active device tokens, most recently seen first.</summary>
@@ -67,6 +71,10 @@ public sealed record ContactPointSnapshot(Guid ContactPointId, string Channel, b
 /// The consent state currently in force for one (purpose, channel) pair: the
 /// latest record of the append-only ledger, whichever contact value carried
 /// it. A revocation stays visible even after the contact value changed.
+///
+/// <see cref="Purpose"/> is the canonical key, never the spelling of the
+/// record that won: every spelling of one purpose resolves to a single
+/// decision here, so a revocation cannot leave a grant standing beside it.
 /// </summary>
 public sealed record ConsentDecision(
     string Purpose,

@@ -320,13 +320,22 @@ internal sealed class FallbackRequestHandler(
     /// <summary>
     /// Consent for one channel, read the same way the policy rule reads it: a
     /// class without a purpose operates on a contractual or legal basis and
-    /// consults nothing.
+    /// consults nothing, and a declared purpose is canonicalized before the
+    /// comparison, because the class policy authors it in another module while
+    /// the snapshot already carries the canonical key.
     /// </summary>
     private static bool HasConsentFor(RecipientSnapshot recipient, string? consentPurpose, string channel)
-        => consentPurpose is not { Length: > 0 } purpose
-            || recipient.Consents.Any(consent => consent.Granted
-                && string.Equals(consent.Purpose, purpose, StringComparison.Ordinal)
-                && string.Equals(consent.Channel, channel, StringComparison.Ordinal));
+    {
+        if (consentPurpose is not { Length: > 0 } declared)
+        {
+            return true;
+        }
+
+        var purpose = ConsentPurpose.Canonicalize(declared);
+        return recipient.Consents.Any(consent => consent.Granted
+            && string.Equals(consent.Purpose, purpose, StringComparison.Ordinal)
+            && string.Equals(consent.Channel, channel, StringComparison.Ordinal));
+    }
 
     /// <summary>
     /// Whether the hub stopped addressing every destination the recipient has
