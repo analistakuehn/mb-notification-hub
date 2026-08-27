@@ -74,6 +74,53 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
 - **Review condition**: an explicit ruling from Compliance that consent must
   be re-collected when the contact value changes reverses this computation.
 
+## The consent purpose is a canonical key over an open vocabulary
+
+- **Assumption accepted**: the purpose is trimmed and lowercased before it is
+  recorded, resolved, or compared, and the set of purposes stays open. A closed
+  vocabulary was rejected: a purpose is minted outside the hub (the
+  registration system declares it on `contacts.events.v1` and a class policy
+  names the one it rides on), so a fixed list would turn every new purpose into
+  a hub deploy and would refuse an opt-out the declaring system is obliged to
+  record. Refusing a legitimate revocation is worse than the ambiguity the list
+  would remove.
+- **Evidence**: `Integration/V1/ConsentPurpose.cs`, the aggregate
+  (`Domain/Consent.cs`), the two resolutions of the state in force
+  (`Features/Mutations/DeclareConsents/DeclareConsents.Handler.cs` and
+  `Infrastructure/Reads/RecipientDirectory.cs`), and the two comparison sites
+  that read the snapshot against a class policy
+  (`Modules/Notifications/Features/Pipeline/Rules/ConsentGateRule.cs` and
+  `Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs`). The
+  class policy authors `consentPurpose` in another module, under its own
+  validation and a wider cap, which is why the policy side canonicalizes at the
+  comparison instead of relying on the value it holds.
+- **Owner**: ContactConsent module maintainers with Compliance.
+- **Status**: accepted.
+- **Review condition**: a Compliance ruling that two spellings of one purpose
+  are two purposes, or a purpose vocabulary the hub starts minting itself,
+  reopens the choice between the canonical key and a closed list.
+
+## Records written before the key was canonical are repaired where they are read
+
+- **Assumption accepted**: rows already in the ledger keep the spelling they
+  were written with, and the resolution folds them into the canonical lineage
+  at read time. No `UPDATE` and no compensating append run against them.
+- **Evidence**: the table rejects `UPDATE` and `DELETE` by trigger
+  (`Infrastructure/Persistence/Migrations/20260823110257_CreateContactConsent.cs`),
+  so a rewrite is impossible by construction, and a compensating append would
+  fabricate a declaration nobody made and would need an arbitrary ruling on
+  which spelling wins. Reading on the canonical key produces the same state in
+  force with no write at all, and it keeps the raw declaration readable through
+  `IContactHistory.ReadConsentLedgerAsync`, which exists to show what was
+  declared. The snapshot cache moved to a new key generation (`recipient:v3:`)
+  in the same change, because a `v2` entry can hold one decision per spelling
+  and a caller reading it would find a grant the recipient had already revoked.
+- **Owner**: ContactConsent module maintainers with Compliance.
+- **Status**: accepted.
+- **Review condition**: a Compliance ruling that the ledger must hold a single
+  canonical spelling per record forces a decision on a migration path an
+  append-only table can accept, which this module does not have today.
+
 ## The published contract gained a degradation-aware read overload
 
 - **Assumption accepted**: `IRecipientDirectory` now carries a second

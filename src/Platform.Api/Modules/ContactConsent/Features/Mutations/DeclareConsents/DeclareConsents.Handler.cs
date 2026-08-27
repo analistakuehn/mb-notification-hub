@@ -7,6 +7,7 @@ using NotificationHub.Api.Modules.ContactConsent.Domain;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Events;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.ContactConsent.Features.Mutations;
@@ -21,6 +22,13 @@ internal static partial class DeclareConsents
     /// terms version and instant. Nothing is ever updated or deleted. The
     /// first declaration of a pair always records, even a revocation, so an
     /// imported opt-out leaves an explicit ledger baseline.
+    ///
+    /// The pair is keyed on the canonical purpose on both sides of the
+    /// comparison. Records written before the aggregate canonicalized are
+    /// folded into the same lineage by that key, which is the only repair the
+    /// ledger admits: the table rejects UPDATE, and rewriting a declaration
+    /// somebody actually made is not a repair anyway. So the resolution reads
+    /// every spelling and the write appends exactly one.
     ///
     /// Every record actually appended is announced twice in the transaction
     /// that appends it: once to the internal invalidation queue, so the hub's
@@ -72,7 +80,9 @@ internal static partial class DeclareConsents
                 .Where(consent => pointIds.Contains(consent.ContactPointId))
                 .ToListAsync(cancellationToken);
             Dictionary<(string Purpose, string Channel), Consent> inForce = ledger
-                .GroupBy(consent => (consent.Purpose, channelByPointId[consent.ContactPointId]))
+                .GroupBy(consent => (
+                    ConsentPurpose.Canonicalize(consent.Purpose),
+                    channelByPointId[consent.ContactPointId]))
                 .ToDictionary(
                     group => group.Key,
                     group => group
@@ -94,7 +104,8 @@ internal static partial class DeclareConsents
                     return Result.Success<Outcome>(new Outcome.NoContactPointForChannel(declaration.Channel));
                 }
 
-                if (inForce.TryGetValue((declaration.Purpose, declaration.Channel), out Consent? current)
+                var purpose = ConsentPurpose.Canonicalize(declaration.Purpose);
+                if (inForce.TryGetValue((purpose, declaration.Channel), out Consent? current)
                     && current.Granted == declaration.Granted)
                 {
                     continue;
@@ -110,14 +121,17 @@ internal static partial class DeclareConsents
                     now);
                 db.Consents.Add(consent);
                 recorded.Add(consent);
-                inForce[(declaration.Purpose, declaration.Channel)] = consent;
+                inForce[(purpose, declaration.Channel)] = consent;
                 messages.Add(ContactConsentEvents.Build(
                     ContactConsentEvents.ConsentChanged, recipientId, anchor.Id, now));
+
+                // The announcement carries the key the domains must correlate
+                // on, not the spelling the declaration happened to use.
                 messages.Add(ContactConsentEvents.BuildConsentChanged(new ConsentChangedFact
                 {
                     RecipientId = recipientId,
                     Channel = declaration.Channel,
-                    Purpose = declaration.Purpose,
+                    Purpose = consent.Purpose,
                     Granted = declaration.Granted,
                     Source = declaration.Source,
                     OccurredAt = now,

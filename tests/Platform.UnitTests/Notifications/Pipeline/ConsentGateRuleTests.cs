@@ -86,4 +86,53 @@ public sealed class ConsentGateRuleTests
 
         result.ShouldBeOfType<PolicyRuleResult.Reject>().Reason.ShouldBe("no-consent");
     }
+
+    [Theory]
+    [InlineData("Marketing")]
+    [InlineData("MARKETING")]
+    [InlineData(" marketing ")]
+    public async Task A_policy_purpose_spelled_otherwise_still_reads_the_stance_it_names(string declared)
+    {
+        // The class policy authors its purpose in another module, so the rule
+        // canonicalizes it before comparing it with the snapshot key.
+        NotificationContext context = PipelineTestData.Context(
+            remainingChannels: ["sms"],
+            recipient: PipelineTestData.Recipient(consents:
+                [Consent("marketing", "sms", granted: true)]));
+
+        PolicyRuleResult result = await new ConsentGateRule().EvaluateAsync(
+            context, PipelineTestData.Policy(consentPurpose: declared), CancellationToken.None);
+
+        result.ShouldBeOfType<PolicyRuleResult.Allow>();
+    }
+
+    [Fact]
+    public async Task A_revocation_denies_a_policy_that_names_the_purpose_in_another_case()
+    {
+        NotificationContext context = PipelineTestData.Context(
+            remainingChannels: ["sms"],
+            recipient: PipelineTestData.Recipient(consents:
+                [Consent("marketing", "sms", granted: false)]));
+
+        PolicyRuleResult result = await new ConsentGateRule().EvaluateAsync(
+            context, PipelineTestData.Policy(consentPurpose: "Marketing"), CancellationToken.None);
+
+        result.ShouldBeOfType<PolicyRuleResult.Reject>().Reason.ShouldBe("no-consent");
+    }
+
+    [Fact]
+    public async Task The_evidence_records_the_key_that_was_compared()
+    {
+        NotificationContext context = PipelineTestData.Context(
+            remainingChannels: ["sms"],
+            recipient: PipelineTestData.Recipient(consents:
+                [Consent("marketing", "sms", granted: true)]));
+
+        PolicyRuleResult result = await new ConsentGateRule().EvaluateAsync(
+            context, PipelineTestData.Policy(consentPurpose: " Marketing "), CancellationToken.None);
+
+        PolicyRuleResult.Allow allow = result.ShouldBeOfType<PolicyRuleResult.Allow>();
+        using var evidence = JsonDocument.Parse(allow.EvidenceJson);
+        evidence.RootElement.GetProperty("purpose").GetString().ShouldBe("marketing");
+    }
 }

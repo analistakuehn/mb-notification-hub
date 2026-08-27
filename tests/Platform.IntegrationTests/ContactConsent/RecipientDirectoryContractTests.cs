@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.IntegrationTests.TemplateManagement;
@@ -103,6 +104,49 @@ public sealed class RecipientDirectoryContractTests(ContactConsentApiFixture fix
     }
 
     [RequiresDockerFact]
+    public async Task A_record_written_before_the_key_was_canonical_resolves_into_one_decision()
+    {
+        // The ledger rejects UPDATE, so the rows a looser write path left
+        // behind are repaired where they are read, not where they are stored.
+        // This is that repair: one lineage per canonical purpose, whatever
+        // spelling each record carries.
+        HttpClient writer = fixture.CreateClientWithRoles("contacts-writer", ContactConsentApi.ContactsWrite);
+        var recipientId = ContactConsentApi.NewRecipientId();
+        (await ContactConsentApi.PutContactPointsAsync(writer, recipientId,
+            ContactConsentApi.ContactPointsBody(
+                [ContactConsentApi.ContactPoint("email", $"{recipientId}@example.com")])))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        Guid contactPointId = await fixture.QueryContactConsentDbAsync(db => db.ContactPoints
+            .AsNoTracking()
+            .Where(point => point.RecipientId == recipientId)
+            .Select(point => point.Id)
+            .SingleAsync());
+        await AppendLegacyGrantAsync(contactPointId, " Marketing ");
+
+        (await ContactConsentApi.PutConsentsAsync(writer, recipientId,
+            ContactConsentApi.ConsentEntry("marketing", "email", granted: false)))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        Result<RecipientSnapshot> result = await fixture.UsingScopeAsync(services => services
+            .GetRequiredService<IRecipientDirectory>()
+            .FindAsync(recipientId, CancellationToken.None));
+
+        result.IsSuccess.ShouldBeTrue();
+        ConsentDecision decision = result.Value!.Consents.ShouldHaveSingleItem();
+        decision.Purpose.ShouldBe("marketing");
+        decision.Granted.ShouldBeFalse();
+
+        // The record keeps the spelling it was written with: the resolution
+        // canonicalizes the key, it never rewrites the declaration.
+        List<string> stored = await fixture.QueryContactConsentDbAsync(db => db.Consents
+            .AsNoTracking()
+            .Where(consent => consent.ContactPointId == contactPointId)
+            .Select(consent => consent.Purpose)
+            .ToListAsync());
+        stored.ShouldBe([" Marketing ", "marketing"], ignoreOrder: true);
+    }
+
+    [RequiresDockerFact]
     public async Task The_reveal_read_returns_the_plaintext_of_an_active_point_only()
     {
         HttpClient writer = fixture.CreateClientWithRoles("contacts-writer", ContactConsentApi.ContactsWrite);
@@ -130,6 +174,24 @@ public sealed class RecipientDirectoryContractTests(ContactConsentApiFixture fix
             .RevealContactValueAsync(recipientId, contactPointId, CancellationToken.None));
         afterRemoval.IsFailure.ShouldBeTrue();
         afterRemoval.ErrorKind.ShouldBe(ResultErrorKind.NotFound);
+    }
+
+    /// <summary>
+    /// Appends a grant straight to the table, bypassing the aggregate, to
+    /// stand for a row the ledger already holds under a spelling no write path
+    /// produces any more.
+    /// </summary>
+    private Task<int> AppendLegacyGrantAsync(Guid contactPointId, string purpose)
+    {
+        Guid id = Guid.CreateVersion7();
+        DateTimeOffset recordedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        return fixture.QueryContactConsentDbAsync(db => db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO contactconsent.consent
+                (id, contact_point_id, purpose, granted, source, actor_id, terms_version, recorded_at)
+            VALUES
+                ({id}, {contactPointId}, {purpose}, true, 'importacao', 'legado', 'v1', {recordedAt})
+            """));
     }
 
     [RequiresDockerFact]

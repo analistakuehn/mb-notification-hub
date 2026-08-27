@@ -1,5 +1,6 @@
 using FluentValidation;
 using NotificationHub.Api.Modules.ContactConsent.Domain;
+using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 
 namespace NotificationHub.Api.Modules.ContactConsent.Features.Mutations;
 
@@ -23,7 +24,7 @@ internal static partial class DeclareConsents
             {
                 consent.RuleFor(declaration => declaration.Purpose)
                     .NotEmpty()
-                    .MaximumLength(100);
+                    .MaximumLength(ConsentPurpose.MaxLength);
                 consent.RuleFor(declaration => declaration.Channel)
                     .Must(ContactChannels.IsCanonical)
                     .WithMessage($"Channel must be one of: {string.Join(", ", ContactChannels.CanonicalValues)}.");
@@ -51,7 +52,12 @@ internal static partial class DeclareConsents
                     continue;
                 }
 
-                if (!seen.Add((consent.Purpose, consent.Channel)))
+                // The pair is compared on the canonical purpose, which is the
+                // key the ledger resolves under: two spellings of one purpose
+                // in one request are the same pair declared twice, and letting
+                // them through would append two records that contradict each
+                // other inside a single transaction.
+                if (!seen.Add((ConsentPurpose.Canonicalize(consent.Purpose), consent.Channel)))
                 {
                     return false;
                 }
