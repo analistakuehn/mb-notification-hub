@@ -92,8 +92,8 @@ tenha uma resposta em um lugar só.
 
 | Estado | Quantidade | Significado |
 |---|---:|---|
-| `RESOLVIDO` | 19 | corrigido no código e verificado por suíte |
-| `PENDENTE` | 30 | não tratado, e o achado segue válido como escrito |
+| `RESOLVIDO` | 20 | corrigido no código e verificado por suíte |
+| `PENDENTE` | 29 | não tratado, e o achado segue válido como escrito |
 | `PARCIAL` | 2 | parte corrigida, com o risco residual nomeado na ficha |
 | `ADIADO` | 1 | decisão deliberada de não corrigir, com a razão registrada |
 | `OBSOLETO` | 1 | a premissa caiu; **não** aplique a recomendação como escrita |
@@ -123,6 +123,7 @@ tenha uma resposta em um lugar só.
 | `TST-002` | Test | `ScribanSandboxTests` cobre a família de fuga que faltava |
 | `SEC-001` | Security | regra estrutural única em `SensitiveValueMask`, lida pelos dois mascaradores; alcança qualquer profundidade e array |
 | `SEC-004` | Security | regra única em `LinkDomainPolicy`: o check de publicação extrai host em vez de casar link literal, e o render confere todo valor string em qualquer profundidade |
+| `SEC-005` | Security | o texto do layout fixado passou a responder ao allowlist e ao banimento de link em SMS de autenticação, e os tetos de canal passaram a somar wrapper mais corpo |
 
 ### Parciais, adiado e obsoleto
 
@@ -141,15 +142,14 @@ ponto de vigilância sobre callback no token em `STK-004`.
 | Lente | Pendentes | Ids |
 |---|---:|---|
 | Architecture | 8 | `ARC-001` a `ARC-008` |
-| Security | 7 | `SEC-005` a `SEC-007`, `SEC-011` a `SEC-014` |
+| Security | 6 | `SEC-006`, `SEC-007`, `SEC-011` a `SEC-014` |
 | Software Engineering | 7 | `ENG-001` a `ENG-007` |
 | Test | 7 | `TST-004` a `TST-010` |
 | .NET Quality | 1 | `STK-005` |
 
-Os maiores são os `HIGH` de conteúdo ainda intocados:
-`SEC-005` (catálogo de layout sem checks de link), `SEC-006` (status de layout
-nunca consultado no render), `SEC-007` (`purpose` não canonizado) e `ENG-002`
-(limite de canal medido sobre a fonte).
+Os maiores são os `HIGH` de conteúdo ainda intocados: `SEC-006` (status de
+layout nunca consultado no render), `SEC-007` (`purpose` não canonizado) e
+`ENG-002` (limite de canal medido sobre a fonte).
 
 ### Uma advertência de navegação
 
@@ -157,7 +157,8 @@ Os campos `linha` de cada ficha apontam para a revisão `cc754e5`. Os arquivos
 tocados pela remediação (`ScribanTemplateEngine.cs`, `TemplateValidation.cs`,
 `GetTemplate.Handler.cs`, `GetLayout.Handler.cs`, mais os `Response` e `Endpoint`
 das duas consultas de detalhe, `PublishedReadCache.cs`, `PublishedCatalog.cs`,
-`VariablesPayloadValidation.cs`, `RenderTemplateVersion.Handler.cs` e
+`VariablesPayloadValidation.cs`, `RenderTemplateVersion.Handler.cs`,
+`LayoutValidation.cs`, `LayoutReference.cs` e
 `PublishedTemplateRenderer.cs`) mudaram de tamanho, então
 nesses casos o número da linha é histórico e não serve para navegar no código
 atual. O trecho de evidência citado continua sendo o localizador confiável.
