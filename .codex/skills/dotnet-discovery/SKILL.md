@@ -61,4 +61,4 @@ inference; durable unknowns follow the framework unknown-information policy.
    evidence retention, or output paths violate policy.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.codex/araia/shared/refusal-log-protocol.md`.

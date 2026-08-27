@@ -21,7 +21,7 @@ evidence. An empty or mutable scope is `F-ARTIFACT`.
 ## Six-Lens Contract
 
 Read `references/review-lenses.md`, which specializes
-`~/.araia/framework/shared/source-review-lenses.md` for .NET. Dispatch exactly
+`./.codex/araia/shared/source-review-lenses.md` for .NET. Dispatch exactly
 one fresh, read-only context for each of `dotnet-architect`, `dotnet-engineer`,
 and `dotnet-specialist` in parallel. Give all three the same immutable evidence
 envelope. Every reviewer must evaluate all six lenses; primary emphases
@@ -80,4 +80,4 @@ evidence gaps inline; never convert an opinion into a finding.
    policy.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.codex/araia/shared/refusal-log-protocol.md`.

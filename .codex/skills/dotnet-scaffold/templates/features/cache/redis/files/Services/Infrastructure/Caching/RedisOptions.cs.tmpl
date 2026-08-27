@@ -1,0 +1,13 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Caching;
+
+public sealed class RedisOptions
+{
+    public const string SectionName = "Modules:{{ModuleName}}:Cache:Redis";
+
+    [Required]
+    public required string ConnectionString { get; init; }
+
+    public string InstanceName { get; init; } = string.Empty;
+}

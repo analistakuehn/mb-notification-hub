@@ -1,0 +1,16 @@
+namespace {{NamespacePrefix}}.Services.Infrastructure.Messaging.Kafka;
+
+public static class KafkaSetup
+{
+    public static IServiceCollection AddKafka(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<KafkaOptions>()
+            .Bind(configuration.GetSection(KafkaOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        return services;
+    }
+}

@@ -20,8 +20,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Resolved by the model (which expands ~), never read by this script.
-const LINTER = '~/.araia/framework/scripts/lint-agent-tiers.py';
-const TAXONOMY = '~/.araia/framework/CLAUDE.md';
+const LINTER = './.claude/araia/scripts/lint-agent-tiers.py';
+const TAXONOMY = './.claude/araia/CLAUDE.md';
 
 const DEBOUNCE_MS = 20_000; // skip re-nudging the same file within this window
 const PRUNE_MS = 3_600_000; // drop debounce entries older than 1h

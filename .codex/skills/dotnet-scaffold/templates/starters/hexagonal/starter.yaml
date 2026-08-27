@@ -1,0 +1,47 @@
+id: hexagonal
+canonical-architecture: hexagonal
+aliases: [hexagonal-architecture, ports-and-adapters]
+template-set: common
+title: Hexagonal Architecture with bounded-context modules
+host-name: Platform.Adapters.Inbound.Api
+host-path: src/Platform.Adapters.Inbound.Api
+infrastructure-name: Platform.Adapters.Outbound.Infrastructure
+infrastructure-path: src/Platform.Adapters.Outbound.Infrastructure
+features-root: src/Platform.Core.Application/Modules
+slice-shape: ports-and-adapters-with-vertical-slices
+
+projects:
+  - { name: Platform.Core.Domain, path: src/Platform.Core.Domain, sdk: Microsoft.NET.Sdk, role: domain, namespace-suffix: Core.Domain }
+  - { name: Platform.Core.Application, path: src/Platform.Core.Application, sdk: Microsoft.NET.Sdk, role: application, namespace-suffix: Core.Application, references: Platform.Core.Domain, packages: "FluentValidation|Microsoft.Extensions.Configuration.Abstractions|Microsoft.Extensions.DependencyInjection.Abstractions|Microsoft.Extensions.Logging.Abstractions" }
+  - { name: Platform.Adapters.Outbound.Infrastructure, path: src/Platform.Adapters.Outbound.Infrastructure, sdk: Microsoft.NET.Sdk, role: infrastructure, namespace-suffix: Adapters.Outbound.Infrastructure, references: Platform.Core.Application, packages: "Microsoft.Extensions.Configuration|Microsoft.Extensions.Configuration.EnvironmentVariables|Microsoft.Extensions.Configuration.Json|Microsoft.Extensions.DependencyInjection.Abstractions|Microsoft.Extensions.Hosting.Abstractions|Microsoft.Extensions.Logging.Abstractions|Microsoft.Extensions.Options|Microsoft.Extensions.Options.ConfigurationExtensions|Microsoft.Extensions.Options.DataAnnotations" }
+  - { name: Platform.Adapters.Inbound.Api, path: src/Platform.Adapters.Inbound.Api, sdk: Microsoft.NET.Sdk.Web, role: host, namespace-suffix: Adapters.Inbound.Api, references: "Platform.Core.Application|Platform.Adapters.Outbound.Infrastructure", packages: "FluentValidation|FluentValidation.DependencyInjectionExtensions|Microsoft.Extensions.Http.Resilience" }
+  - { name: Platform.ArchTests, path: tests/Platform.ArchTests, sdk: Microsoft.NET.Sdk, role: arch-tests, namespace-suffix: ArchTests, references: Platform.Adapters.Inbound.Api }
+  - { name: Platform.SecurityArchTests, path: tests/Platform.SecurityArchTests, sdk: Microsoft.NET.Sdk, role: security-arch-tests, namespace-suffix: SecurityArchTests, references: Platform.Adapters.Inbound.Api }
+  - { name: Platform.UnitTests, path: tests/Platform.UnitTests, sdk: Microsoft.NET.Sdk, role: unit-tests, namespace-suffix: UnitTests, references: Platform.Adapters.Inbound.Api }
+  - { name: Platform.IntegrationTests, path: tests/Platform.IntegrationTests, sdk: Microsoft.NET.Sdk, role: integration-tests, namespace-suffix: IntegrationTests, references: Platform.Adapters.Inbound.Api }
+  - { name: Platform.PerformanceTests, path: tests/Platform.PerformanceTests, sdk: Microsoft.NET.Sdk, role: performance-benchmarks, namespace-suffix: PerformanceTests, references: Platform.Adapters.Inbound.Api }
+
+surfaces:
+  composition: { project: Platform.Core.Application, path: "src/Platform.Core.Application/Composition" }
+  endpoint-composition: { project: Platform.Adapters.Inbound.Api, path: "src/Platform.Adapters.Inbound.Api/Composition" }
+  host-infrastructure: { project: Platform.Adapters.Inbound.Api, path: "src/Platform.Adapters.Inbound.Api/Infrastructure" }
+  shared-kernel: { project: Platform.Core.Domain, path: "src/Platform.Core.Domain/SharedKernel", namespace: "SharedKernel" }
+  module-context: { project: Platform.Core.Application, path: "src/Platform.Core.Application/Modules/{{ModuleName}}" }
+  domain: { project: Platform.Core.Domain, path: "src/Platform.Core.Domain/Modules/{{ModuleName}}" }
+  features: { project: Platform.Core.Application, path: "src/Platform.Core.Application/Modules/{{ModuleName}}/Features" }
+  integration: { project: Platform.Core.Application, path: "src/Platform.Core.Application/Modules/{{ModuleName}}/Integration/V1" }
+  ports: { project: Platform.Core.Application, path: "src/Platform.Core.Application/Modules/{{ModuleName}}/Ports" }
+  module-infrastructure: { project: Platform.Adapters.Outbound.Infrastructure, path: "src/Platform.Adapters.Outbound.Infrastructure/Modules/{{ModuleName}}" }
+
+registrations:
+  application: { project: Platform.Core.Application, path: "src/Platform.Core.Application/Modules/{{ModuleName}}/{{ModuleName}}Module.cs", type: "{{ModuleName}}Module" }
+  infrastructure: { project: Platform.Adapters.Outbound.Infrastructure, path: "src/Platform.Adapters.Outbound.Infrastructure/Modules/{{ModuleName}}/{{ModuleName}}OutboundAdapterModule.cs", type: "{{ModuleName}}OutboundAdapterModule" }
+  endpoints: { project: Platform.Adapters.Inbound.Api, path: "src/Platform.Adapters.Inbound.Api/Modules/{{ModuleName}}/{{ModuleName}}InboundAdapterModule.cs", type: "{{ModuleName}}InboundAdapterModule" }
+
+dependency-rules:
+  - { id: core-domain-must-stay-technology-free, scope: "Core.Domain", forbid-packages: "Microsoft.AspNetCore|Microsoft.EntityFrameworkCore|MongoDB.Driver|RabbitMQ.Client|Confluent.Kafka|StackExchange.Redis" }
+  - { id: core-domain-must-not-depend-on-application-or-adapters, scope: "Core.Domain", forbid: "Core.Application|Adapters" }
+  - { id: core-application-must-stay-adapter-free, scope: "Core.Application", forbid: "Adapters" }
+  - { id: core-application-must-stay-transport-and-provider-free, scope: "Core.Application", forbid-packages: "Microsoft.AspNetCore|Microsoft.EntityFrameworkCore|MongoDB.Driver|RabbitMQ.Client|Confluent.Kafka|StackExchange.Redis" }
+  - { id: outbound-adapters-must-not-depend-on-inbound-adapters, scope: "Adapters.Outbound", forbid: "Adapters.Inbound" }
+  - { id: shared-kernel-must-stay-technology-free, scope: "SharedKernel", forbid-packages: "Microsoft.AspNetCore|Microsoft.EntityFrameworkCore|MongoDB.Driver|RabbitMQ.Client|Confluent.Kafka|StackExchange.Redis" }

@@ -1,0 +1,31 @@
+using MongoDB.Driver;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+internal sealed partial class IndexRegistrationHostedService(
+    IServiceProvider services,
+    ILogger<IndexRegistrationHostedService> logger) : IHostedService
+{
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        using var scope = services.CreateScope();
+        var registrations = scope.ServiceProvider
+            .GetServices<IMongoIndexRegistration>()
+            .ToList();
+
+        if (registrations.Count == 0)
+        {
+            return;
+        }
+
+        var database = scope.ServiceProvider.GetRequiredService<IMongoDatabase>();
+
+        foreach (var registration in registrations)
+        {
+            EnsuringIndexes(registration.GetType().Name);
+            await registration.EnsureIndexesAsync(database, cancellationToken);
+        }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}

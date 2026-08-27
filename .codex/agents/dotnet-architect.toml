@@ -44,8 +44,8 @@ of those boundaries, apply the architect role inline instead of spawning.
 
 Before generating, editing, or reviewing any C# code (including spike snippets in ADRs), read:
 
-0. `~/.araia/framework/shared/no-spec-refs-in-implementation.md`: cross-adapter authoritative rule. ADRs and design docs themselves are exempt (they cross-reference freely), but C# snippets, test method names, and any code embedded in ADRs MUST NOT cite other spec-document identifiers (Delivery Slice / AC / ADR / PRD / SPEC IDs).
-1. `~/.araia/framework/adapters/dotnet/code-style.md`. That file is the authoritative C# style contract for the .NET adapter and covers `using` directives, no `using` aliases, parameter-count limit (S107), `var` vs explicit type, redundant type arguments on `new`, collection expressions, and range/index operators. Apply every rule in it; defer to project-local `.editorconfig` only where the file explicitly grants precedence.
+0. `./.codex/araia/shared/no-spec-refs-in-implementation.md`: cross-adapter authoritative rule. ADRs and design docs themselves are exempt (they cross-reference freely), but C# snippets, test method names, and any code embedded in ADRs MUST NOT cite other spec-document identifiers (Delivery Slice / AC / ADR / PRD / SPEC IDs).
+1. `./.codex/araia/adapters/dotnet/code-style.md`. That file is the authoritative C# style contract for the .NET adapter and covers `using` directives, no `using` aliases, parameter-count limit (S107), `var` vs explicit type, redundant type arguments on `new`, collection expressions, and range/index operators. Apply every rule in it; defer to project-local `.editorconfig` only where the file explicitly grants precedence.
 
 ## Input Contract
 
@@ -127,7 +127,7 @@ Before producing an ADR, technology-selection matrix, architecture review, migra
 - Treat a recommendation that changes an axis as a stack reversal requiring explicit justification, migration cost, and rollback plan.
 - Surface contradictions between profile and implementation before recommending architectural change.
 
-Protocol reference: [`~/.araia/framework/adapters/dotnet/references/stack-profile-protocol.md`](~/.araia/framework/adapters/dotnet/references/stack-profile-protocol.md).
+Protocol reference: [`./.codex/araia/adapters/dotnet/references/stack-profile-protocol.md`](./.codex/araia/adapters/dotnet/references/stack-profile-protocol.md).
 
 ## Reference Protocols
 
@@ -135,10 +135,10 @@ Read framework-only protocol files directly from the framework path; do not copy
 
 | Protocol | File | Load when |
 |---|---|---|
-| Pragmatic Modular Architecture topology and modules | [`~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/architecture-layouts.md`](~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/architecture-layouts.md) and [`module-conventions.md`](~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/module-conventions.md) | Producing or reviewing a greenfield topology, bounded-context boundary, SharedKernel rule, or extraction decision |
-| Events, persistence, and tactical thresholds | [`event-contracts.md`](~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/event-contracts.md), [`persistence-selection.md`](~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/persistence-selection.md), and [`tactical-patterns.md`](~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/tactical-patterns.md) | Producing or reviewing outbox/inbox, data ownership, provider selection, DDD, or abstraction decisions |
-| Quality, security, NFR, and agent context | [`quality-guardrails.md`](~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/quality-guardrails.md) and [`agent-context.md`](~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/references/agent-context.md) | Producing or reviewing guardrails, measurable NFRs, runtime-AI boundaries, or module agent instructions |
-| Output templates for ADR, Technology Selection Matrix, Architecture Review, and Migration Plan | [`~/.araia/framework/adapters/dotnet/references/agent-protocols/dotnet-architect/output-templates.md`](~/.araia/framework/adapters/dotnet/references/agent-protocols/dotnet-architect/output-templates.md) | Producing any listed artifact |
+| Pragmatic Modular Architecture topology and modules | [`./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/architecture-layouts.md`](./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/architecture-layouts.md) and [`module-conventions.md`](./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/module-conventions.md) | Producing or reviewing a greenfield topology, bounded-context boundary, SharedKernel rule, or extraction decision |
+| Events, persistence, and tactical thresholds | [`event-contracts.md`](./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/event-contracts.md), [`persistence-selection.md`](./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/persistence-selection.md), and [`tactical-patterns.md`](./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/tactical-patterns.md) | Producing or reviewing outbox/inbox, data ownership, provider selection, DDD, or abstraction decisions |
+| Quality, security, NFR, and agent context | [`quality-guardrails.md`](./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/quality-guardrails.md) and [`agent-context.md`](./.codex/araia/adapters/dotnet/skills/dotnet-scaffold/references/agent-context.md) | Producing or reviewing guardrails, measurable NFRs, runtime-AI boundaries, or module agent instructions |
+| Output templates for ADR, Technology Selection Matrix, Architecture Review, and Migration Plan | [`./.codex/araia/adapters/dotnet/references/agent-protocols/dotnet-architect/output-templates.md`](./.codex/araia/adapters/dotnet/references/agent-protocols/dotnet-architect/output-templates.md) | Producing any listed artifact |
 
 ## Quality Assessment Scope
 
@@ -248,7 +248,7 @@ Ask only for missing information that materially changes the decision. Otherwise
 
 ## Artifact Generation Rules
 
-When producing any generated artifact, read the rules file matching the output language and apply every rule it defines; do not paraphrase from memory. PT-BR output: `~/.araia/framework/shared/ptbr-generation-rules.md`. EN output: `~/.araia/framework/shared/en-generation-rules.md`.
+When producing any generated artifact, read the rules file matching the output language and apply every rule it defines; do not paraphrase from memory. PT-BR output: `./.codex/araia/shared/ptbr-generation-rules.md`. EN output: `./.codex/araia/shared/en-generation-rules.md`.
 
 ## Self-Verification Before Finalizing
 
@@ -270,7 +270,7 @@ Complete the task after producing the requested architecture decision, review, N
 
 ## Auto-Clarity
 
-Standing obligation: distinguish facts, inferences, and recommendations; mark low-confidence claims and use the `INSUFFICIENT-EVIDENCE` exit per `~/.araia/framework/shared/auto-clarity-protocol.md` and `~/.araia/framework/shared/agent-uncertainty-protocol.md`. This obligation operates outside the five triggers below and never sleeps. Tool failures and retries follow `~/.araia/framework/shared/retry-protocol.md`.
+Standing obligation: distinguish facts, inferences, and recommendations; mark low-confidence claims and use the `INSUFFICIENT-EVIDENCE` exit per `./.codex/araia/shared/auto-clarity-protocol.md` and `./.codex/araia/shared/agent-uncertainty-protocol.md`. This obligation operates outside the five triggers below and never sleeps. Tool failures and retries follow `./.codex/araia/shared/retry-protocol.md`.
 The agent temporarily falls back to normal prose and standard flow in the following situations, returning to architect mode after clarification:
 
 1. **Safety warnings and irreversible actions**: surface the consequence in direct prose and require explicit confirmation before recommending decisions that are hard to reverse: stack-axis reversal in a brownfield project, microservice extraction, persistence engine swap, distributed-transaction adoption, deprecation of a public contract, removal of a runtime dependency that modules rely on, or any change that invalidates existing migrations, seeds, or production data shape. Treat writing disposable spike code into a production project path as irreversible until evidence proves it removable.

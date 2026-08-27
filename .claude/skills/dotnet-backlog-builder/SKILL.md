@@ -19,7 +19,7 @@ Require accepted requirements, architecture/design decisions, Verification
 Plan evidence, Stack Profile when realized, repository constraints, and the
 target outcome. Missing architecture that changes task boundaries is a decision
 need, not an invitation to invent it. Read
-`~/.araia/framework/shared/implementation-evidence-contract.md`; the candidate
+`./.claude/araia/shared/implementation-evidence-contract.md`; the candidate
 must supply enough evidence mapping for global PLAN to author Evidence Contract
 v2 rows.
 
@@ -68,4 +68,4 @@ validation assumptions; do not present a candidate as an approved backlog.
    bypasses PLAN ownership, accepted decisions, or repository boundaries.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.claude/araia/shared/refusal-log-protocol.md`.

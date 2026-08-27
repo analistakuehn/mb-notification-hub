@@ -1,0 +1,57 @@
+id: minimal-api
+axis: transport
+description: |
+  Adds Minimal API as a transport surface. Provides ValidationFilter<T> and
+  RequestLoggingFilter as composable IEndpointFilter implementations, plus
+  EndpointFilterExtensions for ergonomic per-endpoint wiring. Registers OpenAPI
+  via Microsoft.AspNetCore.OpenApi.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: Asp.Versioning.Http, version: "10.0.0" }
+  - { name: Microsoft.AspNetCore.OpenApi, version: "10.0.10" }
+  - { name: Microsoft.OpenApi, version: "2.11.0" }
+
+project-references:
+  axis-owner:
+    - Asp.Versioning.Http
+    - Microsoft.AspNetCore.OpenApi
+
+files:
+  - src: files/Services/Infrastructure/EndpointFilters/ValidationFilter.cs.tmpl
+    dest: {{HostInfrastructureRoot}}/EndpointFilters/ValidationFilter.cs
+  - src: files/Services/Infrastructure/EndpointFilters/RequestLoggingFilter.cs.tmpl
+    dest: {{HostInfrastructureRoot}}/EndpointFilters/RequestLoggingFilter.cs
+  - src: files/Services/Infrastructure/EndpointFilters/RequestLoggingFilter.Logger.cs.tmpl
+    dest: {{HostInfrastructureRoot}}/EndpointFilters/RequestLoggingFilter.Logger.cs
+  - src: files/Services/Infrastructure/EndpointFilters/EndpointFilterExtensions.cs.tmpl
+    dest: {{HostInfrastructureRoot}}/EndpointFilters/EndpointFilterExtensions.cs
+
+patches:
+  - file: {{HostProgramFile}}
+    marker: usings-transports
+    snippet-file: patches/program-usings.snippet
+  - file: {{HostProgramFile}}
+    marker: di-transports
+    snippet-file: patches/program-di.snippet
+  - file: {{HostProgramFile}}
+    marker: pipeline-transports
+    snippet-file: patches/program-pipeline.snippet
+
+readme-section: |
+  ### Minimal API transport
+
+  - Endpoint filters live under `{{HostInfrastructureRoot}}/EndpointFilters/`.
+  - Wire validation and logging onto an endpoint with the extension methods:
+
+    ```csharp
+    app.MapPost("/customers", RegisterCustomerEndpoint.HandleAsync)
+       .WithValidation<RegisterCustomer.Command>()
+       .WithRequestLogging()
+       .RequireAuthorization("Customers.Register")
+       .RequireRateLimiting("customers-write");
+    ```
+
+  - OpenAPI is exposed at `/openapi/v1.json` via `Microsoft.AspNetCore.OpenApi`.

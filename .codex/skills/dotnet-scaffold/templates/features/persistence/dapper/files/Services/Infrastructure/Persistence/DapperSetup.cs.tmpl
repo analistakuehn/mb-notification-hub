@@ -1,0 +1,18 @@
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+public static class DapperSetup
+{
+    public static IServiceCollection AddDapper(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<DapperOptions>()
+            .Bind(configuration.GetSection(DapperOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddSingleton<IDbConnectionFactory, PostgresConnectionFactory>();
+
+        return services;
+    }
+}

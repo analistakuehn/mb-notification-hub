@@ -1,0 +1,34 @@
+using Microsoft.Extensions.Caching.Hybrid;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Caching;
+
+public sealed class HybridCacheConfig
+{
+    public const string SectionName = "Modules:{{ModuleName}}:Cache:Hybrid";
+
+    public int DefaultEntryExpirationSeconds { get; init; } = 300;
+
+    public int DefaultLocalCacheExpirationSeconds { get; init; } = 60;
+}
+
+public static class HybridCacheSetup
+{
+    public static IServiceCollection AddHybridCacheLayer(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var config = configuration.GetSection(HybridCacheConfig.SectionName).Get<HybridCacheConfig>()
+            ?? new HybridCacheConfig();
+
+        services.AddHybridCache(options =>
+        {
+            options.DefaultEntryOptions = new HybridCacheEntryOptions
+            {
+                Expiration = TimeSpan.FromSeconds(config.DefaultEntryExpirationSeconds),
+                LocalCacheExpiration = TimeSpan.FromSeconds(config.DefaultLocalCacheExpirationSeconds),
+            };
+        });
+
+        return services;
+    }
+}

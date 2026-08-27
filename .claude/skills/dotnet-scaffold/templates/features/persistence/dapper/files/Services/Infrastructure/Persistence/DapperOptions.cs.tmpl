@@ -1,0 +1,13 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+public sealed class DapperOptions
+{
+    public const string SectionName = "Modules:{{ModuleName}}:Persistence:Dapper";
+
+    [Required]
+    public required string ConnectionString { get; init; }
+
+    public int CommandTimeoutSeconds { get; init; } = 30;
+}

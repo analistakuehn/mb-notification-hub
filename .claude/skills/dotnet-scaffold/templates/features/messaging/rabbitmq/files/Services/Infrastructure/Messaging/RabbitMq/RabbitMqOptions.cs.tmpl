@@ -1,0 +1,25 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Messaging.RabbitMq;
+
+public sealed class RabbitMqOptions
+{
+    public const string SectionName = "Modules:{{ModuleName}}:Messaging:RabbitMq";
+
+    [Required]
+    public required string Host { get; init; }
+
+    public int Port { get; init; } = 5672;
+
+    public string VirtualHost { get; init; } = "/";
+
+    [Required]
+    public required string Username { get; init; }
+
+    [Required]
+    public required string Password { get; init; }
+
+    public bool PublisherConfirms { get; init; } = true;
+
+    public ushort PrefetchCount { get; init; } = 32;
+}

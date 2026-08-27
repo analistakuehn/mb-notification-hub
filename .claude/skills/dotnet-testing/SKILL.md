@@ -72,4 +72,4 @@ contract uncertainty inline; never claim coverage or GREEN without evidence.
    dialect, or exceeds the allowed write set.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.claude/araia/shared/refusal-log-protocol.md`.

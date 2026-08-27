@@ -20,19 +20,19 @@ strategy, and approval policy. A missing or contradictory scope is
 
 The parent can pass `--implementation-strategy <adaptive\|strict-tdd>`,
 `--approval-policy <auto-recommended|manual>`, and `--candidate-only`. Load
-`~/.araia/framework/shared/implementation-evidence-contract.md` and
-`~/.araia/framework/shared/implementation-strategy-selection.md`. For
+`./.codex/araia/shared/implementation-evidence-contract.md` and
+`./.codex/araia/shared/implementation-strategy-selection.md`. For
 `--candidate-only`, also load
-`~/.araia/framework/shared/implementation-candidate-mode.md`,
-`~/.araia/framework/shared/implementation-approval-policy.md`, and
-`~/.araia/framework/shared/progress-tracking.md`. The parent
+`./.codex/araia/shared/implementation-candidate-mode.md`,
+`./.codex/araia/shared/implementation-approval-policy.md`, and
+`./.codex/araia/shared/progress-tracking.md`. The parent
 owns strategy and approval selection; a missing Evidence Contract is
 `F-ARTIFACT`.
 
 ## Adaptive Task Loop
 
 For `adaptive`, the framework default, reuse the transition flow documented at
-`~/.araia/framework/adapters/dotnet/skills/dotnet-implementation/flows/adaptive-task-loop.md`: preserve the
+`./.codex/araia/adapters/dotnet/skills/dotnet-implementation/flows/adaptive-task-loop.md`: preserve the
 builder context through implementation, run `L1-fast` and required `L2-task`
 sensors, apply `shared/test-tautology-rules.md` to every oracle the attempt
 introduces, emit compact attempt deltas, and stop after two consecutive attempts
@@ -44,14 +44,14 @@ the parent.
 
 ## Procedure
 
-1. Read `~/.araia/framework/adapters/dotnet/code-style.md`,
-   `~/.araia/framework/shared/no-spec-refs-in-implementation.md`, the Stack
+1. Read `./.codex/araia/adapters/dotnet/code-style.md`,
+   `./.codex/araia/shared/no-spec-refs-in-implementation.md`, the Stack
    Profile, ADRs governing changed paths, and a representative in-project slice.
 2. Dispatch `dotnet-engineer` with the implementer addendum and complete bounded
    write set. Keep implementation ownership with `dotnet-engineer`; no inline
    implementation or transfer to another persona.
 3. Resolve conditional capability needs before writes. Load
-   `~/.araia/framework/adapters/dotnet/references/specialties/data.md` plus
+   `./.codex/araia/adapters/dotnet/references/specialties/data.md` plus
    `postgresql.md` or `mongo.md` for evidenced persistence/cache bindings;
    load `kafka.md`, `rabbitmq.md`, or `graphql.md` for their evidenced
    integrations. Use `dotnet-testing` for general test mechanics,
@@ -103,4 +103,4 @@ uncertainty, and unverified implementation claims inline.
    violate accepted project policy.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.codex/araia/shared/refusal-log-protocol.md`.

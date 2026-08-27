@@ -25,7 +25,7 @@ topology's own declared dependency rules.
 classification, and architecture fit, including which entry the project adopts.
 The deterministic generator owns template rendering, overlay composition,
 project topology, Stack Profile construction, and verification. Pipeline mode
-obeys `~/.araia/framework/shared/foundation-slice-contract.md`.
+obeys `./.claude/araia/shared/foundation-slice-contract.md`.
 
 ## Input Contract
 
@@ -162,9 +162,9 @@ option, and destructive effect on existing files before running the script,
 never after.
 
 Maintain the Standing Honesty Obligation from
-`~/.araia/framework/shared/auto-clarity-protocol.md`, the uncertainty rules from
-`~/.araia/framework/shared/agent-uncertainty-protocol.md`, and the retry rules
-from `~/.araia/framework/shared/retry-protocol.md`. Append every trigger-driven
+`./.claude/araia/shared/auto-clarity-protocol.md`, the uncertainty rules from
+`./.claude/araia/shared/agent-uncertainty-protocol.md`, and the retry rules
+from `./.claude/araia/shared/retry-protocol.md`. Append every trigger-driven
 block, question, pause, or abort to `.araia/refusal-log.jsonl`, including the
 user's resolution when available.
 
@@ -214,7 +214,7 @@ blocked operation as a completed dry run.
    evidence to the architect before generation.
 4. Resolve `GENERATOR` as `scripts/scaffold.py` inside the active skill. If only
    the framework install is available, use
-   `~/.araia/framework/adapters/dotnet/skills/dotnet-scaffold/scripts/scaffold.py`.
+   `./.claude/araia/adapters/dotnet/skills/dotnet-scaffold/scripts/scaffold.py`.
    Try `python3` only when `python` is unavailable; otherwise return `F-TOOL`.
 5. Invoke the generator with every resolved argument plus `--dry-run`. It loads
    and validates the starter catalog internally. Parse its one-line JSON and do

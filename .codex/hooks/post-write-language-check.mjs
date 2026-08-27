@@ -23,16 +23,23 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 // Referenced by the model (which resolves ~) in deterministic guidance only.
-const RULES_DIR = '~/.araia/framework/shared';
+const RULES_DIR = './.codex/araia/shared';
 const EN_RULES = `${RULES_DIR}/en-generation-rules.md`;
 const PTBR_RULES = `${RULES_DIR}/ptbr-generation-rules.md`;
 const LANG_DETECT = `${RULES_DIR}/language-detection.md`;
 
 // Real path to the deterministic checker, resolved for spawn (not for the model).
-const CHECKER = join(homedir(), '.araia', 'framework', 'scripts', 'check-writing-rules.py');
+// An installed bundle commits the checker next to this hook, so a clone that
+// never installed the framework still runs it. The home copy stays the
+// fallback for a hook invoked from the framework itself.
+const VENDORED_CHECKER = fileURLToPath(new URL('../araia/scripts/check-writing-rules.py', import.meta.url));
+const CHECKER = existsSync(VENDORED_CHECKER)
+  ? VENDORED_CHECKER
+  : join(homedir(), '.araia', 'framework', 'scripts', 'check-writing-rules.py');
 
 const DEBOUNCE_MS = 20_000; // skip re-scanning the same file within this window
 const PRUNE_MS = 3_600_000; // drop debounce entries older than 1h
@@ -209,7 +216,7 @@ function findingsReport(file, kind, findings, autofixed) {
     `diacritics; no literal em/en dash). Findings:\n` +
     shown.join('\n') + extra +
     `\nAfter fixing, the same scan must pass: ` +
-    `\`python ~/.araia/framework/scripts/check-writing-rules.py --mode ${kind === 'source' ? 'source' : 'markdown'} --strict ${file}\`.`;
+    `\`python ./.codex/araia/scripts/check-writing-rules.py --mode ${kind === 'source' ? 'source' : 'markdown'} --strict ${file}\`.`;
 }
 
 // Harness payload normalization (Claude Code + Codex + Kimi Code) ------------

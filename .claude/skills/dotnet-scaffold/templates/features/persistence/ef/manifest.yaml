@@ -1,0 +1,71 @@
+id: ef
+axis: persistence
+description: |
+  Adds EF Core with Npgsql inside one bounded context. Ships a
+  {{ModuleName}}DbContext, a design-time factory for migrations, module-scoped
+  options, and explicit registration. It never creates a universal AppDbContext.
+  Swap to Microsoft.Data.SqlClient or another provider by editing the
+  DbContextOptionsBuilder configuration in EfSetup and bumping CPM accordingly.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: Microsoft.EntityFrameworkCore, version: "10.0.10" }
+  - { name: Microsoft.EntityFrameworkCore.Design, version: "10.0.10" }
+  - { name: Microsoft.EntityFrameworkCore.Relational, version: "10.0.10" }
+  - { name: Npgsql.EntityFrameworkCore.PostgreSQL, version: "10.0.3" }
+  - { name: System.Security.Cryptography.Xml, version: "10.0.10" }
+
+project-references:
+  axis-owner:
+    - Microsoft.EntityFrameworkCore
+    - Microsoft.EntityFrameworkCore.Design
+    - Microsoft.EntityFrameworkCore.Relational
+    - Npgsql.EntityFrameworkCore.PostgreSQL
+
+files:
+  - src: files/Services/Infrastructure/Persistence/AppDbContext.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/{{ModuleName}}DbContext.cs
+  - src: files/Services/Infrastructure/Persistence/AppDbContextFactory.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/{{ModuleName}}DbContextFactory.cs
+  - src: files/Services/Infrastructure/Persistence/EfOptions.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/EfOptions.cs
+  - src: files/Services/Infrastructure/Persistence/EfSetup.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/EfSetup.cs
+
+patches:
+  - file: {{ModuleRegistrationFile}}
+    marker: usings-persistence
+    snippet-file: patches/program-usings.snippet
+  - file: {{ModuleRegistrationFile}}
+    marker: di-persistence
+    snippet-file: patches/program-di.snippet
+
+appsettings-additions:
+  Modules:
+    {{ModuleName}}:
+      Persistence:
+        Ef:
+          ConnectionString: "Host=localhost;Port=5432;Database={{NamespacePrefix}}_{{ModuleName}};Username=postgres"
+
+readme-section: |
+  ### EF Core persistence
+
+  Configure `Modules:{{ModuleName}}:Persistence:Ef:ConnectionString` with user
+  secrets or the production secret provider. The committed loopback value has
+  no password. The default scaffold targets Npgsql; swap to SQL Server by replacing
+  `UseNpgsql` with `UseSqlServer` in `EfSetup.ConfigureDbContextOptions` and
+  updating `Directory.Packages.props`.
+
+  ### Migrations
+
+  ```bash
+  dotnet ef migrations add Initial --context {{ModuleName}}DbContext --project {{ModuleInfrastructureProjectPath}} --startup-project {{HostProjectPath}}
+  dotnet ef database update --context {{ModuleName}}DbContext --project {{ModuleInfrastructureProjectPath}} --startup-project {{HostProjectPath}}
+  ```
+
+  Handlers may use `{{ModuleName}}DbContext` directly for simple aggregate-scoped
+  work. Introduce a concrete repository only when it hides real query or
+  persistence complexity. Read paths use `AsNoTracking` plus DTO projection;
+  mutable aggregate roots use optimistic concurrency.

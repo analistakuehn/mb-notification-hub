@@ -1,0 +1,52 @@
+id: hybrid-cache
+axis: cache
+description: |
+  Adds Microsoft.Extensions.Caching.Hybrid (HybridCache). When the redis
+  feature is also selected, HybridCache uses Redis as its L2 distributed
+  backing automatically (via IDistributedCache); otherwise it operates
+  memory-only.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: Microsoft.Extensions.Caching.Hybrid, version: "10.8.0" }
+
+project-references:
+  axis-owner:
+    - Microsoft.Extensions.Caching.Hybrid
+
+files:
+  - src: files/Services/Infrastructure/Caching/HybridCacheSetup.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Caching/HybridCacheSetup.cs
+
+patches:
+  - file: {{ModuleRegistrationFile}}
+    marker: usings-cache
+    snippet-file: patches/program-usings.snippet
+  - file: {{ModuleRegistrationFile}}
+    marker: di-cache
+    snippet-file: patches/program-di.snippet
+
+appsettings-additions:
+  Modules:
+    {{ModuleName}}:
+      Cache:
+        Hybrid:
+          DefaultEntryExpirationSeconds: 300
+          DefaultLocalCacheExpirationSeconds: 60
+
+readme-section: |
+  ### Hybrid cache
+
+  Slice repositories inject `HybridCache` and call `GetOrCreateAsync` for
+  read-through caching. When the `redis` feature is also selected, the L2
+  store is Redis and `IDistributedCache` is wired automatically; otherwise
+  HybridCache operates memory-only.
+
+  ```csharp
+  var customer = await hybridCache.GetOrCreateAsync(
+      $"customer:{id}",
+      async ct => await repository.GetAsync(id, ct),
+      cancellationToken: ct);
+  ```

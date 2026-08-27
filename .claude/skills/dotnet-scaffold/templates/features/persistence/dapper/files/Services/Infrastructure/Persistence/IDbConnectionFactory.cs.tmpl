@@ -1,0 +1,12 @@
+using System.Data.Common;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+/// <summary>
+/// Opens a fresh ADO.NET connection per call. Slice repositories own the
+/// lifetime of the returned connection and dispose it after use.
+/// </summary>
+public interface IDbConnectionFactory
+{
+    Task<DbConnection> OpenAsync(CancellationToken cancellationToken);
+}

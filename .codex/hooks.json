@@ -6,14 +6,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:/Users/vanderlei.kuehn/.araia/framework/hooks/post-write-language-check.mjs\" --araia-hook-sha=ab548192e62e",
-            "commandWindows": "node \"C:/Users/vanderlei.kuehn/.araia/framework/hooks/post-write-language-check.mjs\" --araia-hook-sha=ab548192e62e",
+            "command": "node -e \"const{execFileSync,spawnSync}=require('node:child_process');let r=process.cwd();try{r=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()||r}catch{}const p=require('node:path').join(r,'.codex/hooks/post-write-language-check.mjs');const s=spawnSync(process.execPath,[p,'--araia-hook-sha=5d711c7b7344'],{stdio:'inherit'});process.exit(s.status??0)\"",
+            "commandWindows": "node -e \"const{execFileSync,spawnSync}=require('node:child_process');let r=process.cwd();try{r=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()||r}catch{}const p=require('node:path').join(r,'.codex/hooks/post-write-language-check.mjs');const s=spawnSync(process.execPath,[p,'--araia-hook-sha=5d711c7b7344'],{stdio:'inherit'});process.exit(s.status??0)\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "node \"C:/Users/vanderlei.kuehn/.araia/framework/hooks/post-write-tier-check.mjs\" --araia-hook-sha=4b1bdecd2b69",
-            "commandWindows": "node \"C:/Users/vanderlei.kuehn/.araia/framework/hooks/post-write-tier-check.mjs\" --araia-hook-sha=4b1bdecd2b69",
+            "command": "node -e \"const{execFileSync,spawnSync}=require('node:child_process');let r=process.cwd();try{r=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()||r}catch{}const p=require('node:path').join(r,'.codex/hooks/post-write-tier-check.mjs');const s=spawnSync(process.execPath,[p,'--araia-hook-sha=388e6bc620a7'],{stdio:'inherit'});process.exit(s.status??0)\"",
+            "commandWindows": "node -e \"const{execFileSync,spawnSync}=require('node:child_process');let r=process.cwd();try{r=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()||r}catch{}const p=require('node:path').join(r,'.codex/hooks/post-write-tier-check.mjs');const s=spawnSync(process.execPath,[p,'--araia-hook-sha=388e6bc620a7'],{stdio:'inherit'});process.exit(s.status??0)\"",
             "timeout": 30
           }
         ]
@@ -25,8 +25,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:/Users/vanderlei.kuehn/.araia/framework/hooks/pre-bash-git-hygiene-check.mjs\" --araia-hook-sha=47b11b3d9177",
-            "commandWindows": "node \"C:/Users/vanderlei.kuehn/.araia/framework/hooks/pre-bash-git-hygiene-check.mjs\" --araia-hook-sha=47b11b3d9177",
+            "command": "node -e \"const{execFileSync,spawnSync}=require('node:child_process');let r=process.cwd();try{r=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()||r}catch{}const p=require('node:path').join(r,'.codex/hooks/pre-bash-git-hygiene-check.mjs');const s=spawnSync(process.execPath,[p,'--araia-hook-sha=47b11b3d9177'],{stdio:'inherit'});process.exit(s.status??0)\"",
+            "commandWindows": "node -e \"const{execFileSync,spawnSync}=require('node:child_process');let r=process.cwd();try{r=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()||r}catch{}const p=require('node:path').join(r,'.codex/hooks/pre-bash-git-hygiene-check.mjs');const s=spawnSync(process.execPath,[p,'--araia-hook-sha=47b11b3d9177'],{stdio:'inherit'});process.exit(s.status??0)\"",
             "timeout": 30
           }
         ]

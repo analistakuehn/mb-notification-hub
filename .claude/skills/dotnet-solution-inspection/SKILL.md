@@ -24,7 +24,7 @@ brownfield analysis.
    packages, project references, source roots, tests, transports, persistence,
    messaging, caching, authentication, telemetry, and CI/build commands.
 2. Read
-   `~/.araia/framework/adapters/dotnet/references/stack-profile-protocol.md`
+   `./.claude/araia/adapters/dotnet/references/stack-profile-protocol.md`
    and `references/stack-profile-detection.md`. Do not infer a library from a
    keyword when package or source evidence is absent.
 3. Use `dotnet-architect` for backend structure and `dotnet-engineer` for
@@ -51,7 +51,7 @@ file unchanged. Do not call a stage facade from this capability.
 
 Standing obligation: surface low-confidence claims, evidence gaps, and
 contract uncertainty inline; durable reports follow
-`~/.araia/framework/shared/unknown-information-policy.md`.
+`./.claude/araia/shared/unknown-information-policy.md`.
 
 1. **Safety warnings and irreversible actions**: confirm before overwriting a
    Stack Profile/report or running a command that can restore, build, or expose
@@ -70,4 +70,4 @@ contract uncertainty inline; durable reports follow
    policy.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.claude/araia/shared/refusal-log-protocol.md`.

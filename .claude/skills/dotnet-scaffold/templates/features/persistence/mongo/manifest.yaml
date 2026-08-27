@@ -1,0 +1,66 @@
+id: mongo
+axis: persistence
+description: |
+  Adds MongoDB.Driver as a persistence option. Registers IMongoClient
+  (singleton) and IMongoDatabase (scoped) bound to MongoOptions. Slices
+  implement IMongoIndexRegistration to ensure their indexes at startup
+  through IndexRegistrationHostedService.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: MongoDB.Driver, version: "3.10.0" }
+
+project-references:
+  axis-owner:
+    - MongoDB.Driver
+
+files:
+  - src: files/Services/Infrastructure/Persistence/MongoOptions.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/MongoOptions.cs
+  - src: files/Services/Infrastructure/Persistence/MongoSetup.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/MongoSetup.cs
+  - src: files/Services/Infrastructure/Persistence/IMongoIndexRegistration.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/IMongoIndexRegistration.cs
+  - src: files/Services/Infrastructure/Persistence/IndexRegistrationHostedService.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/IndexRegistrationHostedService.cs
+  - src: files/Services/Infrastructure/Persistence/IndexRegistrationHostedService.Logger.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/IndexRegistrationHostedService.Logger.cs
+
+patches:
+  - file: {{ModuleRegistrationFile}}
+    marker: usings-persistence
+    snippet-file: patches/program-usings.snippet
+  - file: {{ModuleRegistrationFile}}
+    marker: di-persistence
+    snippet-file: patches/program-di.snippet
+
+appsettings-additions:
+  Modules:
+    {{ModuleName}}:
+      Persistence:
+        Mongo:
+          ConnectionString: "mongodb://localhost:27017"
+          DatabaseName: "{{NamespacePrefix}}_{{ModuleName}}"
+
+readme-section: |
+  ### MongoDB persistence
+
+  Configure under `Modules:{{ModuleName}}:Persistence:Mongo`. Keep credentials
+  in user secrets or the production secret provider, never in committed settings.
+
+  ```json
+  "Mongo": { "ConnectionString": "mongodb://localhost:27017", "DatabaseName": "your-database" }
+  ```
+
+  Slice repositories inject `IMongoDatabase`. To ensure indexes at startup,
+  implement `IMongoIndexRegistration` and register the implementation in your
+  module:
+
+  ```csharp
+  services.AddSingleton<IMongoIndexRegistration, CustomerIndexRegistration>();
+  ```
+
+  The `IndexRegistrationHostedService` runs every registered implementation
+  once on startup.

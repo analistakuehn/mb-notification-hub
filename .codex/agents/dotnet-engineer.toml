@@ -43,8 +43,8 @@ runtime-specialist authority. Escalate backend boundary decisions to
 
 Before editing C# or project files, read:
 
-1. `~/.araia/framework/shared/no-spec-refs-in-implementation.md`;
-2. `~/.araia/framework/adapters/dotnet/code-style.md`;
+1. `./.codex/araia/shared/no-spec-refs-in-implementation.md`;
+2. `./.codex/araia/adapters/dotnet/code-style.md`;
 3. `.araia/stack-profile.yaml` when present; and
 4. one representative in-repository implementation in the same feature family.
 

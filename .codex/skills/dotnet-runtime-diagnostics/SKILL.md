@@ -64,4 +64,4 @@ contract uncertainty inline; an unsupported diagnosis stays inconclusive.
    security, privacy, operational, or project policy.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.codex/araia/shared/refusal-log-protocol.md`.

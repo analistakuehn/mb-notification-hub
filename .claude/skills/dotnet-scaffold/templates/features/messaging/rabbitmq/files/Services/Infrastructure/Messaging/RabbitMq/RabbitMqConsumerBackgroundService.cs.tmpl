@@ -1,0 +1,69 @@
+using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Messaging.RabbitMq;
+
+/// <summary>
+/// Base class for slice consumers. Subclasses declare their queue name and
+/// optional exchange/routing topology in <see cref="ConfigureTopologyAsync"/>;
+/// <see cref="HandleAsync"/> processes each message body. Acknowledgement is
+/// automatic on success and rejected (without requeue) on exception.
+/// </summary>
+public abstract partial class RabbitMqConsumerBackgroundService(
+    IConnection connection,
+    ILogger logger) : BackgroundService
+{
+    protected abstract string QueueName { get; }
+
+    protected virtual ushort PrefetchCount => 32;
+
+    /// <summary>
+    /// Override to declare exchanges, queues, and bindings. Default implementation
+    /// declares the queue durable, non-exclusive, non-auto-delete.
+    /// </summary>
+    protected virtual async Task ConfigureTopologyAsync(IChannel channel, CancellationToken cancellationToken)
+    {
+        await channel.QueueDeclareAsync(
+            queue: QueueName,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null,
+            cancellationToken: cancellationToken);
+    }
+
+    protected abstract Task HandleAsync(ReadOnlyMemory<byte> body, CancellationToken cancellationToken);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
+
+        await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: PrefetchCount, global: false, stoppingToken);
+        await ConfigureTopologyAsync(channel, stoppingToken);
+
+        var consumer = new AsyncEventingBasicConsumer(channel);
+        consumer.ReceivedAsync += async (_, ea) =>
+        {
+            try
+            {
+                await HandleAsync(ea.Body, stoppingToken);
+                await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                MessageHandlingFailed(QueueName, ex);
+                await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false, stoppingToken);
+            }
+        };
+
+        ConsumerStarted(QueueName);
+
+        await channel.BasicConsumeAsync(
+            queue: QueueName,
+            autoAck: false,
+            consumer: consumer,
+            cancellationToken: stoppingToken);
+
+        await Task.Delay(Timeout.Infinite, stoppingToken);
+    }
+}

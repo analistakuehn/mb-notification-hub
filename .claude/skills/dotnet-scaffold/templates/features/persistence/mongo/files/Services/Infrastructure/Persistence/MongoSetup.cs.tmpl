@@ -1,0 +1,31 @@
+using Microsoft.Extensions.Options;
+using MongoDB.Driver;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+public static class MongoSetup
+{
+    public static IServiceCollection AddMongo(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<MongoOptions>()
+            .Bind(configuration.GetSection(MongoOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddSingleton<IMongoClient>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<MongoOptions>>().Value;
+            return new MongoClient(options.ConnectionString);
+        });
+
+        services.AddScoped(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<MongoOptions>>().Value;
+            return sp.GetRequiredService<IMongoClient>().GetDatabase(options.DatabaseName);
+        });
+
+        services.AddHostedService<IndexRegistrationHostedService>();
+
+        return services;
+    }
+}

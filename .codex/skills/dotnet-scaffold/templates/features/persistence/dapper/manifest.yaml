@@ -1,0 +1,62 @@
+id: dapper
+axis: persistence
+description: |
+  Adds Dapper with Npgsql as the default provider. Slice queries are stored as
+  embedded *.sql resources under Features/{SliceFamily}/.../Queries/ and loaded
+  through SqlResourceLoader. Swap providers by editing IDbConnectionFactory.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: Dapper, version: "2.1.35" }
+  - { name: Npgsql, version: "10.0.3" }
+
+project-references:
+  axis-owner:
+    - Dapper
+    - Npgsql
+
+files:
+  - src: files/Services/Infrastructure/Persistence/DapperOptions.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/DapperOptions.cs
+  - src: files/Services/Infrastructure/Persistence/IDbConnectionFactory.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/IDbConnectionFactory.cs
+  - src: files/Services/Infrastructure/Persistence/PostgresConnectionFactory.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/PostgresConnectionFactory.cs
+  - src: files/Services/Infrastructure/Persistence/DapperSetup.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/DapperSetup.cs
+  - src: files/Services/Infrastructure/Persistence/SqlResourceLoader.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Persistence/SqlResourceLoader.cs
+
+patches:
+  - file: {{ModuleRegistrationFile}}
+    marker: usings-persistence
+    snippet-file: patches/program-usings.snippet
+  - file: {{ModuleRegistrationFile}}
+    marker: di-persistence
+    snippet-file: patches/program-di.snippet
+
+appsettings-additions:
+  Modules:
+    {{ModuleName}}:
+      Persistence:
+        Dapper:
+          ConnectionString: "Host=localhost;Port=5432;Database={{NamespacePrefix}}_{{ModuleName}};Username=postgres"
+
+readme-section: |
+  ### Dapper persistence
+
+  Configure `Modules:{{ModuleName}}:Persistence:Dapper:ConnectionString` through
+  user secrets or the production secret provider. The committed loopback value
+  contains no password. The default provider is Npgsql.
+
+  Slice repositories inject `IDbConnectionFactory` and load embedded SQL
+  through `SqlResourceLoader`. The API project embeds SQL owned by this module's
+  feature slices automatically:
+
+  ```csharp
+  using var connection = await _connectionFactory.OpenAsync(ct);
+  var sql = SqlResourceLoader.Load("Features.Customers.Repositories.Queries.GetCustomerById.sql");
+  var customer = await connection.QuerySingleOrDefaultAsync<Customer>(sql, new { id });
+  ```

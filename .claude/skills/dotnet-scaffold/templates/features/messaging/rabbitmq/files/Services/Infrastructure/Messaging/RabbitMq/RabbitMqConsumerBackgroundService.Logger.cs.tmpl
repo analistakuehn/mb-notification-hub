@@ -1,0 +1,10 @@
+namespace {{NamespacePrefix}}.Services.Infrastructure.Messaging.RabbitMq;
+
+public abstract partial class RabbitMqConsumerBackgroundService
+{
+    [LoggerMessage(EventId = 3000, Level = LogLevel.Information, Message = "RabbitMQ consumer started for queue {QueueName}")]
+    protected partial void ConsumerStarted(string queueName);
+
+    [LoggerMessage(EventId = 3001, Level = LogLevel.Error, Message = "RabbitMQ message handling failed on queue {QueueName}")]
+    protected partial void MessageHandlingFailed(string queueName, Exception exception);
+}

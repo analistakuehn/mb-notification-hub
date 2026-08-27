@@ -65,4 +65,4 @@ recommendations; never manufacture NFRs or architecture evidence.
    leave the design blocked until the owning authority resolves it.
 
 When a trigger blocks or asks, record it in `.araia/refusal-log.jsonl` per
-`~/.araia/framework/shared/refusal-log-protocol.md`.
+`./.codex/araia/shared/refusal-log-protocol.md`.

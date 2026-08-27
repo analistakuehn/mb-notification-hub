@@ -1,0 +1,15 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+public sealed class EfOptions
+{
+    public const string SectionName = "Modules:{{ModuleName}}:Persistence:Ef";
+
+    [Required]
+    public required string ConnectionString { get; init; }
+
+    public bool EnableSensitiveDataLogging { get; init; }
+
+    public bool EnableDetailedErrors { get; init; }
+}

@@ -1,0 +1,76 @@
+id: rabbitmq
+axis: messaging
+description: |
+  Adds RabbitMQ.Client (raw) as a messaging surface. Registers a singleton
+  IConnection bound to RabbitMqOptions, exposes RabbitMqConsumerBackgroundService
+  as an abstract base for slice consumers, and configures publisher confirms
+  by default. No MassTransit; slice consumers manage their own channel,
+  acknowledgement strategy, and DLQ wiring. Cross-context publish paths still
+  require a transactional outbox and idempotent inbox.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: RabbitMQ.Client, version: "7.0.0" }
+
+project-references:
+  axis-owner:
+    - RabbitMQ.Client
+
+files:
+  - src: files/Services/Infrastructure/Messaging/RabbitMq/RabbitMqOptions.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/RabbitMq/RabbitMqOptions.cs
+  - src: files/Services/Infrastructure/Messaging/RabbitMq/RabbitMqSetup.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/RabbitMq/RabbitMqSetup.cs
+  - src: files/Services/Infrastructure/Messaging/RabbitMq/RabbitMqConsumerBackgroundService.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/RabbitMq/RabbitMqConsumerBackgroundService.cs
+  - src: files/Services/Infrastructure/Messaging/RabbitMq/RabbitMqConsumerBackgroundService.Logger.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/RabbitMq/RabbitMqConsumerBackgroundService.Logger.cs
+
+patches:
+  - file: {{ModuleRegistrationFile}}
+    marker: usings-messaging
+    snippet-file: patches/program-usings.snippet
+  - file: {{ModuleRegistrationFile}}
+    marker: di-messaging
+    snippet-file: patches/program-di.snippet
+
+appsettings-additions:
+  Modules:
+    {{ModuleName}}:
+      Messaging:
+        RabbitMq:
+          Host: "localhost"
+          Port: 5672
+          VirtualHost: "/"
+
+readme-section: |
+  ### RabbitMQ messaging
+
+  Configure non-secret settings under `Modules:{{ModuleName}}:Messaging:RabbitMq`.
+  Supply username and password through user secrets or the production secret
+  provider. The scaffold
+  registers a singleton `IConnection`; consumers extend
+  `RabbitMqConsumerBackgroundService` and declare their queue/exchange topology
+  in `OnConfigure`.
+
+  ```csharp
+  internal sealed class CustomerRegisteredConsumer(
+      IConnection connection,
+      ILogger<CustomerRegisteredConsumer> logger)
+      : RabbitMqConsumerBackgroundService(connection, logger)
+  {
+      protected override string QueueName => "customers.registered";
+
+      protected override Task HandleAsync(ReadOnlyMemory<byte> body, CancellationToken ct)
+      {
+          // ...
+          return Task.CompletedTask;
+      }
+  }
+  ```
+
+  Do not publish Integration Events directly from a handler. Persist the
+  versioned contract in this module's outbox in the same transaction as the
+  aggregate change; consumers deduplicate by event id before applying effects.

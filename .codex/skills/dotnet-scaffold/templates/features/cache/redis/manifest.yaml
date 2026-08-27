@@ -1,0 +1,53 @@
+id: redis
+axis: cache
+description: |
+  Adds StackExchange.Redis as a distributed cache. Registers a singleton
+  IConnectionMultiplexer plus the Microsoft IDistributedCache implementation
+  backed by Redis. When the hybrid-cache feature is also selected, Redis is
+  used as the L2 backing store automatically.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: StackExchange.Redis, version: "2.8.16" }
+  - { name: Microsoft.Extensions.Caching.StackExchangeRedis, version: "10.0.10" }
+
+project-references:
+  axis-owner:
+    - StackExchange.Redis
+    - Microsoft.Extensions.Caching.StackExchangeRedis
+
+files:
+  - src: files/Services/Infrastructure/Caching/RedisOptions.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Caching/RedisOptions.cs
+  - src: files/Services/Infrastructure/Caching/RedisSetup.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Caching/RedisSetup.cs
+
+patches:
+  - file: {{ModuleRegistrationFile}}
+    marker: usings-cache
+    snippet-file: patches/program-usings.snippet
+  - file: {{ModuleRegistrationFile}}
+    marker: di-cache
+    snippet-file: patches/program-di.snippet
+
+appsettings-additions:
+  Modules:
+    {{ModuleName}}:
+      Cache:
+        Redis:
+          ConnectionString: "localhost:6379"
+          InstanceName: "{{NamespacePrefix}}:{{ModuleName}}:"
+
+readme-section: |
+  ### Redis cache
+
+  Configure under `Modules:{{ModuleName}}:Cache:Redis`. Keep credentials in user
+  secrets or the production secret provider. The scaffold registers:
+
+  - `IConnectionMultiplexer` (singleton) for raw Redis access
+  - `IDistributedCache` backed by Redis for ASP.NET Core caching APIs
+
+  Inject either one in slice repositories. When the `hybrid-cache` feature is
+  also selected, `HybridCache` automatically uses Redis as the L2 store.

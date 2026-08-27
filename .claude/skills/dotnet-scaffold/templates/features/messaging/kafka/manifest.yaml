@@ -1,0 +1,73 @@
+id: kafka
+axis: messaging
+description: |
+  Adds Confluent.Kafka as a messaging surface. Registers KafkaOptions and
+  exposes KafkaConsumerBackgroundService as a module-local consumer base.
+  Offsets are committed only after successful handling. Cross-context publish
+  paths still require a transactional outbox and idempotent inbox.
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: Confluent.Kafka, version: "2.6.1" }
+
+project-references:
+  axis-owner:
+    - Confluent.Kafka
+
+files:
+  - src: files/Services/Infrastructure/Messaging/Kafka/KafkaOptions.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/Kafka/KafkaOptions.cs
+  - src: files/Services/Infrastructure/Messaging/Kafka/KafkaSetup.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/Kafka/KafkaSetup.cs
+  - src: files/Services/Infrastructure/Messaging/Kafka/KafkaConsumerBackgroundService.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/Kafka/KafkaConsumerBackgroundService.cs
+  - src: files/Services/Infrastructure/Messaging/Kafka/KafkaConsumerBackgroundService.Logger.cs.tmpl
+    dest: {{ModuleInfrastructureRoot}}/Messaging/Kafka/KafkaConsumerBackgroundService.Logger.cs
+
+patches:
+  - file: {{ModuleRegistrationFile}}
+    marker: usings-messaging
+    snippet-file: patches/program-usings.snippet
+  - file: {{ModuleRegistrationFile}}
+    marker: di-messaging
+    snippet-file: patches/program-di.snippet
+
+appsettings-additions:
+  Modules:
+    {{ModuleName}}:
+      Messaging:
+        Kafka:
+          BootstrapServers: "localhost:9092"
+          GroupId: "{{NamespacePrefix}}.{{ModuleName}}"
+          AutoOffsetReset: "Earliest"
+
+readme-section: |
+  ### Kafka messaging
+
+  Configure under `Modules:{{ModuleName}}:Messaging:Kafka`. Slice consumers extend
+  `KafkaConsumerBackgroundService<TKey, TValue>` and declare topic, key, and
+  value deserializers in the constructor.
+
+  ```csharp
+  internal sealed class CustomerRegisteredConsumer(
+      IOptions<KafkaOptions> options,
+      ILogger<CustomerRegisteredConsumer> logger)
+      : KafkaConsumerBackgroundService<string, CustomerRegisteredEvent>(
+          options.Value, logger,
+          topic: "customers.registered",
+          keyDeserializer: Deserializers.Utf8,
+          valueDeserializer: new JsonDeserializer<CustomerRegisteredEvent>())
+  {
+      protected override Task HandleAsync(string key, CustomerRegisteredEvent value, CancellationToken ct)
+      {
+          // ...
+          return Task.CompletedTask;
+      }
+  }
+  ```
+
+  Do not publish Integration Events directly from a handler. Persist the
+  versioned contract in this module's outbox in the same transaction as the
+  aggregate change; consumers deduplicate by event id before applying effects.
