@@ -32,7 +32,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `SEC-009` | `HIGH` | **RESOLVIDO** | Timeout de expressão regular escapa do contrato publicado e produz... |
 | `SEC-010` | `HIGH` | **RESOLVIDO** | Alocação por largura contorna os dois tetos de saída |
 | `SEC-001` | `CRITICAL` | **RESOLVIDO** | O mascaramento só alcança o primeiro nível, e nada liga o nome sensível... |
-| `SEC-004` | `HIGH` | **PENDENTE** | O allowlist de domínios é, na prática, opcional para quem escreve o... |
+| `SEC-004` | `HIGH` | **RESOLVIDO** | O allowlist de domínios é, na prática, opcional para quem escreve o... |
 | `SEC-005` | `HIGH` | **PENDENTE** | O catálogo de validação de layout tem dois checks, e o layout envolve... |
 | `SEC-006` | `HIGH` | **PENDENTE** | `Layout.Status` nunca é consultado no render: desativar um layout não... |
 | `SEC-007` | `HIGH` | **PENDENTE** | `purpose` não é canonizado, e uma variação de caixa desliga o controle... |
@@ -214,7 +214,7 @@ problema nem na string de erro.
 
 ---
 
-## `SEC-004` · PENDENTE
+## `SEC-004` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -225,8 +225,8 @@ problema nem na string de erro.
 | tipo-de-evidência | leitura-de-código |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-specialist |
-| **estado** | **PENDENTE** |
-| nota de estado | Catálogo de links, ainda não tratado. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | Fechado nas duas metades, e a correção divergiu da recomendação num ponto que a medição obrigou. Metade um: o check de publicação trocou o detector de link literal por extração de host, e passou a reprovar host relativo de protocolo, host nu com caminho e host anunciado por `www.`. Apareceu um achado colateral que esta ficha não registrava: `LiteralLink` rodava sem `IgnoreCase`, então `HTTPS://EVIL.COM/x` passava limpo. Metade dois: a verificação de domínio passou a alcançar todo valor string do payload, em qualquer profundidade e dentro de array, como a regra de mascaramento já fazia, porque uma varredura rasa reabriria o mesmo furo pela mesma porta. A regra virou única em `Domain/LinkDomainPolicy.cs` e as três cópias de `IsAllowedUrl` deixaram de existir. A divergência: aplicar o detector amplo tal e qual, como a recomendação pede, foi medido em 10 falsos positivos sobre 17 não-links, ou 59%, todos da forma número pontuado seguido de barra, que em pt-BR é CNPJ, nota fiscal, número de processo, cláusula de contrato e endereço com número. Num ponto que bloqueia despacho isso é indisponibilidade, não conservadorismo, então o detector do allowlist ficou separado do detector de SMS de autenticação, que segue largo de propósito, e passou a exigir TLD alfabético mais sufixo plausível: 0 falso positivo e 0 link perdido no mesmo corpus. O custo medido da varredura é de cerca de 5 microssegundos por kB de texto. Duas decisões do dono ficaram registradas: a regra bloqueia sempre, inclusive com allowlist vazio, o que é quebra de contrato consciente para template já publicado que hoje envia link de rastreio por variável de tipo string; e a recusa nomeia o host, e apenas o host, porque sem ele o produtor não descobre o que corrigir. Duas integrações do banimento de link em SMS de autenticação passaram a morrer no portão novo e foram reparadas para declarar o domínio que injetam, de modo que a recusa volte a ser provada no portão que elas se propõem a provar. O que permanece aberto é de outra natureza, não é vazamento novo, e são três itens: o teto de bytes de payload só existe no validador do endpoint de preview, então o caminho de ingestão e o render entre módulos não têm o custo da varredura limitado por construção; placeholder como prefixo de host nu, na forma `{{ host }}.com/x`, escapa dos dois detectores; e host formado pela concatenação de duas variáveis só é alcançável por varredura pós render, que depende de `SEC-005`. |
 
 **O allowlist de domínios é, na prática, opcional para quem escreve o schema.**
 
