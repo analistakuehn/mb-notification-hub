@@ -92,8 +92,8 @@ tenha uma resposta em um lugar só.
 
 | Estado | Quantidade | Significado |
 |---|---:|---|
-| `RESOLVIDO` | 22 | corrigido no código e verificado por suíte |
-| `PENDENTE` | 27 | não tratado, e o achado segue válido como escrito |
+| `RESOLVIDO` | 23 | corrigido no código e verificado por suíte |
+| `PENDENTE` | 26 | não tratado, e o achado segue válido como escrito |
 | `PARCIAL` | 2 | parte corrigida, com o risco residual nomeado na ficha |
 | `ADIADO` | 1 | decisão deliberada de não corrigir, com a razão registrada |
 | `OBSOLETO` | 1 | a premissa caiu; **não** aplique a recomendação como escrita |
@@ -126,6 +126,7 @@ tenha uma resposta em um lugar só.
 | `SEC-005` | Security | o texto do layout fixado passou a responder ao allowlist e ao banimento de link em SMS de autenticação, e os tetos de canal passaram a somar wrapper mais corpo |
 | `SEC-006` | Security | a identidade do layout saiu da entrada imutável para uma de ponteiro, e o status passou a recusar no render publicado, no de autoria e na publicação de quem o fixa |
 | `SEC-007` | Security | o propósito passou a ser canonizado na única porta de escrita, com migração idempotente dos já persistidos, e os seis sítios de comparação leem um predicado único |
+| `SEC-011` | Security | as transições de ciclo de vida passaram a invalidar o ponteiro no processo que as commitou, com cerca de geração, e a janela remanescente entre processos ficou registrada como limite aceito |
 
 ### Parciais, adiado e obsoleto
 
@@ -144,7 +145,7 @@ ponto de vigilância sobre callback no token em `STK-004`.
 | Lente | Pendentes | Ids |
 |---|---:|---|
 | Architecture | 8 | `ARC-001` a `ARC-008` |
-| Security | 4 | `SEC-011` a `SEC-014` |
+| Security | 3 | `SEC-012` a `SEC-014` |
 | Software Engineering | 7 | `ENG-001` a `ENG-007` |
 | Test | 7 | `TST-004` a `TST-010` |
 | .NET Quality | 1 | `STK-005` |
