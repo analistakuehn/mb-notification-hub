@@ -181,6 +181,16 @@
 ## Security and tests
 
 - Require named authorization and rate-limiting policies on state-changing endpoints.
+- Authorization on this surface is by route plus the four-eyes rule on the resource, and
+  nothing else. There is no per-application scope: a principal holding the author role
+  reads, creates and edits the draft of a template or of a class policy of any
+  application, and a principal holding the publisher role publishes, deprecates,
+  disables and rolls back a template of any application. Nothing binds a principal to an
+  application in this phase, which is the same missing binding the ingestion and the
+  query surfaces already record. The published read contracts do refuse a key the
+  requested application does not own, so read this asymmetry as deliberate and recorded,
+  never as an oversight to close locally: the accepted risk and the containment that
+  stands in for the scope live in the system design.
 - Never bind HTTP bodies directly to domain types.
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.

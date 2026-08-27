@@ -93,9 +93,9 @@ tenha uma resposta em um lugar só.
 | Estado | Quantidade | Significado |
 |---|---:|---|
 | `RESOLVIDO` | 23 | corrigido no código e verificado por suíte |
-| `PENDENTE` | 26 | não tratado, e o achado segue válido como escrito |
+| `PENDENTE` | 25 | não tratado, e o achado segue válido como escrito |
 | `PARCIAL` | 2 | parte corrigida, com o risco residual nomeado na ficha |
-| `ADIADO` | 1 | decisão deliberada de não corrigir, com a razão registrada |
+| `ADIADO` | 2 | decisão deliberada de não corrigir, com a razão registrada |
 | `OBSOLETO` | 1 | a premissa caiu; **não** aplique a recomendação como escrita |
 | **Total** | **53** | 52 da revisão original, mais `PRF-008` |
 
@@ -134,6 +134,7 @@ tenha uma resposta em um lugar só.
 |---|---|---|
 | `TST-001` | `PARCIAL` | o defeito ficou bloqueado na publicação, mas o oráculo de mascaramento sobre payload aninhado continua não existindo. |
 | `STK-002` | `ADIADO` | ligar o modo estrito trocaria entrega degradada por entrega zero em mensagem de autenticação. A metade correta é detectar em publicação. |
+| `SEC-012` | `ADIADO` | o achado é real e foi medido maior do que a ficha descreve, mas nada era implementável: a claim que ligaria um principal a uma aplicação não existe, nem o provedor que a emitiria. Aceito e registrado em quatro lugares, amarrado à pendência 25 da fase 1b, que é a mesma decisão nas outras duas superfícies. |
 | `TST-003` | `OBSOLETO` | a recomendação manda observar trabalho abandonado que não existe mais. Aplicá-la como escrita é trabalho perdido. |
 
 Além desses, duas recomendações envelheceram **dentro** de achados resolvidos, e
@@ -145,7 +146,7 @@ ponto de vigilância sobre callback no token em `STK-004`.
 | Lente | Pendentes | Ids |
 |---|---:|---|
 | Architecture | 8 | `ARC-001` a `ARC-008` |
-| Security | 3 | `SEC-012` a `SEC-014` |
+| Security | 2 | `SEC-013` e `SEC-014` |
 | Software Engineering | 7 | `ENG-001` a `ENG-007` |
 | Test | 7 | `TST-004` a `TST-010` |
 | .NET Quality | 1 | `STK-005` |
