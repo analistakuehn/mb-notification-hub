@@ -167,7 +167,7 @@ internal sealed class FallbackRequestHandler(
 
         PublishedTemplate template = ((PublishedTemplateLookup.Published)lookup.Value!).Template;
         RecipientReadFallback readFallback = notification.Class == NotificationClasses.Critical
-            || string.Equals(template.Purpose, ResolveStage.AuthenticationPurpose, StringComparison.Ordinal)
+            || TemplatePurposes.IsAuthentication(template.Purpose)
                 ? RecipientReadFallback.LastKnown
                 : RecipientReadFallback.None;
         Result<RecipientSnapshot> recipient = await recipientDirectory.FindAsync(

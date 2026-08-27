@@ -61,11 +61,12 @@ public static partial class TemplateValidation
     public const int PushMaxBodyChars = 4000;
 
     /// <summary>
-    /// Purpose that makes a template carry authentication material. It is the
-    /// same word the notification lifecycle routes by, declared here because
-    /// this catalog has to recognize it without reaching into another context.
+    /// The purpose that makes a template carry authentication material, under
+    /// the name this catalog and the go-live gate have always read it by. The
+    /// value itself belongs to the published surface, where the predicate every
+    /// reader asks lives, so there is one word and one place that defines it.
     /// </summary>
-    public const string AuthenticationPurpose = "authentication";
+    public const string AuthenticationPurpose = TemplatePurposes.Authentication;
 
     /// <summary>
     /// Stable code of the refusal that a link inside an authentication SMS
@@ -391,7 +392,7 @@ public static partial class TemplateValidation
         IReadOnlyList<ContentAnalysis> analyses,
         LayoutReferenceFacts? facts)
     {
-        if (!string.Equals(template.Purpose, AuthenticationPurpose, StringComparison.Ordinal)) return;
+        if (!TemplatePurposes.IsAuthentication(template.Purpose)) return;
 
         var smsContents = version.Contents
             .Where(content => content.Channel == Channel.Sms)

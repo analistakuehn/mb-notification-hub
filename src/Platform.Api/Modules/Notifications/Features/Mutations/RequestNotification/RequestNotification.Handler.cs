@@ -22,7 +22,6 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Mutations;
 internal static partial class RequestNotification
 {
     private const string OutboxMessageType = "notification.accepted";
-    private const string AuthenticationPurpose = "authentication";
     private const string AuthenticationDestination = "core-auth";
 
     /// <summary>
@@ -412,7 +411,7 @@ internal static partial class RequestNotification
         /// every later producer reads the stored answer instead.
         /// </summary>
         private static bool IsAuthenticationFlow(PublishedTemplate template)
-            => string.Equals(template.Purpose, AuthenticationPurpose, StringComparison.Ordinal);
+            => TemplatePurposes.IsAuthentication(template.Purpose);
 
         private static OutboxAppend BuildOutboxMessage(
             Notification notification,

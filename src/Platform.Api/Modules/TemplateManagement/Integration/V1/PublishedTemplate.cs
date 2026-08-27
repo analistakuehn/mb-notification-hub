@@ -31,6 +31,41 @@ public static class LayoutRejectionReasons
 }
 
 /// <summary>
+/// The purpose vocabulary a sibling module has to recognize. The vocabulary
+/// itself stays open, because it is governance data an author writes; only the
+/// one word that changes how a notification is treated is published here.
+/// </summary>
+public static class TemplatePurposes
+{
+    /// <summary>
+    /// The canonical purpose of a template that carries authentication
+    /// material. Lower case is the stored form: the aggregate canonizes on the
+    /// way in, and every reader compares against this exact value.
+    /// </summary>
+    public const string Authentication = "authentication";
+
+    /// <summary>
+    /// Whether a purpose puts a template in an authentication flow. It is one
+    /// question asked in six places: the publication catalog that bans a link
+    /// in an SMS, the render that refuses to ship one, the acceptance that
+    /// materializes the flow on the notification, the two recipient reads that
+    /// may fall back to the last known snapshot, and the routing that names the
+    /// authentication queue. They ask it here so the next change of criterion
+    /// reaches all six.
+    /// <para>
+    /// The comparison is ordinal and must stay ordinal. The value is canonized
+    /// at the aggregate's single write door, so nothing else can exist; the
+    /// go-live gate asks the same question in SQL, where folding case would
+    /// give up the index and create a second answer to what is canonical; and
+    /// a stored value in another case has to stay visible in the catalog and in
+    /// the compliance evidence rather than be silently read past.
+    /// </para>
+    /// </summary>
+    public static bool IsAuthentication(string? purpose)
+        => string.Equals(purpose, Authentication, StringComparison.Ordinal);
+}
+
+/// <summary>
 /// Decision metadata of the published version of a template: everything a
 /// sibling module needs to validate, route and audit a notification request
 /// without touching this module's internals.

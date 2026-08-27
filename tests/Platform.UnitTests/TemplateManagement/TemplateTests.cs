@@ -42,6 +42,39 @@ public sealed class TemplateTests
         result.Value!.OwnerTeam.ShouldBe("ops");
     }
 
+    [Fact]
+    public void The_aggregate_stores_the_purpose_in_lower_case()
+    {
+        // The single write door of this column. Everything downstream compares
+        // the purpose against one lower-case word with an ordinal comparison,
+        // including a SQL predicate that cannot be taught to ignore case
+        // without losing its index, so the canonical form has to be minted
+        // here and nowhere else.
+        Result<Template> result = Template.Create(Key, Metadata() with { Purpose = "  Authentication  " });
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value!.Purpose.ShouldBe("authentication");
+    }
+
+    [Fact]
+    public void The_owner_team_and_the_legal_basis_keep_the_case_they_were_given()
+    {
+        // Falsification of the rule above: only the purpose is canonized. The
+        // owner team and the legal basis go through the same required-text
+        // guard and are read by people, never by an equality comparison, so
+        // lowering their case would silently rewrite two values nobody asked
+        // to change.
+        Result<Template> result = Template.Create(Key, Metadata() with
+        {
+            OwnerTeam = " Identity-Squad ",
+            LegalBasis = " Execucao-De-Contrato ",
+        });
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value!.OwnerTeam.ShouldBe("Identity-Squad");
+        result.Value!.LegalBasis.ShouldBe("Execucao-De-Contrato");
+    }
+
     [Theory]
     [InlineData("Araia-Cambio")]
     [InlineData("araia cambio")]

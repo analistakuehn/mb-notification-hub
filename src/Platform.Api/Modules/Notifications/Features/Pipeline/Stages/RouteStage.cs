@@ -48,7 +48,7 @@ internal sealed class RouteStage : INotificationStage
     /// with the fallback path, so both producers route identically.
     /// </summary>
     internal static string DestinationFor(string? templatePurpose, string channel, string notificationClass)
-        => string.Equals(templatePurpose, ResolveStage.AuthenticationPurpose, StringComparison.Ordinal)
+        => TemplatePurposes.IsAuthentication(templatePurpose)
             ? $"dispatch-{channel}-auth"
             : $"dispatch-{channel}-{notificationClass}";
 }
