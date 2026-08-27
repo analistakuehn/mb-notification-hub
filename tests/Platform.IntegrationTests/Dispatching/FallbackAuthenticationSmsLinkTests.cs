@@ -27,7 +27,7 @@ public sealed class FallbackAuthenticationSmsLinkTests(CorePipelineFixture fixtu
     [RequiresDockerFact]
     public async Task A_link_rendered_into_the_authentication_sms_ends_the_notification_on_the_security_reason()
     {
-        Guid notificationId = await FallBackToSmsAsync(code: "bit.ly/x9k2p");
+        Guid notificationId = await FallBackToSmsAsync(code: "montebravo.com.br/x");
 
         Notification notification = await NotificationAsync(notificationId);
         notification.Status.ShouldBe(NotificationStatuses.Failed);
@@ -63,8 +63,16 @@ public sealed class FallbackAuthenticationSmsLinkTests(CorePipelineFixture fixtu
     private async Task<Guid> FallBackToSmsAsync(string code)
     {
         var application = DispatchApi.NewApplication();
+
+        // The template declares the domain the value carries on purpose. The
+        // allowlist runs first, at the door, and refuses a host it does not
+        // know before the request becomes a notification; a template that
+        // declared nothing would move the refusal to that earlier gate and
+        // this test would stop proving which gate answers. The value stays
+        // something a reader can tap, which is what the ban below reads.
         (var templateKey, _) = await DispatchApi.CreatePublishedEmailAndSmsTemplateAsync(
-            fixture, application, "critical", "authentication");
+            fixture, application, "critical", "authentication",
+            linkDomainsAllowed: ["montebravo.com.br"]);
         await DispatchApi.CreatePublishedPolicyAsync(
             fixture, application, "critical", ("email", "30s"), ("sms", null));
         (var recipientId, _, _) = await DispatchApi.RegisterEmailAndSmsRecipientAsync(fixture);

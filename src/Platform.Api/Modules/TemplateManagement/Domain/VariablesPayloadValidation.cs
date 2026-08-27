@@ -140,13 +140,30 @@ public static class VariablesPayloadValidation
                 // The value never travels in the message: it may embed tokens
                 // or personal data in the query string.
                 if (provided.TryGetProperty(declaration.Name, out JsonElement value)
-                    && !IsAllowedUrl(template, value))
+                    && !LinkDomainPolicy.IsAllowedUrlValue(template, value))
                 {
                     checks.Add(Failed(
                         ValidationCheckNames.UrlAllowlist,
                         $"Variable '{declaration.Name}' must be an absolute http(s) URL "
                         + "inside the template's allowed domains."));
                 }
+            }
+        }
+
+        if (checks.Count == before)
+        {
+            // Only the host travels in the finding, never the value: the query
+            // string may carry a token or personal data. Same reason as the
+            // loop above. A declared URL variable already refused says the
+            // same thing about the same payload, so the scan answers only when
+            // that loop found nothing.
+            var offending = LinkDomainPolicy.FirstDisallowedHost(payload, template);
+            if (offending is not null)
+            {
+                checks.Add(Failed(
+                    ValidationCheckNames.UrlAllowlist,
+                    $"A variable value carries link host '{offending}', "
+                    + "which is outside the template's allowed domains."));
             }
         }
 
@@ -169,12 +186,6 @@ public static class VariablesPayloadValidation
         // A type this vocabulary does not know belongs to a newer writer, never to an error.
         _ => true,
     };
-
-    private static bool IsAllowedUrl(Template template, JsonElement value)
-        => value.ValueKind == JsonValueKind.String
-            && Uri.TryCreate(value.GetString(), UriKind.Absolute, out Uri? url)
-            && (url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps)
-            && template.IsLinkDomainAllowed(url.Host);
 
     private static ValidationCheck Passed(string name, string message)
         => new(name, ValidationCheckStatuses.Passed, message, null);

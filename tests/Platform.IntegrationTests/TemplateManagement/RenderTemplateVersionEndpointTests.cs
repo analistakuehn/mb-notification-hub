@@ -186,6 +186,41 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     }
 
     [RequiresDockerFact]
+    public async Task A_string_variable_carrying_a_foreign_host_returns_400_problem_details()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Acesso",
+            body = "<p>Acesse {{ link }}</p>",
+            bodyText = "Acesse {{ link }}",
+        }, etag);
+        await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { link = new { type = "string" } },
+        }, etag);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new { link = "https://evil.example.io/pay?token=abc" },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        problem.GetProperty("detail").GetString()!.ShouldContain("evil.example.io");
+        problem.GetProperty("detail").GetString()!.ShouldNotContain("token");
+    }
+
+    [RequiresDockerFact]
     public async Task A_missing_variable_returns_400_render_failed()
     {
         HttpClient client = fixture.CreateAuthorClient("author-1");

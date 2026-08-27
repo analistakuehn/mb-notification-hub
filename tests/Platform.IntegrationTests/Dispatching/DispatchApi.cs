@@ -208,7 +208,8 @@ internal static class DispatchApi
         string application,
         string @class,
         string purpose,
-        string body = "Código de acesso: {{ code }}.")
+        string body = "Código de acesso: {{ code }}.",
+        string[]? linkDomainsAllowed = null)
     {
         HttpClient author = fixture.CreateAuthorClient("template-author");
         HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
@@ -223,6 +224,7 @@ internal static class DispatchApi
             purpose,
             legalBasis = "execucao-de-contrato",
             defaultLocale = "pt-BR",
+            linkDomainsAllowed,
         });
         created.EnsureSuccessStatusCode();
 
@@ -248,7 +250,8 @@ internal static class DispatchApi
         string application,
         string @class,
         string purpose,
-        string smsBody = "Código de acesso: {{ code }}.")
+        string smsBody = "Código de acesso: {{ code }}.",
+        string[]? linkDomainsAllowed = null)
     {
         HttpClient author = fixture.CreateAuthorClient("template-author");
         HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
@@ -263,6 +266,7 @@ internal static class DispatchApi
             purpose,
             legalBasis = "execucao-de-contrato",
             defaultLocale = "pt-BR",
+            linkDomainsAllowed,
         });
         created.EnsureSuccessStatusCode();
 

@@ -110,6 +110,60 @@ public sealed class VariablesPayloadValidationTests
     }
 
     [Fact]
+    public void A_string_variable_carrying_a_host_outside_the_allowlist_fails_without_leaking_the_value()
+    {
+        ValidationReport report = VariablesPayloadValidation.Validate(
+            MakeTemplate(),
+            """{ "type": "object", "properties": { "link": { "type": "string" } } }""",
+            Variables("""{ "link": "https://evil.example.io/pay?token=abc" }"""));
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist);
+        check.Status.ShouldBe(ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("evil.example.io");
+        check.Message.ShouldNotContain("token");
+        report.Passed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_host_inside_an_array_element_of_the_payload_fails()
+    {
+        ValidationReport report = VariablesPayloadValidation.Validate(
+            MakeTemplate(),
+            """{ "type": "object", "properties": { "items": { "type": "array" } } }""",
+            Variables("""{ "items": [ { "detail": "veja em //evil.example.io/promo" } ] }"""));
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist);
+        check.Status.ShouldBe(ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("evil.example.io");
+    }
+
+    [Fact]
+    public void A_string_variable_carrying_a_host_inside_the_allowlist_passes()
+    {
+        ValidationReport report = VariablesPayloadValidation.Validate(
+            MakeTemplate(),
+            """{ "type": "object", "properties": { "link": { "type": "string" } } }""",
+            Variables("""{ "link": "https://app.montebravo.com.br/pedidos" }"""));
+
+        report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist)
+            .Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
+    public void A_document_number_in_a_string_variable_passes()
+    {
+        ValidationReport report = VariablesPayloadValidation.Validate(
+            MakeTemplate(),
+            """{ "type": "object", "properties": { "document": { "type": "string" } } }""",
+            Variables("""{ "document": "CNPJ 12.345.678/0001-90" }"""));
+
+        report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist)
+            .Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
     public void A_payload_that_is_not_a_json_object_fails_the_declaration_check()
     {
         ValidationReport report = VariablesPayloadValidation.Validate(

@@ -382,7 +382,7 @@ internal sealed class PublishedTemplateRenderer(
                 continue;
             }
 
-            if (!IsAllowedUrl(template, value))
+            if (!LinkDomainPolicy.IsAllowedUrlValue(template, value))
             {
                 // The value never travels in the error: it may embed tokens
                 // or personal data in the query string.
@@ -393,14 +393,20 @@ internal sealed class PublishedTemplateRenderer(
             }
         }
 
+        var offending = LinkDomainPolicy.FirstDisallowedHost(variables, template);
+        if (offending is not null)
+        {
+            // Only the host travels in the error, never the value: the
+            // query string may carry a token or personal data. Same reason
+            // as the loop above.
+            return new Result(false, ResultErrorKind.Validation, DomainError.Format(
+                ErrorCodes.UrlDomainNotAllowed,
+                $"A variable value carries link host '{offending}', "
+                + "which is outside the template's allowed domains."));
+        }
+
         return Result.Success();
     }
-
-    private static bool IsAllowedUrl(Template template, JsonElement value)
-        => value.ValueKind == JsonValueKind.String
-            && Uri.TryCreate(value.GetString(), UriKind.Absolute, out Uri? url)
-            && (url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps)
-            && template.IsLinkDomainAllowed(url.Host);
 
     /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
     private sealed record LayoutWrapper(string Body, string? BodyText);

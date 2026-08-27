@@ -20,14 +20,22 @@ public sealed class CorePipelineAuthenticationSmsLinkTests(CorePipelineFixture f
     public async Task A_variable_that_renders_a_link_into_an_authentication_sms_is_rejected()
     {
         var application = DispatchApi.NewApplication();
+
+        // The template declares the domain the value carries on purpose. The
+        // allowlist runs first, at the door, and refuses a host it does not
+        // know before the request becomes a notification; a template that
+        // declared nothing would move the refusal to that earlier gate and
+        // this test would stop proving which gate answers. The value stays
+        // something a reader can tap, which is what the ban below reads.
         (var templateKey, _) = await DispatchApi.CreatePublishedSmsTemplateAsync(
-            fixture, application, "transactional", "authentication");
+            fixture, application, "transactional", "authentication",
+            linkDomainsAllowed: ["montebravo.com.br"]);
         await DispatchApi.CreatePublishedPolicyAsync(
             fixture, application, "transactional", ("sms", null));
         (var recipientId, _) = await DispatchApi.RegisterSmsRecipientAsync(fixture);
 
         Guid notificationId = await ProcessAsync(
-            application, templateKey, recipientId, code: "bit.ly/x9k2p");
+            application, templateKey, recipientId, code: "montebravo.com.br/x");
 
         Notification notification = await fixture.QueryNotificationsDbAsync(db => db.Notifications
             .AsNoTracking()

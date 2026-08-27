@@ -241,11 +241,11 @@ public static partial class TemplateValidation
         {
             foreach ((var field, var text) in Fields(content))
             {
-                foreach (Match match in LiteralLink().Matches(text))
+                foreach (var host in LinkDomainPolicy.HostsIn(text))
                 {
                     ValidationCheck? finding = CheckLink(
                         template,
-                        match.Groups[1].Value,
+                        host,
                         At(content.Channel, content.Locale, field));
                     if (finding is not null)
                     {
@@ -269,7 +269,8 @@ public static partial class TemplateValidation
             return Failed(ValidationCheckNames.UrlAllowlist, "Links are not allowed in critical templates.", location);
         }
 
-        if (host.Contains('{', StringComparison.Ordinal))
+        if (host.Contains('{', StringComparison.Ordinal)
+            || string.Equals(host, LinkDomainPolicy.UnresolvedHost, StringComparison.Ordinal))
         {
             return Failed(
                 ValidationCheckNames.UrlAllowlist,
@@ -707,9 +708,6 @@ public static partial class TemplateValidation
 
     private static ValidationCheck Failed(string name, string message, string? location)
         => new(name, ValidationCheckStatuses.Failed, message, location);
-
-    [GeneratedRegex(@"https?://([^\s/:?#<>""']+)")]
-    private static partial Regex LiteralLink();
 
     // Three shapes, in the order an attacker reaches for them: the full
     // address, the host that only announces itself with www, and the bare host

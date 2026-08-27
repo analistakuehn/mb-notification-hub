@@ -113,6 +113,95 @@ public sealed class TemplateValidationTests
     }
 
     [Fact]
+    public void A_protocol_relative_anchor_outside_the_allowlist_fails()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion(
+            ("email", "pt-BR", "Oi", "<a href=\"//evil.example.io/x\">bad</a>", "texto"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, []);
+
+        ValidationCheck failed = report.Checks.Single(check =>
+            check.Name == ValidationCheckNames.UrlAllowlist && check.Status == ValidationCheckStatuses.Failed);
+        failed.Message.ShouldContain("evil.example.io");
+        failed.Location.ShouldBe("email/pt-BR/body");
+    }
+
+    [Fact]
+    public void A_bare_host_with_a_path_outside_the_allowlist_fails()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion(
+            ("email", "pt-BR", "Oi", "<a href=\"evil.example.io/x\">bad</a>", "texto"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, []);
+
+        ValidationCheck failed = report.Checks.Single(check =>
+            check.Name == ValidationCheckNames.UrlAllowlist && check.Status == ValidationCheckStatuses.Failed);
+        failed.Message.ShouldContain("evil.example.io");
+        failed.Location.ShouldBe("email/pt-BR/body");
+    }
+
+    [Fact]
+    public void A_bare_host_with_a_path_inside_the_allowlist_passes()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion(
+            ("email", "pt-BR", "Oi", "<a href=\"app.montebravo.com.br/pedidos\">ok</a>", "texto"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, []);
+
+        ValidationCheck check = report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist);
+        check.Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
+    public void An_uppercase_scheme_outside_the_allowlist_fails()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion(
+            ("email", "pt-BR", "Oi", "<a href=\"HTTPS://EVIL.COM/x\">bad</a>", "texto"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, []);
+
+        ValidationCheck failed = report.Checks.Single(check =>
+            check.Name == ValidationCheckNames.UrlAllowlist && check.Status == ValidationCheckStatuses.Failed);
+        failed.Message.ShouldContain("EVIL.COM");
+        failed.Location.ShouldBe("email/pt-BR/body");
+    }
+
+    [Fact]
+    public void A_protocol_relative_link_with_a_variable_host_fails()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion(
+            ("email", "pt-BR", "Oi", "<a href=\"//{{ host }}/x\">bad</a>", "texto"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, []);
+
+        ValidationCheck check = report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist);
+        check.Status.ShouldBe(ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("literal domain");
+    }
+
+    [Fact]
+    public void Brazilian_document_and_invoice_numbers_in_the_content_are_not_links()
+    {
+        Template template = MakeTemplate();
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Nota fiscal 1.234/56",
+            "<p>CNPJ 12.345.678/0001-90, Cláusula 3.1/b, Rua Sete, 1.234/ap 2.</p>",
+            "CNPJ 12.345.678/0001-90, Cláusula 3.1/b, Rua Sete, 1.234/ap 2."));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, []);
+
+        ValidationCheck check = report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist);
+        check.Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
     public void Any_link_fails_in_a_critical_template()
     {
         Template template = MakeTemplate(NotificationClass.Critical, linkDomains: ["montebravo.com.br"]);
