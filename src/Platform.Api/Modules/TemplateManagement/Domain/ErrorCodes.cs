@@ -16,6 +16,7 @@ public static class ErrorCodes
     public const string ActorUnidentified = "actor-unidentified";
     public const string TemplateContentNotFound = "template-content-not-found";
     public const string TemplateRenderFailed = "template-render-failed";
+    public const string VariablesPayloadTooLarge = "variables-payload-too-large";
     public const string UrlDomainNotAllowed = "url-domain-not-allowed";
     public const string FourEyesViolation = "four-eyes-violation";
     public const string ContentHashMismatch = "content-hash-mismatch";

@@ -11,10 +11,12 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integrat
 
 /// <summary>
 /// Renders the published version of a template for sibling modules with the
-/// sandboxed engine: locale fallback chain, URL variables enforced against the
-/// template allowlist, pinned layout wrapped around the body, and, on demand,
-/// the masked form rendered with every sensitive variable masked. Each form
-/// carries the canonical hash of exactly the fields it shipped.
+/// sandboxed engine: variables payload refused above the published byte
+/// ceiling before anything walks it, locale fallback chain, URL variables
+/// enforced against the template allowlist, pinned layout wrapped around the
+/// body, and, on demand, the masked form rendered with every sensitive
+/// variable masked. Each form carries the canonical hash of exactly the fields
+/// it shipped.
 /// </summary>
 internal sealed class PublishedTemplateRenderer(
     TemplateManagementDbContext dbContext,
@@ -39,6 +41,18 @@ internal sealed class PublishedTemplateRenderer(
         if (locale.IsFailure)
         {
             return locale.AsFailure<Locale, PublishedTemplateRender>();
+        }
+
+        // Ahead of the catalog, and ahead of the scan: from here on every step
+        // walks the payload once more, so a payload nobody bounded makes each
+        // of them cost whatever the caller decided to send. Cheap checks first
+        // means the refusal costs one pass and no query.
+        if (VariablesPayloadSize.ExceedsMaxBytes(request.Variables))
+        {
+            return Result.ValidationError<PublishedTemplateRender>(DomainError.Format(
+                ErrorCodes.VariablesPayloadTooLarge,
+                "The variables payload must serialize to at most "
+                + $"{VariablesPayloadSize.MaxBytes} bytes of JSON."));
         }
 
         Result<PublishedTemplateContext> context = await contextLoader.LoadAsync(

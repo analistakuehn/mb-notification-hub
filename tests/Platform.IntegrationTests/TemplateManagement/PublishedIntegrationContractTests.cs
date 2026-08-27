@@ -327,6 +327,40 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         masked.ShouldBe(rendered.Value!.Full);
     }
 
+    /// <summary>
+    /// The ceiling on the variables payload reaches the render between
+    /// modules, and it answers ahead of the catalog. The template key is one
+    /// that was never created on purpose: a not-found here would be proof that
+    /// the payload was carried past the gate, into the query and into the walk
+    /// over every string value it contains.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task An_oversized_variables_payload_is_refused_before_the_catalog_and_the_scan()
+    {
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedTemplateRenderer renderer =
+            scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>();
+
+        Result<PublishedTemplateRender> rendered = await renderer.RenderAsync(new PublishedRenderRequest
+        {
+            Application = "araia-cambio",
+            TemplateKey = "template.that.was.never.created",
+            Channel = "email",
+            Locale = "pt-BR",
+            Variables = Variables($$$"""{ "blob": "{{{new string('x', 300_000)}}}" }"""),
+            IncludeMaskedForm = true,
+        }, CancellationToken.None);
+
+        rendered.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(rendered.Error, rendered.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.VariablesPayloadTooLarge);
+
+        // The refusal names the ceiling and nothing the caller sent: the same
+        // rule the allowlist refusal follows, for the same reason.
+        error.Detail.ShouldContain("262144");
+        error.Detail.ShouldNotContain("xxx");
+    }
+
     [RequiresDockerFact]
     public async Task The_published_class_policy_is_read_by_application_and_class()
     {

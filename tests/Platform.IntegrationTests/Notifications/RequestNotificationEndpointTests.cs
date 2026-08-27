@@ -245,6 +245,48 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
     }
 
     /// <summary>
+    /// The ceiling on the variables payload belongs to the ingestion too, not
+    /// only to the preview endpoint. The template key is one that was never
+    /// published on purpose: without the ceiling the answer would be the
+    /// catalog's 422, which is proof that the payload reached the gate and the
+    /// scan that walks every string value of it.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task An_oversized_variables_payload_is_refused_before_the_catalog_and_the_scan()
+    {
+        HttpClient producer = fixture.CreateProducerClient("producer-oversized", NotificationsApi.SendTransactional);
+        var idempotencyKey = $"oversized-{Guid.NewGuid():N}";
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                "template.that.was.never.published",
+                variables: new { blob = new string('x', 300_000) }),
+            idempotencyKey);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("payload-invalid");
+
+        JsonElement errors = problem.GetProperty("errors");
+        errors.EnumerateObject().Select(entry => entry.Name).ShouldBe(["Variables"]);
+
+        // The refusal names the ceiling and nothing the producer sent: the
+        // same rule the allowlist refusal follows, for the same reason.
+        errors.GetProperty("Variables")[0].GetString()
+            .ShouldBe("Variables must serialize to at most 262144 bytes of JSON.");
+
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(notification => notification.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+        (await fixture.QueryNotificationsDbAsync(db => db.IdempotencyRegistrations
+            .AsNoTracking()
+            .CountAsync(registration => registration.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+    }
+
+    /// <summary>
     /// Accepted consequence of moving the shape check into the use case: the
     /// key is answered first, which is the right order, because the trail needs
     /// it for the identity of the entity it records.

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentValidation;
 using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.Mutations;
 
@@ -29,7 +30,17 @@ internal static partial class RequestNotification
             RuleFor(command => command.CorrelationId).MaximumLength(200);
             RuleFor(command => command.Variables)
                 .Must(BeAnObjectOrAbsent)
-                .WithMessage("Variables must be a JSON object.");
+                .WithMessage("Variables must be a JSON object.")
+
+                // The catalog publishes the ceiling because it owns what the
+                // payload costs: the allowlist scan walks every string value
+                // of it at this gate and again at render, and the sandbox
+                // turns it into script objects. Shape validation is the only
+                // point that can refuse it before both, so the ingestion reads
+                // the number instead of choosing one.
+                .Must(variables => !VariablesPayloadLimit.Exceeds(variables))
+                .WithMessage(
+                    $"Variables must serialize to at most {VariablesPayloadLimit.MaxBytes} bytes of JSON.");
             RuleFor(command => command.Metadata)
                 .Must(BeAnObjectOrAbsent)
                 .WithMessage("Metadata must be a JSON object.");
