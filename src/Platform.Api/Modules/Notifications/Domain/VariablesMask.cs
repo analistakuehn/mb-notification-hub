@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications.Domain;
 
@@ -10,11 +10,26 @@ namespace NotificationHub.Api.Modules.Notifications.Domain;
 /// mask, containers keep their shape with every leaf masked, and null stays
 /// null so optional-variable behavior is preserved. The mask is irreversible
 /// on purpose: the stored projection proves that a value was sent, never
-/// which one. Only the encrypted envelope keeps the full object.
+/// which one. Only the encrypted envelope keeps the full object. Which nodes a
+/// sensitive name addresses is decided by the shared structural rule, so this
+/// projection and the masked render of the same request always mask the same
+/// values.
 /// </summary>
 internal static class VariablesMask
 {
-    internal const string MaskedValue = "***";
+    internal const string MaskedValue = SensitiveValueMask.MaskedValue;
+
+    /// <summary>
+    /// The masked payload plus the two facts the projection cannot carry:
+    /// whether anything changed, and whether a sensitive name failed to address
+    /// the shape of the payload.
+    /// </summary>
+    internal static SensitiveValueMask.Outcome Mask(
+        JsonElement? variables,
+        IReadOnlyList<string> sensitiveVariables)
+        => variables is { ValueKind: JsonValueKind.Object } payload
+            ? SensitiveValueMask.Apply(payload, sensitiveVariables)
+            : default;
 
     /// <summary>
     /// Canonical JSON of <paramref name="variables"/> with every variable named
@@ -28,25 +43,7 @@ internal static class VariablesMask
             return "{}";
         }
 
-        JsonObject root = JsonNode.Parse(payload.GetRawText())!.AsObject();
-        foreach (var name in sensitiveVariables)
-        {
-            if (root.ContainsKey(name))
-            {
-                root[name] = Mask(root[name]);
-            }
-        }
-
-        using var masked = JsonDocument.Parse(root.ToJsonString());
-        return Encoding.UTF8.GetString(CanonicalJson.CanonicalBytes(masked.RootElement));
+        SensitiveValueMask.Outcome outcome = SensitiveValueMask.Apply(payload, sensitiveVariables);
+        return Encoding.UTF8.GetString(CanonicalJson.CanonicalBytes(outcome.Value));
     }
-
-    private static JsonNode? Mask(JsonNode? node) => node switch
-    {
-        null => null,
-        JsonObject nested => new JsonObject(nested.Select(property =>
-            KeyValuePair.Create(property.Key, Mask(property.Value)))),
-        JsonArray items => new JsonArray([.. items.Select(Mask)]),
-        _ => JsonValue.Create(MaskedValue),
-    };
 }

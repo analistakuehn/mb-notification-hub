@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 
@@ -8,46 +8,39 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 /// masked render: scalar values become the fixed mask, containers keep their
 /// shape with every leaf masked, and null stays null so optional-variable
 /// behavior is preserved. The mask is irreversible on purpose: the stored form
-/// proves that a value was sent, never which one.
+/// proves that a value was sent, never which one. Which nodes a sensitive name
+/// addresses is decided by the shared structural rule, so this form and the
+/// stored projection of the same request always mask the same values.
 /// </summary>
 public static class VariableMasking
 {
-    public const string MaskedValue = "***";
+    public const string MaskedValue = SensitiveValueMask.MaskedValue;
 
-    /// <summary>True when the payload carries at least one sensitive variable to mask.</summary>
+    /// <summary>
+    /// The masked payload plus the two facts the caller cannot recover from it:
+    /// whether anything changed, and whether a sensitive name failed to address
+    /// the shape of the payload.
+    /// </summary>
+    public static SensitiveValueMask.Outcome Mask(
+        JsonElement? variables,
+        IReadOnlyList<string> sensitiveVariables)
+        => variables is { } payload
+            ? SensitiveValueMask.Apply(payload, sensitiveVariables)
+            : default;
+
+    /// <summary>True when the payload carries at least one sensitive value to mask.</summary>
     public static bool RequiresMasking(JsonElement? variables, IReadOnlyList<string> sensitiveVariables)
-        => variables is { ValueKind: JsonValueKind.Object } payload
-            && sensitiveVariables.Any(name => payload.TryGetProperty(name, out _));
+        => Mask(variables, sensitiveVariables).Changed;
 
     /// <summary>
     /// Returns the payload with every sensitive variable masked; a payload
-    /// without sensitive variables comes back unchanged.
+    /// without sensitive values comes back unchanged.
     /// </summary>
-    public static JsonElement? MaskSensitiveVariables(JsonElement? variables, IReadOnlyList<string> sensitiveVariables)
+    public static JsonElement? MaskSensitiveVariables(
+        JsonElement? variables,
+        IReadOnlyList<string> sensitiveVariables)
     {
-        if (!RequiresMasking(variables, sensitiveVariables))
-        {
-            return variables;
-        }
-
-        JsonObject root = JsonNode.Parse(variables!.Value.GetRawText())!.AsObject();
-        foreach (var name in sensitiveVariables)
-        {
-            if (root.ContainsKey(name))
-            {
-                root[name] = Mask(root[name]);
-            }
-        }
-
-        return JsonSerializer.SerializeToElement(root);
+        SensitiveValueMask.Outcome outcome = Mask(variables, sensitiveVariables);
+        return outcome.Changed ? outcome.Value : variables;
     }
-
-    private static JsonNode? Mask(JsonNode? node) => node switch
-    {
-        null => null,
-        JsonObject nested => new JsonObject(nested.Select(property =>
-            KeyValuePair.Create(property.Key, Mask(property.Value)))),
-        JsonArray items => new JsonArray([.. items.Select(Mask)]),
-        _ => JsonValue.Create(MaskedValue),
-    };
 }

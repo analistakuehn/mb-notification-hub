@@ -16,6 +16,65 @@ public sealed class SensitiveVariableValidationTests
     private const string Schema =
         """{ "type": "object", "properties": { "cpf": { "type": "string" }, "cliente": { "type": "object" } } }""";
 
+    /// <summary>
+    /// A schema that describes what sits under <c>cliente</c>, which the schema
+    /// above deliberately does not: a sensitive name only resolves through the
+    /// levels the schema actually declares.
+    /// </summary>
+    private const string NestedSchema =
+        """
+        {
+          "type": "object",
+          "properties": {
+            "orderId": { "type": "string" },
+            "cliente": {
+              "type": "object",
+              "properties": {
+                "cpf": { "type": "string" },
+                "endereco": { "type": "array" }
+              }
+            }
+          }
+        }
+        """;
+
+    [Fact]
+    public void Publishing_refuses_a_sensitive_path_whose_intermediate_level_is_not_an_object_in_the_schema()
+    {
+        // The path breaks on 'endereco', which the schema declares as an array.
+        // Routing this to "there was nothing to mask" would seal the complete
+        // form as the masked one, so publication is where it has to stop.
+        ValidationCheck check = Run(
+            sensitive: ["cliente.endereco.cpf"],
+            body: "Seu CPF é {{ cliente.endereco.cpf }}.",
+            schema: NestedSchema);
+
+        check.Status.ShouldBe(ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("cliente.endereco.cpf");
+    }
+
+    [Fact]
+    public void Publishing_accepts_a_sensitive_path_the_schema_declares_through_nested_objects()
+    {
+        ValidationCheck check = Run(
+            sensitive: ["cliente.cpf"],
+            body: "Seu CPF é {{ cliente.cpf }}.",
+            schema: NestedSchema);
+
+        check.Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
+    public void Publishing_accepts_a_bare_sensitive_name_the_schema_declares_at_any_depth()
+    {
+        ValidationCheck check = Run(
+            sensitive: ["cpf"],
+            body: "Seu CPF é {{ cliente.cpf }}.",
+            schema: NestedSchema);
+
+        check.Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
     [Fact]
     public void A_sensitive_variable_the_schema_never_declares_fails_the_check()
     {
@@ -124,7 +183,7 @@ public sealed class SensitiveVariableValidationTests
         TemplateValidation.ContainsLinkLikeText("seu código é 998877").ShouldBeFalse();
     }
 
-    private static ValidationCheck Run(IReadOnlyList<string> sensitive, string body)
+    private static ValidationCheck Run(IReadOnlyList<string> sensitive, string body, string schema = Schema)
     {
         Template template = Template.Create(Key, new TemplateMetadata
         {
@@ -147,7 +206,7 @@ public sealed class SensitiveVariableValidationTests
                 body,
                 null),
             "author-1").IsSuccess.ShouldBeTrue();
-        version.SetVariablesSchema(Schema, "author-1").IsSuccess.ShouldBeTrue();
+        version.SetVariablesSchema(schema, "author-1").IsSuccess.ShouldBeTrue();
 
         ValidationReport report = TemplateValidation.Validate(template, version, [
             new ContentAnalysis(

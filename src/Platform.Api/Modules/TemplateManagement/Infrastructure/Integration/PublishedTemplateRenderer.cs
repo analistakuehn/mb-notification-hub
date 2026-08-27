@@ -130,6 +130,13 @@ internal sealed class PublishedTemplateRenderer(
     /// The masked form repeats the render with the sensitive values masked, so
     /// masking can never leak through a template transformation; a payload
     /// with nothing to mask reuses the full form, hash included.
+    /// <para>
+    /// One walk decides both things. Asking whether anything needs masking and
+    /// then masking are the same traversal, and splitting them lets the two
+    /// answers drift: a "nothing to mask" computed apart from the mask that ran
+    /// returns the complete form as the masked one, hash included, into a trail
+    /// that cannot be corrected afterwards.
+    /// </para>
     /// </summary>
     private async Task<Result<RenderedForm>> RenderMaskedFormAsync(
         Template template,
@@ -140,14 +147,13 @@ internal sealed class PublishedTemplateRenderer(
         RenderedForm full,
         CancellationToken cancellationToken)
     {
-        if (!VariableMasking.RequiresMasking(variables, template.SensitiveVariables))
+        SensitiveValueMask.Outcome masked = VariableMasking.Mask(variables, template.SensitiveVariables);
+        if (!masked.Changed)
         {
             return Result.Success(full);
         }
 
-        JsonElement? maskedVariables = VariableMasking.MaskSensitiveVariables(
-            variables, template.SensitiveVariables);
-        return await RenderFormAsync(channel, content, maskedVariables, wrapper, cancellationToken);
+        return await RenderFormAsync(channel, content, masked.Value, wrapper, cancellationToken);
     }
 
     /// <summary>

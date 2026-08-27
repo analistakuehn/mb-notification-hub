@@ -434,30 +434,34 @@ public static partial class TemplateValidation
     }
 
     /// <summary>
-    /// A sensitive name only masks when it addresses a variable the payload
-    /// carries at its top level, because that is the shape the mask walks. A
-    /// name the schema never declares therefore masks nothing, and the render
-    /// stores the full form as if it were the masked one: the value travels in
-    /// clear into an append-only trail that cannot be corrected afterwards.
-    /// Refusing publication is the only point where this is still cheap.
+    /// A sensitive name only masks when it addresses a variable the schema
+    /// describes, because that is the shape the mask walks. A name the schema
+    /// never declares therefore masks nothing, and the render stores the full
+    /// form as if it were the masked one: the value travels in clear into an
+    /// append-only trail that cannot be corrected afterwards. Refusing
+    /// publication is the only point where this is still cheap.
+    /// <para>
+    /// The name resolves at any depth the schema declares, and a dotted name
+    /// resolves as an absolute path. A name that resolves to nothing is still
+    /// refused, including a dotted name whose intermediate level the schema
+    /// declares as something other than a nested object: the mask cannot
+    /// address a value through it either.
+    /// </para>
     /// </summary>
     private static void AddSensitiveVariableDeclarationChecks(
         List<ValidationCheck> checks,
         Template template,
         TemplateVersion version)
     {
-        if (!VariablesSchema.TryParse(version.VariablesSchemaJson, out IReadOnlyList<VariableDeclaration> declarations))
+        if (!VariablesSchema.TryUndeclaredNames(
+            version.VariablesSchemaJson, template.SensitiveVariables, out IReadOnlyList<string> undeclared))
         {
             // The schema itself is unusable, which `variables-schema` already
             // reports. Naming it twice would only crowd the report.
             return;
         }
 
-        var declared = new HashSet<string>(
-            declarations.Select(declaration => declaration.Name),
-            StringComparer.Ordinal);
-
-        foreach (var variable in template.SensitiveVariables.Where(name => !declared.Contains(name)))
+        foreach (var variable in undeclared)
         {
             checks.Add(Failed(
                 ValidationCheckNames.SensitiveVariables,
@@ -489,9 +493,22 @@ public static partial class TemplateValidation
 
             foreach (Match identifier in Identifier().Matches(placeholder.Groups[1].Value))
             {
+                // The read is matched both whole and segment by segment: a
+                // dotted sensitive name addresses the whole read, and a name
+                // without a dot addresses any segment of it, which is exactly
+                // the pair of shapes the mask reaches.
                 if (sensitive.Contains(identifier.Value))
                 {
                     yield return identifier.Value;
+                    continue;
+                }
+
+                foreach (var segment in identifier.Value.Split('.'))
+                {
+                    if (sensitive.Contains(segment))
+                    {
+                        yield return segment;
+                    }
                 }
             }
         }
@@ -713,6 +730,9 @@ public static partial class TemplateValidation
     private static partial Regex Placeholder();
 
     /// <summary>Identifiers read inside one placeholder expression.</summary>
-    [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_]*", RegexOptions.NonBacktracking, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(
+        @"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*",
+        RegexOptions.NonBacktracking,
+        matchTimeoutMilliseconds: 1000)]
     private static partial Regex Identifier();
 }

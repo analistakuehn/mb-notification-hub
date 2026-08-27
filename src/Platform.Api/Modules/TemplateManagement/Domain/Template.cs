@@ -243,8 +243,8 @@ public sealed partial class Template
             {
                 return Result.ValidationError<List<string>>(DomainError.Format(
                     ErrorCodes.InvalidRequest,
-                    "Each sensitive variable must be a template variable name: letters, digits and "
-                    + "underscores, not starting with a digit."));
+                    "Each sensitive variable must be a template variable path: dot-separated "
+                    + "segments of letters, digits and underscores, none starting with a digit."));
             }
 
             if (!normalized.Contains(candidate, StringComparer.Ordinal))
@@ -259,7 +259,11 @@ public sealed partial class Template
     [GeneratedRegex(@"^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$")]
     private static partial Regex LinkDomainPattern();
 
-    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*$")]
+    // A sensitive name addresses either a variable at any depth (one segment)
+    // or an absolute path from the payload root (several). Every segment stays
+    // ASCII, where ordinal comparison and Unicode normalization coincide, so
+    // the publication check and the mask can never read the same name apart.
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")]
     private static partial Regex VariableNamePattern();
 }
 

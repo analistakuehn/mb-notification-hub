@@ -102,6 +102,10 @@ public sealed class TemplateTests
     [InlineData("with space")]
     [InlineData("with-dash")]
     [InlineData("")]
+    [InlineData(".cpf")]
+    [InlineData("cpf.")]
+    [InlineData("cliente..cpf")]
+    [InlineData("cliente.1cpf")]
     public void Rejects_sensitive_variables_that_are_not_variable_names(string variable)
     {
         Result<Template> result = Template.Create(Key, Metadata() with { SensitiveVariables = [variable] });
