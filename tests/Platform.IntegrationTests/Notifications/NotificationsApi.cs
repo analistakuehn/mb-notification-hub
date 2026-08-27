@@ -15,9 +15,10 @@ internal static class NotificationsApi
     private static readonly string[] RequiredOrderId = ["orderId"];
 
     /// <summary>
-    /// One request body. A null <paramref name="locale"/> omits the member
-    /// entirely instead of sending a JSON null, because the two are different
-    /// requests on the wire and the optional field has to be provably absent.
+    /// One request body. A null <paramref name="locale"/> and a null
+    /// <paramref name="metadata"/> omit the member entirely instead of sending
+    /// a JSON null, because the two are different requests on the wire and the
+    /// optional field has to be provably absent.
     /// </summary>
     internal static object RequestBody(
         string templateKey,
@@ -26,7 +27,8 @@ internal static class NotificationsApi
         object? variables = null,
         int ttlSeconds = 300,
         string? correlationId = null,
-        string? locale = "pt-BR")
+        string? locale = "pt-BR",
+        object? metadata = null)
     {
         var body = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -41,6 +43,11 @@ internal static class NotificationsApi
         if (locale is not null)
         {
             body["locale"] = locale;
+        }
+
+        if (metadata is not null)
+        {
+            body["metadata"] = metadata;
         }
 
         return body;

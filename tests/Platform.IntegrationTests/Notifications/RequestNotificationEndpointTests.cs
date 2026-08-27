@@ -287,6 +287,74 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
     }
 
     /// <summary>
+    /// Metadata reaches no decision of the hub and is stored nowhere at
+    /// ingestion, but the idempotency payload hash canonicalizes all of it,
+    /// once here and again for every replay resolved later, so it carries a
+    /// ceiling of its own. The template key is one that was never published on
+    /// purpose: without the ceiling the answer would be the catalog's 422,
+    /// which is proof that the payload reached the gate and the hash.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task Oversized_metadata_is_refused_before_the_catalog_and_the_payload_hash()
+    {
+        HttpClient producer = fixture.CreateProducerClient("producer-oversized-metadata", NotificationsApi.SendTransactional);
+        var idempotencyKey = $"oversized-metadata-{Guid.NewGuid():N}";
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                "template.that.was.never.published",
+                metadata: new { diagnostic = new string('x', 40_000) }),
+            idempotencyKey);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("payload-invalid");
+
+        JsonElement errors = problem.GetProperty("errors");
+        errors.EnumerateObject().Select(entry => entry.Name).ShouldBe(["Metadata"]);
+
+        // The refusal names the ceiling and nothing the producer sent, and the
+        // ceiling it names is this module's own, an eighth of what the catalog
+        // publishes for variables.
+        errors.GetProperty("Metadata")[0].GetString()
+            .ShouldBe("Metadata must serialize to at most 32768 bytes of JSON.");
+
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(notification => notification.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+        (await fixture.QueryNotificationsDbAsync(db => db.IdempotencyRegistrations
+            .AsNoTracking()
+            .CountAsync(registration => registration.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The other half of the ceiling: metadata a producer would plausibly send
+    /// stays admitted, so the guard bounds the field instead of banning it.
+    /// The template key is again one that was never published, so a request
+    /// that clears shape validation runs on and dies at the catalog, which is
+    /// what tells the two refusals apart.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task Metadata_under_the_ceiling_reaches_the_catalog()
+    {
+        HttpClient producer = fixture.CreateProducerClient("producer-sized-metadata", NotificationsApi.SendTransactional);
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                "template.that.was.never.published",
+                metadata: new { diagnostic = new string('x', 20_000) }),
+            $"sized-metadata-{Guid.NewGuid():N}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("template-not-found");
+    }
+
+    /// <summary>
     /// Accepted consequence of moving the shape check into the use case: the
     /// key is answered first, which is the right order, because the trail needs
     /// it for the identity of the entity it records.

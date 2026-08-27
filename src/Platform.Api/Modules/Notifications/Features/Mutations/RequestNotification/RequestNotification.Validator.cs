@@ -43,7 +43,17 @@ internal static partial class RequestNotification
                     $"Variables must serialize to at most {VariablesPayloadLimit.MaxBytes} bytes of JSON.");
             RuleFor(command => command.Metadata)
                 .Must(BeAnObjectOrAbsent)
-                .WithMessage("Metadata must be a JSON object.");
+                .WithMessage("Metadata must be a JSON object.")
+
+                // This module owns this ceiling because it owns the cost the
+                // ceiling bounds: the idempotency payload hash canonicalizes
+                // metadata recursively, on every accepted request and again on
+                // every replay resolved against a stored registration. Nothing
+                // downstream reads the field, so the catalog's number would be
+                // the wrong one to borrow.
+                .Must(metadata => !MetadataPayloadSize.ExceedsMaxBytes(metadata))
+                .WithMessage(
+                    $"Metadata must serialize to at most {MetadataPayloadSize.MaxBytes} bytes of JSON.");
             RuleForEach(command => command.ChannelsHint).NotEmpty().MaximumLength(20);
         }
 

@@ -62,10 +62,10 @@ Campos do corpo:
 | `templateKey` | sim | Até 200 caracteres. |
 | `locale` | não | Até 20 caracteres. Aceito, **sem efeito** e fora do hash de idempotência: veja a seção 4. |
 | `ttlSeconds` | sim | Inteiro maior que zero e no máximo 2.592.000 (30 dias). |
-| `variables` | não | Objeto JSON. Ausente ou `null` significa nenhuma variável. |
+| `variables` | não | Objeto JSON. Ausente ou `null` significa nenhuma variável. No máximo 262.144 bytes na forma compacta em UTF-8. |
 | `channelsHint` | não | Lista de strings de até 20 caracteres cada. Aceita e ignorada: veja a seção 4. |
 | `correlationId` | não | Até 200 caracteres. É por ele que a consulta agrupa uma transação de negócio. |
-| `metadata` | não | Objeto JSON. Não é persistido, mas entra no hash de idempotência. |
+| `metadata` | não | Objeto JSON. Não é persistido, mas entra no hash de idempotência. No máximo 32.768 bytes na forma compacta em UTF-8, teto menor que o de `variables` porque o campo não é renderizado nem consultado, e mesmo assim é canonicalizado a cada requisição e a cada replay. |
 | `scheduledAt` | não | ISO 8601. Aceito e **sem efeito** nesta versão: veja a seção 4. |
 
 O cabeçalho `Idempotency-Key` é obrigatório, com no máximo 200 caracteres.
