@@ -54,7 +54,30 @@ internal static partial class RequestNotification
                 .Must(metadata => !MetadataPayloadSize.ExceedsMaxBytes(metadata))
                 .WithMessage(
                     $"Metadata must serialize to at most {MetadataPayloadSize.MaxBytes} bytes of JSON.");
-            RuleForEach(command => command.ChannelsHint).NotEmpty().MaximumLength(20);
+            RuleFor(command => command.ChannelsHint)
+
+                // A hint longer than the canonical channel set cannot say
+                // anything a shorter one cannot: past that length it only
+                // repeats a channel or names one that does not exist, and both
+                // are already inert. What the field is promised to become is a
+                // reordering within the channels the policy already allows,
+                // never an addition, so the size of that set is the longest
+                // the hint can ever need to be. The number is read from the
+                // catalog rather than copied, so a fifth channel carries the
+                // ceiling with it, and the idempotency payload hash stops
+                // taking a list of unbounded length from the producer.
+                .Must(hint => hint is null || hint.Count <= Channel.All.Count)
+                .WithMessage($"ChannelsHint must name at most {Channel.All.Count} channels.");
+
+            // Only worth itemizing a list that is not already refused for its
+            // length. Each element carries its own error keyed by position, so
+            // running these over a list of tens of thousands would answer an
+            // oversized request with an oversized refusal.
+            RuleForEach(command => command.ChannelsHint)
+                .NotEmpty()
+                .MaximumLength(20)
+                .When(command => command.ChannelsHint is null
+                    || command.ChannelsHint.Count <= Channel.All.Count);
         }
 
         private static bool BeAnObjectOrAbsent(JsonElement? value)

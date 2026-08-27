@@ -63,7 +63,7 @@ Campos do corpo:
 | `locale` | não | Até 20 caracteres. Aceito, **sem efeito** e fora do hash de idempotência: veja a seção 4. |
 | `ttlSeconds` | sim | Inteiro maior que zero e no máximo 2.592.000 (30 dias). |
 | `variables` | não | Objeto JSON. Ausente ou `null` significa nenhuma variável. No máximo 262.144 bytes na forma compacta em UTF-8. |
-| `channelsHint` | não | Lista de strings de até 20 caracteres cada. Aceita e ignorada: veja a seção 4. |
+| `channelsHint` | não | Lista de no máximo 4 strings, uma por canal existente, de até 20 caracteres cada. Aceita e ignorada: veja a seção 4. |
 | `correlationId` | não | Até 200 caracteres. É por ele que a consulta agrupa uma transação de negócio. |
 | `metadata` | não | Objeto JSON. Não é persistido, mas entra no hash de idempotência. No máximo 32.768 bytes na forma compacta em UTF-8, teto menor que o de `variables` porque o campo não é renderizado nem consultado, e mesmo assim é canonicalizado a cada requisição e a cada replay. |
 | `scheduledAt` | não | ISO 8601. Aceito e **sem efeito** nesta versão: veja a seção 4. |
@@ -353,6 +353,10 @@ seleção de canal roda sem ele. Nenhuma reordenação por solicitação existe 
 *Critério de retorno*: o primeiro produtor com necessidade demonstrada de
 reordenar preferência por solicitação. Quando isso acontecer, o hint volta como
 reordenação **dentro** dos canais já permitidos, jamais como adição de canal.
+É essa promessa que fixa o teto de contagem da lista, hoje quatro itens: uma
+reordenação dentro de um conjunto fechado nunca precisa de mais entradas do que
+o conjunto tem, e além desse ponto a lista só repete canal ou nomeia canal que
+não existe. O teto acompanha o conjunto, então um quinto canal o move junto.
 
 **`locale`**: opcional, não persistido e fora do hash de idempotência. O locale
 de renderização vem do perfil do destinatário ou do padrão do template. Omita o

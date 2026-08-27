@@ -15,6 +15,9 @@ namespace NotificationHub.IntegrationTests.Notifications;
 [Collection(NotificationsApiCollectionDefinition.Name)]
 public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fixture)
 {
+    /// <summary>Every canonical channel, which is the longest hint the ceiling admits.</summary>
+    private static readonly string[] EveryChannel = ["push", "sms", "email", "whatsapp"];
+
     [RequiresDockerFact]
     public async Task Accepting_a_notification_persists_notification_idempotency_outbox_and_audit_together()
     {
@@ -328,6 +331,99 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
             .AsNoTracking()
             .CountAsync(registration => registration.IdempotencyKey == idempotencyKey)))
             .ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The last input of the idempotency payload hash that had no ceiling. The
+    /// per-element rules bounded how long each channel name may be and never
+    /// how many of them arrive, so the hash took a list of whatever length the
+    /// transport accepted. The template key is one that was never published on
+    /// purpose: without the ceiling the answer would be the catalog's 422,
+    /// which is proof that the list reached the gate and the hash.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_channel_hint_longer_than_the_channel_set_is_refused_before_the_catalog()
+    {
+        HttpClient producer = fixture.CreateProducerClient("producer-long-hint", NotificationsApi.SendTransactional);
+        var idempotencyKey = $"long-hint-{Guid.NewGuid():N}";
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                "template.that.was.never.published",
+                channelsHint: Enumerable.Repeat("sms", 5).ToArray()),
+            idempotencyKey);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("payload-invalid");
+
+        JsonElement errors = problem.GetProperty("errors");
+        errors.EnumerateObject().Select(entry => entry.Name).ShouldBe(["ChannelsHint"]);
+        errors.GetProperty("ChannelsHint")[0].GetString()
+            .ShouldBe("ChannelsHint must name at most 4 channels.");
+
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(notification => notification.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+        (await fixture.QueryNotificationsDbAsync(db => db.IdempotencyRegistrations
+            .AsNoTracking()
+            .CountAsync(registration => registration.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+    }
+
+    /// <summary>
+    /// An oversized list is answered once, for its length, and never itemized.
+    /// Every element carries its own error keyed by position, so running the
+    /// per-element rules over a list this long would answer an oversized
+    /// request with an oversized refusal, which is the amplification the
+    /// ceiling exists to remove.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task An_oversized_channel_hint_is_answered_by_its_length_and_not_element_by_element()
+    {
+        HttpClient producer = fixture.CreateProducerClient("producer-flood-hint", NotificationsApi.SendTransactional);
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                "template.that.was.never.published",
+
+                // Every element would fail NotEmpty on its own, so without the
+                // condition the answer would carry ten thousand entries.
+                channelsHint: Enumerable.Repeat(string.Empty, 10_000).ToArray()),
+            $"flood-hint-{Guid.NewGuid():N}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+
+        JsonElement errors = problem.GetProperty("errors");
+        errors.EnumerateObject().Select(entry => entry.Name).ShouldBe(["ChannelsHint"]);
+        errors.GetProperty("ChannelsHint").GetArrayLength().ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The other half of the ceiling: a hint as long as the channel set stays
+    /// admitted, so the guard bounds the field instead of banning it. The
+    /// template key is again one that was never published, so a request that
+    /// clears shape validation runs on and dies at the catalog.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_channel_hint_naming_every_channel_reaches_the_catalog()
+    {
+        HttpClient producer = fixture.CreateProducerClient("producer-full-hint", NotificationsApi.SendTransactional);
+
+        HttpResponseMessage response = await NotificationsApi.PostNotificationAsync(
+            producer,
+            NotificationsApi.RequestBody(
+                "template.that.was.never.published",
+                channelsHint: EveryChannel),
+            $"full-hint-{Guid.NewGuid():N}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("template-not-found");
     }
 
     /// <summary>
