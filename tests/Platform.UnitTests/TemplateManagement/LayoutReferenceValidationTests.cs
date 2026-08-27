@@ -69,7 +69,7 @@ public sealed class LayoutReferenceValidationTests
         TemplateVersion version = DraftWithLayout();
 
         ValidationReport report = TemplateValidation.Validate(
-            NewTemplate(), version, [], Facts() with { Contents = [new ContentUnit("sms", "pt-BR")] });
+            NewTemplate(), version, [], Facts() with { Contents = [Framing("sms", "pt-BR")] });
 
         ValidationCheck failed = report.Checks.Single(check => check.Name == "layout-reference");
         failed.Status.ShouldBe("failed");
@@ -85,7 +85,7 @@ public sealed class LayoutReferenceValidationTests
             NewTemplate(),
             version,
             [],
-            Facts() with { Contents = [new ContentUnit("email", "pt")] });
+            Facts() with { Contents = [Framing("email", "pt")] });
 
         report.Checks.Single(check => check.Name == "layout-reference").Status.ShouldBe("passed");
     }
@@ -121,6 +121,9 @@ public sealed class LayoutReferenceValidationTests
         return version;
     }
 
+    private static LayoutContentFacts Framing(string channel, string locale)
+        => new(channel, locale, "<html>{{ content }}</html>", null);
+
     private static LayoutReferenceFacts Facts() => new()
     {
         LayoutKey = "email.base",
@@ -129,6 +132,6 @@ public sealed class LayoutReferenceValidationTests
         VersionExists = true,
         VersionStatus = "published",
         DefaultLocale = "pt",
-        Contents = [new ContentUnit("email", "pt-BR")],
+        Contents = [Framing("email", "pt-BR")],
     };
 }

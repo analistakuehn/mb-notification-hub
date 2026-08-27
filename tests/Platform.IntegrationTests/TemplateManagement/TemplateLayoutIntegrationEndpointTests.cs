@@ -157,6 +157,60 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         problem.GetProperty("type").GetString().ShouldBe("layout-content-not-found");
     }
 
+    [RequiresDockerFact]
+    public async Task Publishing_a_template_pinned_to_a_layout_with_a_foreign_host_is_blocked()
+    {
+        // The layout publishes on its own: it answers to no allowlist, because
+        // it has no template until one pins it. The template that pins it is
+        // where the allowed domains apply, and the wrapper is part of what it
+        // sends.
+        HttpClient author = fixture.CreateAuthorClient("author-tl-8");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-8");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            author,
+            body: """<html><header>MB</header><a href="https://evil.example.io/x">promo</a>{{ content }}</html>""");
+        await LayoutApi.PublishAsync(publisher, layoutKey, layoutVersion);
+        (var key, var version) = await CreateDraftAllowingMonteBravoAsync(author);
+        await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
+
+        HttpResponseMessage validation = await author.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/validate", content: null);
+        HttpResponseMessage publish = await publisher.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/publish", content: null);
+
+        JsonElement report = await TemplateApi.ReadJsonAsync(validation);
+        report.GetProperty("passed").GetBoolean().ShouldBeFalse();
+        report.GetProperty("checks").EnumerateArray().ShouldContain(check =>
+            check.GetProperty("name").GetString() == "url-allowlist"
+            && check.GetProperty("status").GetString() == "failed"
+            && check.GetProperty("message").GetString()!.Contains("evil.example.io", StringComparison.Ordinal));
+        publish.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+    }
+
+    private static readonly string[] MonteBravoDomain = ["montebravo.com.br"];
+
+    private static readonly string[] RequiredOrderId = ["orderId"];
+
+    private static async Task<(string Key, int Version)> CreateDraftAllowingMonteBravoAsync(HttpClient client)
+    {
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: MonteBravoDomain);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Pedido {{ orderId }}",
+            body = "<p>Pedido {{ orderId }} atualizado.</p>",
+            bodyText = "Pedido {{ orderId }} atualizado.",
+        }, etag);
+        await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { orderId = new { type = "string" } },
+            required = RequiredOrderId,
+        }, etag);
+        return (key, version);
+    }
+
     private static async Task PinLayoutAsync(
         HttpClient client,
         string key,

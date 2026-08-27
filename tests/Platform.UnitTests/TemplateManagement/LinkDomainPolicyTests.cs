@@ -65,6 +65,33 @@ public sealed class LinkDomainPolicyTests
         Should.NotThrow(() => { _ = LinkDomainPolicy.FirstDisallowedHost(text, MakeTemplate()); });
     }
 
+    [Theory]
+    [InlineData("""
+        <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+        """)]
+    [InlineData("""<html xmlns="http://www.w3.org/1999/xhtml">""")]
+    [InlineData("""<html xmlns:v="urn:schemas-microsoft-com:vml">""")]
+    [InlineData("<!DOCTYPE html>")]
+    public void An_html_construct_that_carries_a_uri_without_offering_a_link_yields_no_host(string markup)
+    {
+        LinkDomainPolicy.HostsIn(LinkDomainPolicy.WithoutNonLinkUri(markup)).ShouldBeEmpty();
+        LinkDomainPolicy.FirstDisallowedHostInMarkup(markup, MakeTemplate()).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_link_next_to_a_doctype_still_yields_its_host()
+    {
+        const string Markup = """
+            <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            <html xmlns="http://www.w3.org/1999/xhtml"><a href="https://evil.example.io/x">ir</a></html>
+            """;
+
+        LinkDomainPolicy.HostsIn(LinkDomainPolicy.WithoutNonLinkUri(Markup))
+            .ShouldHaveSingleItem()
+            .ShouldBe("evil.example.io");
+        LinkDomainPolicy.FirstDisallowedHostInMarkup(Markup, MakeTemplate()).ShouldBe("evil.example.io");
+    }
+
     private static Template MakeTemplate()
         => Template.Create(TemplateKey.Create("orders.status.changed").Value!, new TemplateMetadata
         {

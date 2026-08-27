@@ -166,6 +166,47 @@ public static partial class LinkDomainPolicy
         return null;
     }
 
+    /// <summary>
+    /// The text with the HTML constructs that carry a URI without offering a
+    /// link removed. A DOCTYPE names a public identifier and a DTD location, and
+    /// an xmlns names a namespace; neither is something a reader can act on, and
+    /// neither can be declared as an allowed domain, because an allowed domain
+    /// must be a bare host with a dot and an alphabetic suffix. Scanning them as
+    /// links would make every template that pins an XHTML layout impossible to
+    /// publish, with no fix available to its author.
+    /// </summary>
+    public static string WithoutNonLinkUri(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return XmlNamespaceDeclaration().Replace(
+                DocumentTypeDeclaration().Replace(text, string.Empty),
+                string.Empty);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // Fails closed: the uncleaned text goes on to the scan, which then
+            // sees every URI the markup carries and can only refuse more than
+            // the rule asks for, never less.
+            return text;
+        }
+    }
+
+    /// <summary>
+    /// The first host of a piece of HTML-bearing content that the template does
+    /// not allow, ignoring the class-wide ban on links: a layout is shared
+    /// framing whose links are already bounded by the pinning template's allowed
+    /// domains, and a single CDN image would otherwise make every layout
+    /// unusable by a critical template, with no allowlist able to fix it.
+    /// </summary>
+    public static string? FirstDisallowedHostInMarkup(string? text, Template template)
+        => FirstDisallowedHost(WithoutNonLinkUri(text), template);
+
     /// <summary>Whether the value is an absolute http(s) URL inside the allowed domains.</summary>
     public static bool IsAllowedUrlValue(Template template, JsonElement value)
         => value.ValueKind == JsonValueKind.String
@@ -203,4 +244,22 @@ public static partial class LinkDomainPolicy
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex HostCandidate();
+
+    // The DOCTYPE runs to the first ">", which is where every standard
+    // declaration ends: the public identifier and the DTD location it carries
+    // are quoted and hold no ">" of their own.
+    [GeneratedRegex(
+        @"<!doctype[^>]*>",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+        matchTimeoutMilliseconds: 1000)]
+    private static partial Regex DocumentTypeDeclaration();
+
+    // Both quoting styles in one alternation, because an attribute value is
+    // delimited by the quote that opened it and nothing else may close it.
+    [GeneratedRegex(
+        @"\bxmlns(?::[a-z0-9_.-]+)?\s*=\s*""[^""]*"""
+        + @"|\bxmlns(?::[a-z0-9_.-]+)?\s*=\s*'[^']*'",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+        matchTimeoutMilliseconds: 1000)]
+    private static partial Regex XmlNamespaceDeclaration();
 }

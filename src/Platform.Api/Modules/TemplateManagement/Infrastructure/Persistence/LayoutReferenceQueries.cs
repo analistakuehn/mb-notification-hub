@@ -41,7 +41,8 @@ internal static class LayoutReferenceQueries
             VersionStatus = pinned?.Status.Canonical(),
             DefaultLocale = layout?.DefaultLocale?.Value,
             Contents = pinned?.Contents
-                .Select(content => new ContentUnit(content.Channel.Value, content.Locale.Value))
+                .Select(content => new LayoutContentFacts(
+                    content.Channel.Value, content.Locale.Value, content.Body, content.BodyText))
                 .ToList() ?? [],
         };
     }

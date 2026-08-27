@@ -132,10 +132,10 @@ public static partial class TemplateValidation
             AddUnusedVariableChecks(checks, declarations, analyses);
         }
 
-        AddUrlChecks(checks, template, version, declarations, analyses);
-        AddAuthenticationSmsChecks(checks, template, version, declarations, analyses);
+        AddUrlChecks(checks, template, version, declarations, analyses, layoutReference);
+        AddAuthenticationSmsChecks(checks, template, version, declarations, analyses, layoutReference);
         AddSensitiveVariableChecks(checks, template, version);
-        AddChannelLimitChecks(checks, version);
+        AddChannelLimitChecks(checks, version, layoutReference);
         AddDefaultLocaleChecks(checks, template, version);
         AddLayoutReferenceChecks(checks, version, layoutReference);
         return new ValidationReport(checks);
@@ -229,12 +229,18 @@ public static partial class TemplateValidation
         }
     }
 
+    /// <summary>
+    /// The allowed domains rule over the content of the version and over the
+    /// layout it pins alike: the reader receives one message, and a link the
+    /// wrapper carries is as clickable as one the body carries.
+    /// </summary>
     private static void AddUrlChecks(
         List<ValidationCheck> checks,
         Template template,
         TemplateVersion version,
         IReadOnlyList<VariableDeclaration> declarations,
-        IReadOnlyList<ContentAnalysis> analyses)
+        IReadOnlyList<ContentAnalysis> analyses,
+        LayoutReferenceFacts? facts)
     {
         var before = checks.Count;
         foreach (TemplateContent content in version.Contents)
@@ -253,6 +259,35 @@ public static partial class TemplateValidation
                     }
                 }
             }
+
+            // The layout text answers to the allowed domains, and never to the
+            // class-wide ban that CheckLink applies: framing is shared by many
+            // templates, and a single logo from the CDN would otherwise put
+            // every layout out of reach of a critical template, with no
+            // allowlist entry able to undo the refusal.
+            //
+            // The two fields go through different doors of the link policy, and
+            // the split is a fix rather than a nicety. The body is markup, so
+            // the DOCTYPE and the xmlns declarations come out before the scan:
+            // they name a DTD and a namespace, and no author can declare either
+            // as an allowed domain. The text variant carries no markup, so
+            // nothing comes out of it: an address written inside what looks
+            // like a declaration is shielded by nothing there, and a client
+            // that auto-links turns it into a link the reader can tap.
+            if (facts is { PinIsPublished: true }
+                && facts.ResolveContent(content.Channel, content.Locale) is { } framing)
+            {
+                if (LinkDomainPolicy.FirstDisallowedHostInMarkup(framing.Body, template) is { } inMarkup)
+                {
+                    checks.Add(LayoutHostFinding(inMarkup, AtLayout(facts, content, TemplateContentFields.Body)));
+                }
+
+                if (LinkDomainPolicy.FirstDisallowedHost(framing.BodyText, template) is { } inPlainText)
+                {
+                    checks.Add(LayoutHostFinding(
+                        inPlainText, AtLayout(facts, content, TemplateContentFields.BodyText)));
+                }
+            }
         }
 
         AddUrlVariableChecks(checks, template, declarations, analyses);
@@ -260,6 +295,12 @@ public static partial class TemplateValidation
         {
             checks.Add(Passed(ValidationCheckNames.UrlAllowlist, "Links and URL variables respect the allowed domains."));
         }
+
+        static ValidationCheck LayoutHostFinding(string host, string location)
+            => Failed(
+                ValidationCheckNames.UrlAllowlist,
+                $"The pinned layout carries link host '{host}', which is outside the allowed domains.",
+                location);
     }
 
     private static ValidationCheck? CheckLink(Template template, string host, string location)
@@ -347,7 +388,8 @@ public static partial class TemplateValidation
         Template template,
         TemplateVersion version,
         IReadOnlyList<VariableDeclaration> declarations,
-        IReadOnlyList<ContentAnalysis> analyses)
+        IReadOnlyList<ContentAnalysis> analyses,
+        LayoutReferenceFacts? facts)
     {
         if (!string.Equals(template.Purpose, AuthenticationPurpose, StringComparison.Ordinal)) return;
 
@@ -367,6 +409,31 @@ public static partial class TemplateValidation
                         ValidationCheckNames.AuthenticationSmsLinks,
                         "An authentication SMS must carry no link.",
                         At(content.Channel, content.Locale, field)));
+                }
+            }
+
+            // The wrapper reaches the same phone. Without this the catalog
+            // says the version is clean and the render refuses it every time,
+            // which reads as an authentication code that never arrives.
+            //
+            // Both fields go through one detector here, unlike the allowlist
+            // rule above, which sends them through different doors. This ban
+            // asks whether anything is clickable, not which domain it points
+            // at, and it strips nothing from either field: an SMS wrapper is
+            // not markup, so there is no declaration to shield a host and
+            // nothing to take out before looking.
+            if (facts is { PinIsPublished: true }
+                && facts.ResolveContent(content.Channel, content.Locale) is { } framing)
+            {
+                foreach ((var field, var text) in LayoutFields(framing))
+                {
+                    if (ContainsLinkLikeText(text))
+                    {
+                        checks.Add(Failed(
+                            ValidationCheckNames.AuthenticationSmsLinks,
+                            "The layout this version pins puts a link inside an authentication SMS.",
+                            AtLayout(facts, content, field)));
+                    }
                 }
             }
         }
@@ -537,16 +604,34 @@ public static partial class TemplateValidation
     private static bool IsUrlBoundary(char character)
         => char.IsWhiteSpace(character) || character is '<' or '>' or '"' or '\'';
 
-    private static void AddChannelLimitChecks(List<ValidationCheck> checks, TemplateVersion version)
+    /// <summary>
+    /// What leaves the platform is the content inside its wrapper, so the
+    /// ceiling applies to the sum. The measure stays on the source, which is
+    /// what this catalog has always measured, and the sum keeps the characters
+    /// of the content placeholder in: a layout may read the placeholder more
+    /// than once, so discounting it once would understate the message. The
+    /// result is conservative by that much.
+    /// </summary>
+    private static void AddChannelLimitChecks(
+        List<ValidationCheck> checks,
+        TemplateVersion version,
+        LayoutReferenceFacts? facts)
     {
         var before = checks.Count;
         foreach (TemplateContent content in version.Contents)
         {
-            if (content.Channel == Channel.Sms && content.Body.Length > SmsMaxBodyChars)
+            LayoutContentFacts? framing = facts is { PinIsPublished: true }
+                ? facts.ResolveContent(content.Channel, content.Locale)
+                : null;
+            var wrapped = content.Body.Length + (framing?.Body.Length ?? 0);
+
+            if (content.Channel == Channel.Sms && wrapped > SmsMaxBodyChars)
             {
                 checks.Add(Failed(
                     ValidationCheckNames.ChannelLimits,
-                    $"SMS body template exceeds {SmsMaxBodyChars} characters.",
+                    framing is null
+                        ? $"SMS body template exceeds {SmsMaxBodyChars} characters."
+                        : $"SMS body template and the layout it pins exceed {SmsMaxBodyChars} characters together.",
                     At(content.Channel, content.Locale, TemplateContentFields.Body)));
             }
 
@@ -558,11 +643,13 @@ public static partial class TemplateValidation
                     At(content.Channel, content.Locale, TemplateContentFields.Subject)));
             }
 
-            if (content.Channel == Channel.Push && content.Body.Length > PushMaxBodyChars)
+            if (content.Channel == Channel.Push && wrapped > PushMaxBodyChars)
             {
                 checks.Add(Failed(
                     ValidationCheckNames.ChannelLimits,
-                    $"Push body template exceeds {PushMaxBodyChars} characters.",
+                    framing is null
+                        ? $"Push body template exceeds {PushMaxBodyChars} characters."
+                        : $"Push body template and the layout it pins exceed {PushMaxBodyChars} characters together.",
                     At(content.Channel, content.Locale, TemplateContentFields.Body)));
             }
 
@@ -660,15 +747,7 @@ public static partial class TemplateValidation
         var before = checks.Count;
         foreach (TemplateContent content in version.Contents)
         {
-            var available = facts.Contents
-                .Where(unit => string.Equals(unit.Channel, content.Channel.Value, StringComparison.Ordinal))
-                .Select(unit => Locale.Trusted(unit.Locale))
-                .ToList();
-            Locale? resolved = LocaleResolution.Resolve(
-                content.Locale,
-                available,
-                facts.DefaultLocale is null ? null : Locale.Trusted(facts.DefaultLocale));
-            if (resolved is null)
+            if (facts.ResolveContent(content.Channel, content.Locale) is null)
             {
                 checks.Add(Failed(
                     ValidationCheckNames.LayoutReference,
@@ -700,8 +779,28 @@ public static partial class TemplateValidation
         }
     }
 
+    /// <summary>
+    /// Fields of the pinned layout content that carry text a reader can act on.
+    /// </summary>
+    private static IEnumerable<(string Field, string Text)> LayoutFields(LayoutContentFacts framing)
+    {
+        yield return (TemplateContentFields.Body, framing.Body);
+        if (!string.IsNullOrEmpty(framing.BodyText))
+        {
+            yield return (TemplateContentFields.BodyText, framing.BodyText);
+        }
+    }
+
     private static string At(Channel channel, Locale locale, string field)
         => $"{channel.Value}/{locale.Value}/{field}";
+
+    /// <summary>
+    /// Location of a finding about text the template author did not write.
+    /// Naming the layout and its version is what keeps them from searching
+    /// their own content for a link that is not there.
+    /// </summary>
+    private static string AtLayout(LayoutReferenceFacts facts, TemplateContent content, string field)
+        => $"layout:{facts.LayoutKey}@{facts.LayoutVersion}/{content.Channel.Value}/{content.Locale.Value}/{field}";
 
     private static ValidationCheck Passed(string name, string message)
         => new(name, ValidationCheckStatuses.Passed, message, null);
