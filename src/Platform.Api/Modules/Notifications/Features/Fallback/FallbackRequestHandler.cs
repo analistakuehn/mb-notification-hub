@@ -240,16 +240,16 @@ internal sealed class FallbackRequestHandler(
     }
 
     /// <summary>
-    /// Why the content of the next step never rendered. The security refusal
-    /// keeps its own reason and everything else is a render failure, the same
-    /// distinction the ingestion path draws, because the two ask different
-    /// things of whoever reads the ended notification: one is a template to
-    /// fix, the other is a rule that worked.
+    /// Why the content of the next step never rendered. The refusals the
+    /// renderer words for itself keep their own reasons and everything else is
+    /// a render failure, decided by the same table the ingestion path decides
+    /// it with: each case asks something different of whoever reads the ended
+    /// notification, one being a template to fix and the others rules that
+    /// worked, and a second copy of the table would end up answering one of
+    /// them differently here.
     /// </summary>
     internal static string RenderFailureReason(string? error)
-        => string.Equals(error, ReasonAuthenticationSmsLink, StringComparison.Ordinal)
-            ? ReasonAuthenticationSmsLink
-            : ReasonRenderFailed;
+        => RenderStage.ReasonForFailedRender(error);
 
     /// <summary>The step after the failed channel in the plan; null when none follows.</summary>
     internal static DeliveryPlanStep? NextStep(IReadOnlyList<DeliveryPlanStep> plan, string failedChannel)

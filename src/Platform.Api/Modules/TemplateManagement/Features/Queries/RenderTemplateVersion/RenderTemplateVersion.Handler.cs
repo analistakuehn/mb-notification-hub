@@ -180,6 +180,11 @@ internal static partial class RenderTemplateVersion
         /// Resolves the layout content the pinned layout version provides for
         /// the rendered channel and the locale the template resolution landed
         /// on, following the layout's own fallback chain.
+        /// <para>
+        /// The identity answers before the pinned version, for the same reason
+        /// the published render asks it first: whichever version the author
+        /// picks, a layout out of service gives the one answer that helps.
+        /// </para>
         /// </summary>
         private async Task<Result<LayoutWrapper?>> ResolveLayoutWrapperAsync(
             TemplateVersion version,
@@ -194,6 +199,32 @@ internal static partial class RenderTemplateVersion
 
             var key = LayoutKey.Trusted(layoutKey);
             var pinnedNumber = version.LayoutVersion!.Value;
+
+            // Read fresh on every preview, with nothing memoized behind it.
+            // The published read holds the identity for a window because it
+            // sits on the dispatch path and has throughput to protect; a
+            // preview has none, and an author who has just disabled a layout
+            // has to see the refusal now instead of a minute from now.
+            Layout? layout = await dbContext.Layouts
+                .AsNoTracking()
+                .WhereKey(key)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            // Second implementation of one rule: PublishedTemplateRenderer
+            // refuses the same status with the same word, and the two have to
+            // agree, because a preview that frames what the dispatch refuses
+            // reads to the author as proof that everything is in order. The
+            // payload is the one difference, and it is deliberate: a person
+            // reads this one, so the word travels as the code of a typed
+            // problem alongside a sentence, while over there it travels bare
+            // because a sibling module compares it for equality.
+            if (layout is not null && !layout.Status.FramesMessages())
+            {
+                return Result.BusinessRuleViolation<LayoutWrapper?>(DomainError.Format(
+                    LayoutRejectionReasons.Disabled,
+                    $"Layout '{layoutKey}' is disabled and frames no message any more."));
+            }
+
             LayoutVersion? pinned = await dbContext.LayoutVersions
                 .AsNoTracking()
                 .WhereLayoutKey(key)
@@ -204,11 +235,6 @@ internal static partial class RenderTemplateVersion
                     ErrorCodes.LayoutVersionNotFound,
                     $"The version pins layout '{layoutKey}' version {pinnedNumber}, which does not exist."));
             }
-
-            Layout? layout = await dbContext.Layouts
-                .AsNoTracking()
-                .WhereKey(key)
-                .FirstOrDefaultAsync(cancellationToken);
 
             var channelContents = pinned.Contents
                 .Where(candidate => candidate.Channel == channel)

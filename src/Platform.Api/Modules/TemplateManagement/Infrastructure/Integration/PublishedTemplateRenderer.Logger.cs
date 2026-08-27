@@ -8,4 +8,10 @@ internal static partial class PublishedTemplateRendererLogger
         string application,
         string templateKey,
         int version);
+
+    [LoggerMessage(EventId = 2111, Level = LogLevel.Warning, Message = "O layout {LayoutKey}, versão {LayoutVersion}, está desativado e a renderização publicada foi recusada.")]
+    internal static partial void DisabledLayoutRefused(
+        this ILogger logger,
+        string layoutKey,
+        int layoutVersion);
 }

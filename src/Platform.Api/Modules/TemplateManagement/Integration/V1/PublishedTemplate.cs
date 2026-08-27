@@ -13,6 +13,24 @@ public static class TemplateRejectionReasons
 }
 
 /// <summary>
+/// Reasons the published render refuses to frame a message with the layout a
+/// version pins. The values belong to the canonical rejection-reason catalog
+/// shared with the notification events, so a consumer forwards them without
+/// translation.
+/// </summary>
+public static class LayoutRejectionReasons
+{
+    /// <summary>
+    /// The layout identity is disabled, so nothing frames a message with it
+    /// any more. Every template that pins it is refused, whatever its class:
+    /// rendering the body without the wrapper would ship content whose
+    /// canonical hash matches nothing that was ever approved, and a layout is
+    /// disabled precisely when the wrapper itself is what must stop going out.
+    /// </summary>
+    public const string Disabled = "layout-disabled";
+}
+
+/// <summary>
 /// Decision metadata of the published version of a template: everything a
 /// sibling module needs to validate, route and audit a notification request
 /// without touching this module's internals.

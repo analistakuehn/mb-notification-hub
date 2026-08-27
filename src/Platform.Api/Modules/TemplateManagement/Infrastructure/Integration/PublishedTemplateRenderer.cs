@@ -274,6 +274,12 @@ internal sealed class PublishedTemplateRenderer(
     /// Resolves the layout content the pinned layout version provides for the
     /// rendered channel and the locale the template resolution landed on,
     /// following the layout's own fallback chain.
+    /// <para>
+    /// The identity answers before the pinned version, and that order is part
+    /// of the rule: a layout somebody took out of service refuses the render
+    /// without paying for a read of the version it pins, and without leaving
+    /// behind a never-expiring entry for a layout just refused.
+    /// </para>
     /// </summary>
     private async Task<Result<LayoutWrapper?>> ResolveLayoutWrapperAsync(
         TemplateVersion version,
@@ -287,10 +293,34 @@ internal sealed class PublishedTemplateRenderer(
         }
 
         var pinnedNumber = version.LayoutVersion!.Value;
-        var cacheKey = $"layout:{layoutKey}:{pinnedNumber}";
-        if (!cache.TryGetImmutable(cacheKey, out PinnedLayout pinnedLayout))
+        var key = LayoutKey.Trusted(layoutKey);
+        Result<LayoutIdentity> identity = await ResolveLayoutIdentityAsync(key, cancellationToken);
+        if (identity.IsFailure)
         {
-            var key = LayoutKey.Trusted(layoutKey);
+            return identity.AsFailure<LayoutIdentity, LayoutWrapper?>();
+        }
+
+        // A deprecated layout still frames what already pins it: deprecation
+        // says the layout takes no new reference, and what this asks is
+        // whether the wrapper may still frame a message. Disablement is the
+        // terminal state of the identity, and it answers no for every template
+        // that pins it, whatever its class: rendering the body unframed would
+        // ship a canonical hash that matches nothing anyone approved, and a
+        // layout is disabled precisely when its own text must stop going out.
+        LayoutIdentity layout = identity.Value!;
+        if (!layout.Status.FramesMessages())
+        {
+            logger.DisabledLayoutRefused(layoutKey, pinnedNumber);
+
+            // The bare word, never a formatted payload: the consuming module
+            // compares the error text against it for equality, and anything
+            // wrapped around it collapses this refusal into a render failure.
+            return Result.BusinessRuleViolation<LayoutWrapper?>(LayoutRejectionReasons.Disabled);
+        }
+
+        var cacheKey = $"layout-version:{layoutKey}:{pinnedNumber}";
+        if (!cache.TryGetImmutable(cacheKey, out LayoutVersion pinnedLayout))
+        {
             LayoutVersion? pinned = await dbContext.LayoutVersions
                 .AsNoTracking()
                 .WhereLayoutKey(key)
@@ -302,22 +332,18 @@ internal sealed class PublishedTemplateRenderer(
                     $"The version pins layout '{layoutKey}' version {pinnedNumber}, which does not exist."));
             }
 
-            Layout? layout = await dbContext.Layouts
-                .AsNoTracking()
-                .WhereKey(key)
-                .FirstOrDefaultAsync(cancellationToken);
-
             // A pinned layout version is published and immutable: memoize it
-            // without expiration.
-            pinnedLayout = new PinnedLayout(pinned, layout?.DefaultLocale);
+            // without expiration. Nothing the governance can still move
+            // travels inside this entry any more.
+            pinnedLayout = pinned;
             cache.SetImmutable(cacheKey, pinnedLayout);
         }
 
-        var channelContents = pinnedLayout.Version.Contents
+        var channelContents = pinnedLayout.Contents
             .Where(candidate => candidate.Channel == channel)
             .ToList();
         var availableLocales = channelContents.Select(candidate => candidate.Locale).ToList();
-        Locale? layoutLocale = LocaleResolution.Resolve(resolved, availableLocales, pinnedLayout.DefaultLocale);
+        Locale? layoutLocale = LocaleResolution.Resolve(resolved, availableLocales, layout.DefaultLocale);
         if (layoutLocale is null)
         {
             return Result.NotFound<LayoutWrapper?>(DomainError.Format(
@@ -328,6 +354,49 @@ internal sealed class PublishedTemplateRenderer(
 
         LayoutContent content = channelContents.First(candidate => candidate.Locale == layoutLocale);
         return Result.Success<LayoutWrapper?>(new LayoutWrapper(content.Body, content.BodyText));
+    }
+
+    /// <summary>
+    /// The status of a layout identity and the default locale its fallback
+    /// chain lands on, memoized as a "current published" pointer. Both come
+    /// off the same mutable row, so neither belongs in the entry of a pinned
+    /// version, which never expires: a status held there would answer with
+    /// "active" for the life of the process after an operator disabled the
+    /// layout. Nothing moves the default locale today, and it travels here all
+    /// the same, because holding it in the entry that never expires arms the
+    /// trap for the day somebody adds a way to move it.
+    /// <para>
+    /// The entry holds the fact and not the decision the render takes from it,
+    /// unlike the catalog next door: this same entry also answers for the
+    /// locale, which decides nothing.
+    /// </para>
+    /// </summary>
+    private async Task<Result<LayoutIdentity>> ResolveLayoutIdentityAsync(
+        LayoutKey key,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = $"layout-identity:{key.Value}";
+        if (cache.TryGetPointer(cacheKey, out LayoutIdentity cached))
+        {
+            return Result.Success(cached);
+        }
+
+        Layout? layout = await dbContext.Layouts
+            .AsNoTracking()
+            .WhereKey(key)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (layout is null)
+        {
+            // A pinned version whose identity is gone is a broken invariant,
+            // and a status nobody can read may never pass for an active one.
+            return Result.NotFound<LayoutIdentity>(DomainError.Format(
+                ErrorCodes.LayoutNotFound,
+                $"The version pins layout '{key.Value}', whose identity does not exist."));
+        }
+
+        var identity = new LayoutIdentity(layout.Status, layout.DefaultLocale);
+        cache.SetPointer(cacheKey, identity);
+        return Result.Success(identity);
     }
 
     /// <summary>
@@ -424,7 +493,14 @@ internal sealed class PublishedTemplateRenderer(
 
     /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
     private sealed record LayoutWrapper(string Body, string? BodyText);
-
-    /// <summary>One pinned layout version with the identity's default locale, memoized without expiration.</summary>
-    private sealed record PinnedLayout(LayoutVersion Version, Locale? DefaultLocale);
 }
+
+/// <summary>
+/// The half of a layout that the governance still moves after a version is
+/// pinned: the status of the identity and the default locale its fallback
+/// chain lands on. It travels apart from the pinned version because the row it
+/// comes from is mutable, and it is memoized as a "current published" pointer
+/// so a layout an operator disables stops framing messages within the same
+/// window a new publication takes to reach a worker.
+/// </summary>
+internal sealed record LayoutIdentity(LayoutStatus Status, Locale? DefaultLocale);

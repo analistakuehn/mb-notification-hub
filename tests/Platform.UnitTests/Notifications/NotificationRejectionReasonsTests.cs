@@ -22,6 +22,7 @@ public sealed class NotificationRejectionReasonsTests
     {
         NotificationRejectionReasons.IsCanonical(TemplateRejectionReasons.Deprecated).ShouldBeTrue();
         NotificationRejectionReasons.IsCanonical(TemplateRejectionReasons.Disabled).ShouldBeTrue();
+        NotificationRejectionReasons.IsCanonical(LayoutRejectionReasons.Disabled).ShouldBeTrue();
     }
 
     [Fact]
@@ -42,6 +43,7 @@ public sealed class NotificationRejectionReasonsTests
         NotificationRejectionReasons.IsCanonical(ResolveStage.ReasonNoValidContact).ShouldBeTrue();
         NotificationRejectionReasons.IsCanonical(RenderStage.ReasonRenderFailed).ShouldBeTrue();
         NotificationRejectionReasons.IsCanonical(RenderStage.ReasonAuthenticationSmsLink).ShouldBeTrue();
+        NotificationRejectionReasons.IsCanonical(RenderStage.ReasonLayoutDisabled).ShouldBeTrue();
     }
 
     [Fact]
@@ -63,6 +65,28 @@ public sealed class NotificationRejectionReasonsTests
         // the stage silently mapping a security refusal to a render failure.
         RenderStage.ReasonAuthenticationSmsLink
             .ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
+    }
+
+    [Fact]
+    public void The_layout_refusal_keeps_its_own_reason()
+    {
+        // The template is fine and its render worked: what stopped the message
+        // is the wrapper the version pins. Collapsing it into either of the
+        // two neighbours would send the owner of the template looking for a
+        // defect that is not in the template.
+        NotificationRejectionReasons.LayoutDisabled
+            .ShouldNotBe(NotificationRejectionReasons.TemplateDisabled);
+        NotificationRejectionReasons.LayoutDisabled
+            .ShouldNotBe(NotificationRejectionReasons.TemplateRenderFailed);
+    }
+
+    [Fact]
+    public void The_layout_reason_of_the_stage_is_the_word_the_renderer_refuses_with()
+    {
+        // Same crossing as the security refusal above, and the same failure
+        // mode if it drifts: the stage would map a disabled layout onto a
+        // render failure and no consumer could tell the two apart.
+        RenderStage.ReasonLayoutDisabled.ShouldBe(LayoutRejectionReasons.Disabled);
     }
 
     [Fact]

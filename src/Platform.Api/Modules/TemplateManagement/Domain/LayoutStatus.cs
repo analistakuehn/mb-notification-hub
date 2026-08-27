@@ -28,6 +28,21 @@ public static class LayoutStatuses
     };
 
     /// <summary>
+    /// Whether a layout in this status may still frame a message. Deprecation
+    /// says the layout takes no new reference and leaves the versions already
+    /// pinned to it reproducible, so it still frames; disablement is the
+    /// terminal state and stops every message, whatever the class of the
+    /// template that pins it.
+    /// <para>
+    /// Two renderers ask this question, the published one and the authoring
+    /// preview, and they have to answer it the same way. One predicate is what
+    /// keeps a change of mind about a status from landing on one of them and
+    /// not the other.
+    /// </para>
+    /// </summary>
+    public static bool FramesMessages(this LayoutStatus value) => value != LayoutStatus.Disabled;
+
+    /// <summary>
     /// Lifecycle transition table for the layout identity. Deprecation and
     /// disablement are one-way: a disabled layout never comes back through
     /// the management API.

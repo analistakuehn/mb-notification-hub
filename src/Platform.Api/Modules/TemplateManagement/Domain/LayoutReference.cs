@@ -26,6 +26,9 @@ public sealed record LayoutReferenceFacts
     /// <summary>Canonical status of the pinned version, when it exists.</summary>
     public string? VersionStatus { get; init; }
 
+    /// <summary>Canonical status of the layout identity, when it exists.</summary>
+    public string? LayoutStatus { get; init; }
+
     /// <summary>Default locale of the layout identity, when declared.</summary>
     public string? DefaultLocale { get; init; }
 
@@ -33,14 +36,25 @@ public sealed record LayoutReferenceFacts
     public IReadOnlyList<LayoutContentFacts> Contents { get; init; } = [];
 
     /// <summary>
-    /// Whether the pin resolves to a published layout version. Every rule that
-    /// reads the layout text asks this first: a broken pin already fails once,
-    /// under the layout-reference check, and rules that stayed silent about it
-    /// keep the report pointing at the single real cause.
+    /// Whether the pin resolves to layout text this version may adopt: the
+    /// identity still takes a reference and the pinned version is published.
+    /// Every rule that reads the layout text asks this first: a pin the
+    /// layout-reference check already fails on stays out of the other rules,
+    /// and their silence keeps the report pointing at the single real cause.
     /// </summary>
-    public bool PinIsPublished => LayoutExists
+    public bool PinIsUsable => LayoutExists
+        && IdentityTakesReference
         && VersionExists
         && string.Equals(VersionStatus, LayoutVersionStatuses.Published, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether the layout identity still takes a reference. A status the
+    /// caller did not project reads as one that does: a fact nobody supplied
+    /// is not evidence of a refusal.
+    /// </summary>
+    private bool IdentityTakesReference =>
+        !string.Equals(LayoutStatus, LayoutStatuses.Disabled, StringComparison.Ordinal)
+        && !string.Equals(LayoutStatus, LayoutStatuses.Deprecated, StringComparison.Ordinal);
 
     /// <summary>
     /// The layout content that answers for a (channel, locale) pair, resolved

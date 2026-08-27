@@ -41,6 +41,16 @@ public static class NotificationRejectionReasons
     /// </summary>
     public const string AuthenticationSmsLink = "authentication-sms-link";
 
+    /// <summary>
+    /// The layout the published version pins is disabled, so the render has no
+    /// wrapper it may frame the message with. Separate from
+    /// <see cref="TemplateRenderFailed"/> because the template and its content
+    /// are intact, and separate from <see cref="TemplateDisabled"/> because the
+    /// governance act that stopped the message was taken on the layout: the
+    /// owner of the template has nothing to fix in it.
+    /// </summary>
+    public const string LayoutDisabled = "layout-disabled";
+
     /// <summary>The producer principal is outside the registry, or the class is not allowed for it.</summary>
     public const string ProducerNotAuthorized = "producer-not-authorized";
 
@@ -98,6 +108,7 @@ public static class NotificationRejectionReasons
         TemplateVariablesInvalid,
         TemplateRenderFailed,
         AuthenticationSmsLink,
+        LayoutDisabled,
         ProducerNotAuthorized,
         ProducerDisabled,
         ClassNotAllowedForPrincipal,

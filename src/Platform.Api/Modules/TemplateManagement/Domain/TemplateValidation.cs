@@ -274,7 +274,7 @@ public static partial class TemplateValidation
             // nothing comes out of it: an address written inside what looks
             // like a declaration is shielded by nothing there, and a client
             // that auto-links turns it into a link the reader can tap.
-            if (facts is { PinIsPublished: true }
+            if (facts is { PinIsUsable: true }
                 && facts.ResolveContent(content.Channel, content.Locale) is { } framing)
             {
                 if (LinkDomainPolicy.FirstDisallowedHostInMarkup(framing.Body, template) is { } inMarkup)
@@ -422,7 +422,7 @@ public static partial class TemplateValidation
             // at, and it strips nothing from either field: an SMS wrapper is
             // not markup, so there is no declaration to shield a host and
             // nothing to take out before looking.
-            if (facts is { PinIsPublished: true }
+            if (facts is { PinIsUsable: true }
                 && facts.ResolveContent(content.Channel, content.Locale) is { } framing)
             {
                 foreach ((var field, var text) in LayoutFields(framing))
@@ -620,7 +620,7 @@ public static partial class TemplateValidation
         var before = checks.Count;
         foreach (TemplateContent content in version.Contents)
         {
-            LayoutContentFacts? framing = facts is { PinIsPublished: true }
+            LayoutContentFacts? framing = facts is { PinIsUsable: true }
                 ? facts.ResolveContent(content.Channel, content.Locale)
                 : null;
             var wrapped = content.Body.Length + (framing?.Body.Length ?? 0);
@@ -721,6 +721,29 @@ public static partial class TemplateValidation
             checks.Add(Failed(
                 ValidationCheckNames.LayoutReference,
                 $"Layout '{facts.LayoutKey}' does not exist.",
+                null));
+            return;
+        }
+
+        // The identity answers before its versions, because the answer does
+        // not change with the version the author picks: a layout in either of
+        // these states is no target for a reference at all, and saying that
+        // first is what stops the author from hunting for a version that
+        // publishes.
+        if (string.Equals(facts.LayoutStatus, LayoutStatuses.Disabled, StringComparison.Ordinal))
+        {
+            checks.Add(Failed(
+                ValidationCheckNames.LayoutReference,
+                $"Layout '{facts.LayoutKey}' is disabled and frames no message any more.",
+                null));
+            return;
+        }
+
+        if (string.Equals(facts.LayoutStatus, LayoutStatuses.Deprecated, StringComparison.Ordinal))
+        {
+            checks.Add(Failed(
+                ValidationCheckNames.LayoutReference,
+                $"Layout '{facts.LayoutKey}' is deprecated and takes no new reference.",
                 null));
             return;
         }

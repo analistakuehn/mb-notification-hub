@@ -327,6 +327,51 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         masked.ShouldBe(rendered.Value!.Full);
     }
 
+    [RequiresDockerFact]
+    public async Task A_disabled_layout_refuses_the_published_render()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        var key = await PublishTemplatePinnedToLayoutAsync(author, publisher, layoutKey, layoutVersion);
+        HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/disable", new { reason = "conteúdo comprometido no próprio wrapper" });
+        disabled.EnsureSuccessStatusCode();
+
+        // Nothing rendered this layout before it was disabled, so no memoized
+        // answer can be the one under test here: this is what the store says.
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        // The whole message stops, whatever the class of the template: a body
+        // shipped without the wrapper carries a canonical hash that matches
+        // nothing anyone approved.
+        rendered.IsFailure.ShouldBeTrue();
+        rendered.ErrorKind.ShouldBe(ResultErrorKind.BusinessRule);
+        rendered.Error.ShouldBe(LayoutRejectionReasons.Disabled);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_deprecated_layout_still_frames_the_published_render()
+    {
+        // Falsification of the refusal above: without this pair, that
+        // assertion would hold for any status other than active. Deprecation
+        // says the layout takes no new reference, not that the versions
+        // already pinned to it stop being reproducible.
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        var key = await PublishTemplatePinnedToLayoutAsync(author, publisher, layoutKey, layoutVersion);
+        HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "substituído pela nova identidade visual" });
+        deprecated.EnsureSuccessStatusCode();
+
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        rendered.IsSuccess.ShouldBeTrue(rendered.Error);
+        rendered.Value!.Full.Body.ShouldBe(
+            "<html><header>MB</header><p>Pedido 42 atualizado.</p><footer>rodapé</footer></html>");
+    }
+
     /// <summary>
     /// The ceiling on the variables payload reaches the render between
     /// modules, and it answers ahead of the catalog. The template key is one
@@ -432,6 +477,51 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
             hash = stored.ContentHash;
         });
         return hash;
+    }
+
+    /// <summary>A published template version whose email content is framed by the given layout version.</summary>
+    private static async Task<string> PublishTemplatePinnedToLayoutAsync(
+        HttpClient author,
+        HttpClient publisher,
+        string layoutKey,
+        int layoutVersion)
+    {
+        var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey(), defaultLocale: "pt-BR");
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
+        {
+            subject = "Pedido {{ orderId }}",
+            body = "<p>Pedido {{ orderId }} atualizado.</p>",
+            bodyText = "Pedido {{ orderId }} atualizado.",
+        }, etag);
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new { orderId = new { type = "string" } },
+            required = RequiredOrderId,
+        }, etag);
+        HttpResponseMessage pinned = await author.SendAsync(TemplateApi.PutJson(
+            $"/v1/templates/{key}/versions/{version}/layout",
+            new { layoutKey, layoutVersion },
+            etag));
+        pinned.EnsureSuccessStatusCode();
+        await TemplateApi.PublishAsync(publisher, key, version);
+        return key;
+    }
+
+    private async Task<Result<PublishedTemplateRender>> RenderPublishedEmailAsync(string key)
+    {
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedTemplateRenderer renderer =
+            scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>();
+        return await renderer.RenderAsync(new PublishedRenderRequest
+        {
+            Application = "araia-cambio",
+            TemplateKey = key,
+            Channel = "email",
+            Locale = "pt-BR",
+            Variables = Variables("""{ "orderId": "42" }"""),
+        }, CancellationToken.None);
     }
 
     private static JsonElement Variables(string json)

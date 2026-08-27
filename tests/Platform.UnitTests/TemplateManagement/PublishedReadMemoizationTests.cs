@@ -17,8 +17,12 @@ public sealed class PublishedReadMemoizationTests
 {
     private const string Application = "araia-cambio";
     private const string Key = "auth.otp.login";
+    private const string LayoutKeyValue = "email.base";
+    private const int PinnedVersion = 3;
 
     private static readonly DateTimeOffset Start = new(2026, 8, 23, 12, 0, 0, TimeSpan.Zero);
+    private static readonly Channel Email = Channel.Create("email").Value!;
+    private static readonly Locale PtBr = Locale.Create("pt-BR").Value!;
 
     private sealed class SteppingClock(DateTimeOffset start) : TimeProvider
     {
@@ -240,6 +244,67 @@ public sealed class PublishedReadMemoizationTests
         inside.IsSuccess.ShouldBeTrue(inside.Error);
         cache.PointerHits.ShouldBe(1);
         cache.PointerLoads.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task The_status_of_a_pinned_layout_is_re_read_once_the_pointer_window_closes()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        using TemplateManagementDbContext store = StoreOutOfReach();
+        PublishedTemplateRenderer renderer = RendererOver(store, cache, new PublishedContextLoader(store, cache));
+        cache.SetPointer($"render-context:{Application}:{Key}", PublishedContextWithLayoutOf());
+        cache.SetImmutable($"layout-version:{LayoutKeyValue}:{PinnedVersion}", PinnedLayoutVersionOf());
+        cache.SetPointer($"layout-identity:{LayoutKeyValue}", new LayoutIdentity(LayoutStatus.Active, PtBr));
+
+        Result<PublishedTemplateRender> inside = await renderer.RenderAsync(
+            RenderRequest(Application, Key), CancellationToken.None);
+
+        // How far the refusal reaches back is a window, not an instant: a
+        // layout disabled after a render already framed a message keeps
+        // framing it until the pointer expires, which is the staleness the
+        // published reads already accept for the template itself. What no
+        // window may cover is the per-version entry, which never expires, and
+        // that is why the status cannot live in it. Only a clock a test owns
+        // can say this: with a real one the assertion would cost a minute of
+        // sleeping, which is why it is made here and not against the store.
+        clock.Now = clock.Now.Add(PublishedReadCache.PointerLifetime).AddSeconds(1);
+        cache.SetPointer($"render-context:{Application}:{Key}", PublishedContextWithLayoutOf());
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => renderer.RenderAsync(RenderRequest(Application, Key), CancellationToken.None));
+
+        inside.IsSuccess.ShouldBeTrue(inside.Error);
+        inside.Value!.Full.Body.ShouldBe("<html>corpo</html>");
+
+        // The version the render just refused to answer for is still resident:
+        // what expired, and what the second render went to the store for, is
+        // the status alone.
+        cache.TryGetImmutable($"layout-version:{LayoutKeyValue}:{PinnedVersion}", out LayoutVersion pinned)
+            .ShouldBeTrue();
+        pinned.Version.ShouldBe(PinnedVersion);
+    }
+
+    [Fact]
+    public async Task A_pinned_layout_whose_identity_is_disabled_refuses_the_render_from_memory()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        using TemplateManagementDbContext store = StoreOutOfReach();
+        PublishedTemplateRenderer renderer = RendererOver(store, cache, new PublishedContextLoader(store, cache));
+        cache.SetPointer($"render-context:{Application}:{Key}", PublishedContextWithLayoutOf());
+        cache.SetPointer($"layout-identity:{LayoutKeyValue}", new LayoutIdentity(LayoutStatus.Disabled, PtBr));
+
+        Result<PublishedTemplateRender> refused = await renderer.RenderAsync(
+            RenderRequest(Application, Key), CancellationToken.None);
+
+        // Nothing about the pinned version is in memory and the store is out
+        // of reach, so arriving at the refusal at all proves the identity
+        // answered first: refusing costs no read of the version, and leaves
+        // behind no entry that never expires for a layout just refused.
+        refused.IsFailure.ShouldBeTrue();
+        refused.ErrorKind.ShouldBe(ResultErrorKind.BusinessRule);
+        refused.Error.ShouldBe(LayoutRejectionReasons.Disabled);
+        cache.ImmutableCount.ShouldBe(0);
     }
 
     [Fact]
@@ -491,6 +556,30 @@ public sealed class PublishedReadMemoizationTests
             """{"type":"object","properties":{"orderId":{"type":"string"}}}""",
             "autora").IsSuccess.ShouldBeTrue();
         return new PublishedTemplateContext(template, version);
+    }
+
+    /// <summary>
+    /// The published context of a version that ships email content and pins a
+    /// layout version, which is what puts the layout resolution on the path
+    /// the render walks.
+    /// </summary>
+    private static PublishedTemplateContext PublishedContextWithLayoutOf()
+    {
+        PublishedTemplateContext context = PublishedContextOf();
+        context.Version.SetContent(new ContentEdit(Email, PtBr, "Assunto", "corpo", null), "autora")
+            .IsSuccess.ShouldBeTrue();
+        context.Version.SetLayoutReference(LayoutKey.Trusted(LayoutKeyValue), PinnedVersion, "autora")
+            .IsSuccess.ShouldBeTrue();
+        return context;
+    }
+
+    private static LayoutVersion PinnedLayoutVersionOf()
+    {
+        LayoutVersion version = LayoutVersion.CreateDraft(
+            LayoutKey.Trusted(LayoutKeyValue), PinnedVersion, "autora", Start);
+        version.SetContent(new LayoutContentEdit(Email, PtBr, "<html>{{ content }}</html>", null), "autora")
+            .IsSuccess.ShouldBeTrue();
+        return version;
     }
 
     private static PublishedRenderRequest RenderRequest(string application, string templateKey) => new()

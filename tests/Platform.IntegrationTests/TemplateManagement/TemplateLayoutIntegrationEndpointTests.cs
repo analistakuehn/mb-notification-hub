@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
 
@@ -71,6 +72,65 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         publish.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         JsonElement problem = await TemplateApi.ReadJsonAsync(publish);
         problem.GetProperty("type").GetString().ShouldBe("template-validation-failed");
+    }
+
+    [RequiresDockerFact]
+    public async Task Pinning_a_disabled_layout_fails_the_layout_reference_check_and_blocks_publish()
+    {
+        // The gate is where this has to bite. Without it the author publishes
+        // on a clean report and the pin only fails at dispatch, one refused
+        // notification at a time.
+        HttpClient author = fixture.CreateAuthorClient("author-tl-9");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-9");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        (await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/disable", new { reason = "conteúdo comprometido no wrapper" }))
+            .EnsureSuccessStatusCode();
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
+
+        HttpResponseMessage validation = await author.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/validate", content: null);
+        HttpResponseMessage publish = await publisher.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/publish", content: null);
+
+        JsonElement report = await TemplateApi.ReadJsonAsync(validation);
+        report.GetProperty("passed").GetBoolean().ShouldBeFalse();
+        report.GetProperty("checks").EnumerateArray().ShouldContain(check =>
+            check.GetProperty("name").GetString() == "layout-reference"
+            && check.GetProperty("status").GetString() == "failed"
+            && check.GetProperty("message").GetString()!.Contains("disabled", StringComparison.Ordinal));
+        publish.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [RequiresDockerFact]
+    public async Task Pinning_a_deprecated_layout_fails_the_layout_reference_check_and_blocks_publish()
+    {
+        // Deprecation is exactly the statement that the layout takes no new
+        // reference, and a version being published is a new reference. The
+        // wording differs from the disabled refusal on purpose: one says the
+        // layout is finished, the other says it is on its way out.
+        HttpClient author = fixture.CreateAuthorClient("author-tl-10");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-10");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        (await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "identidade visual antiga" }))
+            .EnsureSuccessStatusCode();
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
+
+        HttpResponseMessage validation = await author.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/validate", content: null);
+        HttpResponseMessage publish = await publisher.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/publish", content: null);
+
+        JsonElement report = await TemplateApi.ReadJsonAsync(validation);
+        report.GetProperty("passed").GetBoolean().ShouldBeFalse();
+        report.GetProperty("checks").EnumerateArray().ShouldContain(check =>
+            check.GetProperty("name").GetString() == "layout-reference"
+            && check.GetProperty("status").GetString() == "failed"
+            && check.GetProperty("message").GetString()!.Contains("deprecated", StringComparison.Ordinal));
+        publish.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
     }
 
     [RequiresDockerFact]
@@ -158,6 +218,59 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
     }
 
     [RequiresDockerFact]
+    public async Task A_disabled_layout_refuses_the_authoring_render()
+    {
+        // The publication gate stops a version from pinning a layout already
+        // out of service, and it says nothing about a version that pinned one
+        // while it was alive. That version still previews, and a preview that
+        // frames what the dispatch refuses reads to the author as proof that
+        // everything is in order: worse than no preview at all. The refusal is
+        // the diagnosis.
+        HttpClient author = fixture.CreateAuthorClient("author-tl-12");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-12");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
+        (await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/disable", new { reason = "wrapper retirado de circulação" }))
+            .EnsureSuccessStatusCode();
+
+        HttpResponseMessage response = await author.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new { channel = "email", locale = "pt-BR", variables = new { orderId = "42" } });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe(LayoutRejectionReasons.Disabled);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_deprecated_layout_still_frames_the_authoring_render()
+    {
+        // The falsification pair of the refusal above, for the same reason it
+        // exists on the published side: without it that assertion would hold
+        // for any status other than active, and deprecation is exactly the
+        // status that must keep framing.
+        HttpClient author = fixture.CreateAuthorClient("author-tl-13");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-13");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
+        (await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "identidade visual antiga" }))
+            .EnsureSuccessStatusCode();
+
+        HttpResponseMessage response = await author.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new { channel = "email", locale = "pt-BR", variables = new { orderId = "42" } });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        JsonElement body = await TemplateApi.ReadJsonAsync(response);
+        body.GetProperty("body").GetString().ShouldBe(
+            "<html><header>MB</header><p>Pedido 42 atualizado.</p><footer>rodapé</footer></html>");
+    }
+
+    [RequiresDockerFact]
     public async Task Publishing_a_template_pinned_to_a_layout_with_a_foreign_host_is_blocked()
     {
         // The layout publishes on its own: it answers to no allowlist, because
@@ -185,6 +298,39 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
             && check.GetProperty("status").GetString() == "failed"
             && check.GetProperty("message").GetString()!.Contains("evil.example.io", StringComparison.Ordinal));
         publish.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_disabled_layout_is_the_only_failure_the_report_carries()
+    {
+        // A pin the layout-reference check refuses stays out of every rule
+        // that reads the layout text, so the report keeps naming one cause.
+        // The wrapper here carries a host outside the allowlist, which is
+        // exactly the finding that must not come back a second time: the
+        // author is being told to drop this layout, not to negotiate its
+        // links.
+        HttpClient author = fixture.CreateAuthorClient("author-tl-11");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-11");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            author,
+            body: """<html><header>MB</header><a href="https://evil.example.io/x">promo</a>{{ content }}</html>""");
+        await LayoutApi.PublishAsync(publisher, layoutKey, layoutVersion);
+        (await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/disable", new { reason = "wrapper fora de uso" }))
+            .EnsureSuccessStatusCode();
+        (var key, var version) = await CreateDraftAllowingMonteBravoAsync(author);
+        await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
+
+        HttpResponseMessage validation = await author.PostAsync(
+            $"/v1/templates/{key}/versions/{version}/validate", content: null);
+
+        JsonElement report = await TemplateApi.ReadJsonAsync(validation);
+        List<string?> failed = report.GetProperty("checks").EnumerateArray()
+            .Where(check => check.GetProperty("status").GetString() == "failed")
+            .Select(check => check.GetProperty("name").GetString())
+            .ToList();
+        failed.Count.ShouldBe(1, $"achados reprovados: {string.Join(", ", failed)}");
+        failed[0].ShouldBe("layout-reference");
     }
 
     private static readonly string[] MonteBravoDomain = ["montebravo.com.br"];

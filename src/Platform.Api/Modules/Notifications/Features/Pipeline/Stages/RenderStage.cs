@@ -32,6 +32,15 @@ internal sealed class RenderStage(
     internal const string ReasonAuthenticationSmsLink =
         NotificationRejectionReasons.AuthenticationSmsLink;
 
+    /// <summary>
+    /// Refusal the published renderer answers with when the layout the version
+    /// pins is disabled. It travels as the whole error text of the failed
+    /// render, exactly like the security refusal above, and for the same
+    /// reason: the producer has to tell a template it must fix from a wrapper
+    /// somebody else took out of service.
+    /// </summary>
+    internal const string ReasonLayoutDisabled = NotificationRejectionReasons.LayoutDisabled;
+
     internal const string FallbackLocale = "pt-BR";
 
     public string Name => "Render";
@@ -63,12 +72,10 @@ internal sealed class RenderStage(
             // A render failure with validated variables is a governance drift
             // (content changed between ingestion and processing): a business
             // rejection with a stable reason, auditable, never a retry loop.
-            // The security refusal keeps its own reason, because the two ask
-            // different things of whoever reads the rejection.
-            context.LastReason = string.Equals(
-                render.Error, ReasonAuthenticationSmsLink, StringComparison.Ordinal)
-                ? ReasonAuthenticationSmsLink
-                : ReasonRenderFailed;
+            // The refusals the renderer words for itself keep their own
+            // reasons, because each asks something different of whoever reads
+            // the rejection.
+            context.LastReason = ReasonForFailedRender(render.Error);
             return StageOutcome.Reject;
         }
 
@@ -77,4 +84,20 @@ internal sealed class RenderStage(
             cipher, context.Notification.Application, render.Value!, cancellationToken);
         return StageOutcome.Continue;
     }
+
+    /// <summary>
+    /// Which rejection a failed render is. The renderer words two refusals of
+    /// its own and answers with the bare word, so recognizing them is an
+    /// equality against that word; everything else is a template to fix. One
+    /// table answers for the ingestion path and for the fallback path alike:
+    /// two copies would drift, and the drift reads as a producer whose
+    /// notification was refused for one reason on one path and another reason
+    /// on the other.
+    /// </summary>
+    internal static string ReasonForFailedRender(string? error) => error switch
+    {
+        ReasonAuthenticationSmsLink => ReasonAuthenticationSmsLink,
+        ReasonLayoutDisabled => ReasonLayoutDisabled,
+        _ => ReasonRenderFailed,
+    };
 }

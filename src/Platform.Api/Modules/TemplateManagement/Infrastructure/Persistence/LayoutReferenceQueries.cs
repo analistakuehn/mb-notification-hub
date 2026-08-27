@@ -39,6 +39,7 @@ internal static class LayoutReferenceQueries
             LayoutExists = layout is not null,
             VersionExists = pinned is not null,
             VersionStatus = pinned?.Status.Canonical(),
+            LayoutStatus = layout?.Status.Canonical(),
             DefaultLocale = layout?.DefaultLocale?.Value,
             Contents = pinned?.Contents
                 .Select(content => new LayoutContentFacts(
