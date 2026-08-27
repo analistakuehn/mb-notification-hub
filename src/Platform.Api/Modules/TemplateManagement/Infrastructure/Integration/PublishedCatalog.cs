@@ -43,17 +43,21 @@ internal sealed class PublishedCatalog(
 
         var app = canonicalApplication.Value!;
         var key = canonicalKey.Value!.Value;
-        var cacheKey = $"template:{app}:{key}";
+        var cacheKey = PublishedPointerKeys.Template(app, key);
         if (cache.TryGetPointer(cacheKey, out PublishedTemplateLookup cached))
         {
             return Result.Success(cached);
         }
 
+        // The fence is read before the query leaves: a lifecycle transition
+        // that commits while this load is in flight refuses the write below
+        // instead of having the superseded value put back on top of it.
+        var generation = cache.Generation;
         Result<PublishedTemplateLookup> lookedUp =
             await FindTemplateFromStoreAsync(app, key, cancellationToken);
         if (lookedUp.IsSuccess)
         {
-            cache.SetPointer(cacheKey, lookedUp.Value!);
+            cache.SetPointerIfCurrent(cacheKey, lookedUp.Value!, generation);
         }
 
         return lookedUp;
@@ -134,17 +138,18 @@ internal sealed class PublishedCatalog(
 
         var app = canonicalApplication.Value!;
         var policyClass = canonicalClass.Value.Canonical();
-        var cacheKey = $"policy:{app}:{policyClass}";
+        var cacheKey = PublishedPointerKeys.ClassPolicy(app, policyClass);
         if (cache.TryGetPointer(cacheKey, out PublishedClassPolicy cached))
         {
             return Result.Success(cached);
         }
 
+        var generation = cache.Generation;
         Result<PublishedClassPolicy> published =
             await FindClassPolicyFromStoreAsync(app, policyClass, cancellationToken);
         if (published.IsSuccess)
         {
-            cache.SetPointer(cacheKey, published.Value!);
+            cache.SetPointerIfCurrent(cacheKey, published.Value!, generation);
         }
 
         return published;

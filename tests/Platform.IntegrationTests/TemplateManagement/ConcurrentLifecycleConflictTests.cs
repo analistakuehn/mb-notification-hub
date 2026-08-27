@@ -3,11 +3,13 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
 using NotificationHub.SharedKernel;
@@ -47,6 +49,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
                 db,
                 new TransactionalAuditTrail(),
                 Analyzer(),
+                fixture.Services.GetRequiredService<PublishedReadCache>(),
                 TimeProvider.System,
                 NullLogger<RollbackTemplate.Handler>.Instance);
             result = await handler.HandleAsync(
@@ -98,6 +101,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
                 db,
                 new TransactionalAuditTrail(),
                 Analyzer(),
+                fixture.Services.GetRequiredService<PublishedReadCache>(),
                 TimeProvider.System,
                 NullLogger<PublishTemplateVersion.Handler>.Instance);
             result = await handler.HandleAsync(key, version, "publisher-cc-2b", CancellationToken.None);

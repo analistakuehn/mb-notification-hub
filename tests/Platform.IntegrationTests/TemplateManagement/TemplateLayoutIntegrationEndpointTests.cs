@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
 
@@ -331,6 +334,87 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
             .ToList();
         failed.Count.ShouldBe(1, $"achados reprovados: {string.Join(", ", failed)}");
         failed[0].ShouldBe("layout-reference");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_disabled_layout_stops_framing_in_the_process_that_disabled_it()
+    {
+        // The published render memoizes the layout identity for the pointer
+        // window, so a render that ran before the disable is what hides the
+        // refusal. The warm-up below is that render.
+        HttpClient author = fixture.CreateAuthorClient("author-tl-14");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-14");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        var key = await PublishTemplatePinnedToLayoutAsync(author, publisher, layoutKey, layoutVersion);
+        (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
+
+        (await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/disable", new { reason = "wrapper retirado de circulação" }))
+            .EnsureSuccessStatusCode();
+
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        rendered.Error.ShouldBe(LayoutRejectionReasons.Disabled);
+        rendered.ErrorKind.ShouldBe(ResultErrorKind.BusinessRule);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_deprecated_layout_keeps_framing_after_the_deprecation_reaches_the_cache()
+    {
+        // Falsification pair of the refusal above: without it that assertion
+        // holds for any status other than active, and deprecation is exactly
+        // the status that must keep framing. The load counter is what
+        // separates "still frames because the identity was read again" from
+        // "still frames because nothing ever read it again".
+        HttpClient author = fixture.CreateAuthorClient("author-tl-15");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-15");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        var key = await PublishTemplatePinnedToLayoutAsync(author, publisher, layoutKey, layoutVersion);
+        (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
+
+        (await publisher.PostAsJsonAsync(
+            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "identidade visual antiga" }))
+            .EnsureSuccessStatusCode();
+
+        PublishedReadCache cache = fixture.Services.GetRequiredService<PublishedReadCache>();
+        var loads = cache.PointerLoads;
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        // Exactly one: the layout identity comes back from the store, and the
+        // published context of a template the deprecation never touched keeps
+        // answering from memory.
+        (cache.PointerLoads - loads).ShouldBe(
+            1, "a depreciação precisa derrubar a identidade memorizada do layout, e só ela");
+        rendered.Value!.Full.Body.ShouldBe(
+            "<html><header>MB</header><p>Pedido 42 atualizado.</p><footer>rodapé</footer></html>");
+    }
+
+    /// <summary>A published template version whose email content is framed by the given layout version.</summary>
+    private static async Task<string> PublishTemplatePinnedToLayoutAsync(
+        HttpClient author,
+        HttpClient publisher,
+        string layoutKey,
+        int layoutVersion)
+    {
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
+        await TemplateApi.PublishAsync(publisher, key, version);
+        return key;
+    }
+
+    private async Task<Result<PublishedTemplateRender>> RenderPublishedEmailAsync(string key)
+    {
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedTemplateRenderer renderer =
+            scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>();
+        return await renderer.RenderAsync(new PublishedRenderRequest
+        {
+            Application = "araia-cambio",
+            TemplateKey = key,
+            Channel = "email",
+            Locale = "pt-BR",
+            Variables = JsonSerializer.Deserialize<JsonElement>("""{ "orderId": "42" }"""),
+        }, CancellationToken.None);
     }
 
     private static readonly string[] MonteBravoDomain = ["montebravo.com.br"];

@@ -317,7 +317,7 @@ internal sealed class PublishedTemplateRenderer(
             return Result.BusinessRuleViolation<LayoutWrapper?>(LayoutRejectionReasons.Disabled);
         }
 
-        var cacheKey = $"layout-version:{layoutKey}:{pinnedNumber}";
+        var cacheKey = PublishedPointerKeys.LayoutVersion(layoutKey, pinnedNumber);
         if (!cache.TryGetImmutable(cacheKey, out LayoutVersion pinnedLayout))
         {
             LayoutVersion? pinned = await dbContext.LayoutVersions
@@ -374,12 +374,16 @@ internal sealed class PublishedTemplateRenderer(
         LayoutKey key,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"layout-identity:{key.Value}";
+        var cacheKey = PublishedPointerKeys.LayoutIdentity(key.Value);
         if (cache.TryGetPointer(cacheKey, out LayoutIdentity cached))
         {
             return Result.Success(cached);
         }
 
+        // The fence is read before the query leaves: a disable or a deprecation
+        // that commits while this load is in flight refuses the write below
+        // instead of having the previous status put back on top of it.
+        var generation = cache.Generation;
         Layout? layout = await dbContext.Layouts
             .AsNoTracking()
             .WhereKey(key)
@@ -394,7 +398,7 @@ internal sealed class PublishedTemplateRenderer(
         }
 
         var identity = new LayoutIdentity(layout.Status, layout.DefaultLocale);
-        cache.SetPointer(cacheKey, identity);
+        cache.SetPointerIfCurrent(cacheKey, identity, generation);
         return Result.Success(identity);
     }
 

@@ -5,6 +5,7 @@ using Npgsql;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.SharedKernel;
 
@@ -15,6 +16,7 @@ internal static partial class PublishClassPolicyVersion
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
         IAuditTrail auditTrail,
+        PublishedReadCache cache,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -146,6 +148,13 @@ internal static partial class PublishClassPolicyVersion
                     + "Fetch the current state and retry if still applicable."));
             }
 
+            // After the commit and after every exit above: the concurrency and
+            // unique-violation paths return without reaching here, so a
+            // publication that did not persist never drops what the store
+            // still answers. Only this process is reached; every other one
+            // keeps answering the previous policy until its own pointer
+            // expires.
+            cache.InvalidatePointer(PublishedPointerKeys.ClassPolicy(app, canonicalClass));
             logger.ClassPolicyVersionPublished(app, canonicalClass, draft.Version, current?.Version);
             return Result.Success<Outcome>(new Outcome.Published(Response.From(draft, current?.Version)));
         }

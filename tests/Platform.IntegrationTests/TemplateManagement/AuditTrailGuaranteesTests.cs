@@ -1,11 +1,13 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
 
@@ -40,6 +42,7 @@ public sealed class AuditTrailGuaranteesTests(TemplateManagementApiFixture fixtu
                 db,
                 new TransactionalAuditTrail(),
                 new TemplateVersionAnalyzer(new ScribanTemplateEngine(Options.Create(new TemplatingOptions()), new ScribanParseCache())),
+                fixture.Services.GetRequiredService<PublishedReadCache>(),
                 new FrozenClock(BeyondPartitionCoverage),
                 NullLogger<PublishTemplateVersion.Handler>.Instance);
 
@@ -81,6 +84,7 @@ public sealed class AuditTrailGuaranteesTests(TemplateManagementApiFixture fixtu
             var handler = new PublishClassPolicyVersion.Handler(
                 db,
                 new TransactionalAuditTrail(),
+                fixture.Services.GetRequiredService<PublishedReadCache>(),
                 new FrozenClock(BeyondPartitionCoverage),
                 NullLogger<PublishClassPolicyVersion.Handler>.Instance);
 

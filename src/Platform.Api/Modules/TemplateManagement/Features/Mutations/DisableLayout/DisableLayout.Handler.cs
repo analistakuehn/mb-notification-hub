@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.SharedKernel;
 
@@ -14,6 +15,7 @@ internal static partial class DisableLayout
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
         IAuditTrail auditTrail,
+        PublishedReadCache cache,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -69,6 +71,13 @@ internal static partial class DisableLayout
                     "The layout changed while the transition was in flight. Fetch the current state and retry."));
             }
 
+            // After the commit and after every exit above: the concurrency
+            // path returns without reaching here, so a transition that did not
+            // persist never drops what the store still answers. The identity
+            // is the only entry this moves: the versions pinned to this layout
+            // stay valid bytes, and the render resolves the identity again
+            // before it ever touches one of them.
+            cache.InvalidatePointer(PublishedPointerKeys.LayoutIdentity(key.Value!.Value));
             logger.LayoutDisabled(key.Value!.Value);
             return Result.Success(new Response(key.Value!.Value, layout.Status.Canonical()));
         }

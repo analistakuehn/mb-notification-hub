@@ -1595,6 +1595,7 @@ Migração *strangler* por template, começando pelos de maior risco regulatóri
 | 24 | Webhooks expostos à internet são a única superfície pública do hub | WAF + allowlist de IP + assinatura + replay protection; efeitos de supressão corroborados (A5); pentest específico |
 | 25 | Estimativas de volume (§11.1) sem base medida | Inventário da fase 0 mede volume real por serviço; teste de carga usa o dobro do medido |
 | 26 | **Sem aprovação dupla, o controle de conteúdo repousa em quatro olhos + validação automática + auditoria** | Consequência aceita do corte (ADR-0005); ponto de extensão nível 1: aprovação dupla por classe, ativável quando Compliance exigir (§9.2); `APPROVAL` e a auditoria já suportam a ativação sem migração |
+| 27 | **Um comando de parada de template ou de layout alcança a frota em até 60 segundos** (desativação e depreciação de template, desativação e depreciação de layout, publicação de versão, rollback e publicação de política de classe) | As leituras publicadas memorizam em processo; a invalidação em processo cobre apenas a réplica que executou o comando, e as demais respondem o valor anterior até o ponteiro delas expirar. A janela de 60 segundos é o limite garantido do sistema, aceito: encurtá-la custa `K × P × 6 / W` comandos por segundo, proporcional ao número de templates quentes e pago continuamente por um evento raro. Um controle que precise parar tráfego mais rápido não pertence a essa superfície |
 
 ---
 

@@ -31,6 +31,41 @@ public sealed class PublishedReadMemoizationTests
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
+    /// <summary>
+    /// A clock that runs one armed action the first time it is read. The store
+    /// reads the clock while it writes a pointer entry, to stamp the entry's
+    /// expiration, and that read is the one deterministic seam this surface
+    /// offers inside a write: it lets a single-threaded test place an
+    /// invalidation in the middle of one, instead of racing threads and hoping
+    /// for the losing order.
+    /// </summary>
+    private sealed class InterleavingClock(DateTimeOffset start) : TimeProvider
+    {
+        private Action? _armed;
+
+        public DateTimeOffset Now { get; set; } = start;
+
+        /// <summary>How many times an armed action ran. Zero means the seam is gone.</summary>
+        public int Fired { get; private set; }
+
+        public void ArmOnce(Action action) => _armed = action;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            // Disarmed before running, so an action that reads the clock again
+            // through the store does not re-enter this branch.
+            Action? armed = _armed;
+            if (armed is not null)
+            {
+                _armed = null;
+                Fired++;
+                armed();
+            }
+
+            return Now;
+        }
+    }
+
     [Fact]
     public async Task Rendering_the_same_source_twice_parses_once()
     {
@@ -456,6 +491,119 @@ public sealed class PublishedReadMemoizationTests
 
         cache.TryGetImmutable("layout:footer:3", out string[] stored).ShouldBeTrue();
         stored.ShouldBeSameAs(first);
+    }
+
+    [Fact]
+    public void Invalidating_a_pointer_key_drops_only_that_key()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        var dropped = PublishedPointerKeys.Template(Application, Key);
+        var kept = PublishedPointerKeys.Template(Application, "other.template");
+        cache.SetPointer(dropped, "published-v1");
+        cache.SetPointer(kept, "untouched");
+
+        cache.InvalidatePointer(dropped);
+
+        cache.TryGetPointer(dropped, out string _).ShouldBeFalse();
+        cache.TryGetPointer(kept, out string surviving).ShouldBeTrue();
+        surviving.ShouldBe("untouched");
+    }
+
+    [Fact]
+    public void Invalidating_a_pointer_key_leaves_the_per_version_family_untouched()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        var identity = PublishedPointerKeys.LayoutIdentity(LayoutKeyValue);
+        var pinned = PublishedPointerKeys.LayoutVersion(LayoutKeyValue, PinnedVersion);
+        cache.SetPointer(identity, "active");
+        cache.SetImmutable(pinned, "layout-body");
+
+        cache.InvalidatePointer(identity);
+
+        cache.TryGetImmutable(pinned, out string body).ShouldBeTrue();
+        body.ShouldBe("layout-body");
+        cache.TryGetPointer(identity, out string _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_load_that_started_before_an_invalidation_does_not_repopulate_the_pointer()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        var key = PublishedPointerKeys.Template(Application, Key);
+        cache.SetPointer(key, "published-v1");
+
+        // The order of a lost race: the reader captures the fence, the
+        // transition commits and drops the key, and only then does the write
+        // of the value loaded before that commit arrive.
+        var generation = cache.Generation;
+        cache.InvalidatePointer(key);
+        cache.SetPointerIfCurrent(key, "published-v1", generation);
+
+        cache.TryGetPointer(key, out string _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_load_that_started_after_an_invalidation_repopulates_the_pointer()
+    {
+        // Falsification pair of the fence above: without it, refusing every
+        // write would satisfy that assertion and leave the surface with no
+        // memoization at all.
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        var key = PublishedPointerKeys.Template(Application, Key);
+        cache.SetPointer(key, "published-v1");
+        cache.InvalidatePointer(key);
+
+        var generation = cache.Generation;
+        cache.SetPointerIfCurrent(key, "published-v2", generation);
+
+        cache.TryGetPointer(key, out string value).ShouldBeTrue();
+        value.ShouldBe("published-v2");
+    }
+
+    [Fact]
+    public void An_invalidation_that_lands_while_the_write_is_in_flight_leaves_no_stale_pointer()
+    {
+        // The losing order of the race the fence exists for, forced instead of
+        // raced: the reader captures the fence, passes the check, and the
+        // transition commits and drops the key while that write is still in
+        // flight. The check alone cannot see it, so the write has to end by
+        // looking again.
+        var clock = new InterleavingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        var key = PublishedPointerKeys.Template(Application, Key);
+        cache.SetPointer(key, "published-v1");
+
+        var generation = cache.Generation;
+        clock.ArmOnce(() => cache.InvalidatePointer(key));
+        cache.SetPointerIfCurrent(key, "published-v1", generation);
+
+        clock.Fired.ShouldBe(1, "sem a costura do relógio o teste não intercala nada e não prova nada");
+        cache.TryGetPointer(key, out string _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Invalidating_a_key_that_was_never_memoized_changes_nothing()
+    {
+        var clock = new SteppingClock(Start);
+        using var cache = new PublishedReadCache(clock);
+        var resident = PublishedPointerKeys.Template(Application, Key);
+        cache.SetPointer(resident, "published-v1");
+        var generation = cache.Generation;
+
+        cache.InvalidatePointer(PublishedPointerKeys.Template(Application, "never.memoized"));
+
+        cache.TryGetPointer(resident, out string value).ShouldBeTrue();
+        value.ShouldBe("published-v1");
+        cache.PointerCount.ShouldBe(1);
+
+        // The fence moves all the same, which is the declared price of one
+        // counter for every key: a write in flight for an unrelated key
+        // reloads instead of landing.
+        cache.Generation.ShouldBe(generation + 1);
     }
 
     [Fact]

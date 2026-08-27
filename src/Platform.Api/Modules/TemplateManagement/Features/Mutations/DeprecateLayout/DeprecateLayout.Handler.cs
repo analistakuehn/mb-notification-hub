@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.SharedKernel;
 
@@ -14,6 +15,7 @@ internal static partial class DeprecateLayout
     internal sealed class Handler(
         TemplateManagementDbContext dbContext,
         IAuditTrail auditTrail,
+        PublishedReadCache cache,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -69,6 +71,14 @@ internal static partial class DeprecateLayout
                     "The layout changed while the transition was in flight. Fetch the current state and retry."));
             }
 
+            // After the commit and after every exit above: the concurrency
+            // path returns without reaching here, so a transition that did not
+            // persist never drops what the store still answers. A deprecated
+            // layout keeps framing what already pins it, so no render outcome
+            // moves here; the entry is dropped all the same, because it holds
+            // the status of the identity and keeping a status known to be
+            // false is what armed the last defect on this surface.
+            cache.InvalidatePointer(PublishedPointerKeys.LayoutIdentity(key.Value!.Value));
             logger.LayoutDeprecated(key.Value!.Value);
             return Result.Success(new Response(key.Value!.Value, layout.Status.Canonical()));
         }

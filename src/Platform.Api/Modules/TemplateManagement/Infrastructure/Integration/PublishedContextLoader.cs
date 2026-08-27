@@ -50,18 +50,24 @@ internal sealed class PublishedContextLoader(
         var key = canonicalKey.Value!.Value;
 
         // The prefix names the value, not the caller: renaming it would fork
-        // the entry the published read contracts exist to share.
-        var cacheKey = $"render-context:{app}:{key}";
+        // the entry the published read contracts exist to share, and it lives
+        // in the builder both this reader and the transitions that drop the
+        // entry call.
+        var cacheKey = PublishedPointerKeys.RenderContext(app, key);
         if (cache.TryGetPointer(cacheKey, out PublishedTemplateContext cached))
         {
             return Result.Success(cached);
         }
 
+        // The fence is read before the query leaves: a transition that commits
+        // while this load is in flight refuses the write below instead of
+        // having the superseded context put back on top of it.
+        var generation = cache.Generation;
         Result<PublishedTemplateContext> loaded = await dbContext.FindPublishedTemplateAsync(
             app, key, cancellationToken);
         if (loaded.IsSuccess)
         {
-            cache.SetPointer(cacheKey, loaded.Value!);
+            cache.SetPointerIfCurrent(cacheKey, loaded.Value!, generation);
         }
 
         return loaded;

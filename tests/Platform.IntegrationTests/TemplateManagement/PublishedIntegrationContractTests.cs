@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
@@ -442,6 +443,183 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
 
         policy.IsFailure.ShouldBeTrue();
         policy.ErrorKind.ShouldBe(ResultErrorKind.NotFound);
+    }
+
+    /// <summary>
+    /// Every read below runs in a fresh scope, which is the realistic shape
+    /// and the harder one: the memoization is a singleton, so the staleness
+    /// under test belongs to the process that answered the command and never
+    /// to the scope a caller happens to hold. The warm-up read is what makes
+    /// the defect visible at all, because without it the transition is read
+    /// straight from the store.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_disabled_template_stops_answering_published_to_the_process_that_disabled_it()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await TemplateApi.PublishAsync(publisher, key, version);
+        (await FindTemplateAsync("araia-cambio", key)).IsSuccess.ShouldBeTrue();
+        (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
+
+        HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
+            $"/v1/templates/{key}/disable", new { reason = "conteúdo incorreto em produção" });
+        disabled.EnsureSuccessStatusCode();
+
+        Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        lookup.Value.ShouldBeOfType<PublishedTemplateLookup.Rejected>()
+            .Reason.ShouldBe(TemplateRejectionReasons.Disabled);
+        DomainError.Describe(rendered.Error, rendered.ErrorKind).Code
+            .ShouldBe(TemplateRejectionReasons.Disabled);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_deprecated_template_stops_answering_published_to_the_process_that_deprecated_it()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await TemplateApi.PublishAsync(publisher, key, version);
+        (await FindTemplateAsync("araia-cambio", key)).IsSuccess.ShouldBeTrue();
+        (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
+
+        HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
+            $"/v1/templates/{key}/deprecate", new { reason = "substituído pela nova jornada" });
+        deprecated.EnsureSuccessStatusCode();
+
+        Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        lookup.Value.ShouldBeOfType<PublishedTemplateLookup.Rejected>()
+            .Reason.ShouldBe(TemplateRejectionReasons.Deprecated);
+        DomainError.Describe(rendered.Error, rendered.ErrorKind).Code
+            .ShouldBe(TemplateRejectionReasons.Deprecated);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_corrective_publication_reaches_the_next_read_of_the_publishing_process()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var key, var first) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await TemplateApi.PublishAsync(publisher, key, first);
+        (await FindTemplateAsync("araia-cambio", key)).IsSuccess.ShouldBeTrue();
+        (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
+
+        var second = await PublishCorrectedVersionAsync(author, publisher, key);
+
+        Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        lookup.Value.ShouldBeOfType<PublishedTemplateLookup.Published>()
+            .Template.Version.ShouldBe(second);
+        rendered.Value!.Full.Body.ShouldBe("<p>Pedido 42 corrigido.</p>");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_rollback_reaches_the_next_read_of_the_rolling_back_process()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var key, var first) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await TemplateApi.PublishAsync(publisher, key, first);
+        var second = await PublishCorrectedVersionAsync(author, publisher, key);
+        (await FindTemplateAsync("araia-cambio", key)).IsSuccess.ShouldBeTrue();
+        (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
+
+        HttpResponseMessage rolledBack = await publisher.PostAsJsonAsync(
+            $"/v1/templates/{key}/rollback", new { toVersion = first });
+        rolledBack.EnsureSuccessStatusCode();
+
+        Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
+        Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
+
+        lookup.Value.ShouldBeOfType<PublishedTemplateLookup.Published>()
+            .Template.Version.ShouldBe(second + 1);
+        rendered.Value!.Full.Body.ShouldBe("<p>Pedido 42 atualizado.</p>");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_published_class_policy_reaches_the_next_read_of_the_publishing_process()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var application, _, _) = await ClassPolicyApi.CreateDraftAsync(author);
+        await ClassPolicyApi.PublishAsync(publisher, application);
+        (await FindClassPolicyAsync(application)).IsSuccess.ShouldBeTrue();
+
+        await ClassPolicyApi.CreateDraftAsync(
+            author, application, definition: ClassPolicyApi.Definition(dedupeWindow: "120s"));
+        var second = await ClassPolicyApi.PublishAsync(publisher, application);
+
+        Result<PublishedClassPolicy> policy = await FindClassPolicyAsync(application);
+
+        policy.Value!.Definition.DedupeWindow.ShouldBe(TimeSpan.FromSeconds(120));
+        policy.Value!.Version.ShouldBe(second);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_template_untouched_by_a_disable_keeps_answering_from_memory()
+    {
+        // Falsification pair of the five assertions above: dropping the whole
+        // store on every transition satisfies all of them and throws away the
+        // working set of every template nobody touched, turning a rare
+        // governance command into a fleet-wide cold start.
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        (var target, var targetVersion) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await TemplateApi.PublishAsync(publisher, target, targetVersion);
+        (var bystander, var bystanderVersion) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await TemplateApi.PublishAsync(publisher, bystander, bystanderVersion);
+        (await FindTemplateAsync("araia-cambio", bystander)).IsSuccess.ShouldBeTrue();
+
+        HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
+            $"/v1/templates/{target}/disable", new { reason = "conteúdo incorreto em produção" });
+        disabled.EnsureSuccessStatusCode();
+
+        PublishedReadCache cache = fixture.Services.GetRequiredService<PublishedReadCache>();
+        var loads = cache.PointerLoads;
+        var hits = cache.PointerHits;
+        Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", bystander);
+
+        (cache.PointerLoads - loads).ShouldBe(
+            0, "a transição de um template não pode custar recarga a quem ela não tocou");
+        (cache.PointerHits - hits).ShouldBe(1);
+        lookup.Value.ShouldBeOfType<PublishedTemplateLookup.Published>()
+            .Template.TemplateKey.ShouldBe(bystander);
+    }
+
+    /// <summary>A second version of an existing template, with a body that differs from the first.</summary>
+    private static async Task<int> PublishCorrectedVersionAsync(
+        HttpClient author,
+        HttpClient publisher,
+        string key)
+    {
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
+        {
+            subject = "Pedido {{ orderId }}",
+            body = "<p>Pedido {{ orderId }} corrigido.</p>",
+            bodyText = "Pedido {{ orderId }} corrigido.",
+        }, etag);
+        await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new { orderId = new { type = "string" } },
+            required = RequiredOrderId,
+        }, etag);
+        return await TemplateApi.PublishAsync(publisher, key, version);
+    }
+
+    private async Task<Result<PublishedClassPolicy>> FindClassPolicyAsync(string application)
+    {
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedCatalog catalog = scope.ServiceProvider.GetRequiredService<IPublishedCatalog>();
+        return await catalog.FindClassPolicyAsync(
+            application, ClassPolicyApi.DefaultClass, CancellationToken.None);
     }
 
     private async Task<Result<PublishedTemplateLookup>> FindTemplateAsync(string application, string key)

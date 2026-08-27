@@ -5,6 +5,7 @@ using Npgsql;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.ErrorHandling;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
 using NotificationHub.SharedKernel;
@@ -17,6 +18,7 @@ internal static partial class RollbackTemplate
         TemplateManagementDbContext dbContext,
         IAuditTrail auditTrail,
         TemplateVersionAnalyzer analyzer,
+        PublishedReadCache cache,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -169,6 +171,15 @@ internal static partial class RollbackTemplate
                     + "Fetch the current state and retry if still applicable."));
             }
 
+            // After the commit and after every exit above: the concurrency and
+            // unique-violation paths return without reaching here, so a
+            // rollback that did not persist never drops what the store still
+            // answers. Only this process is reached; every other one keeps
+            // answering the superseded version until its own pointer expires.
+            cache.InvalidatePointer(
+                PublishedPointerKeys.Template(template.Application, key.Value!.Value));
+            cache.InvalidatePointer(
+                PublishedPointerKeys.RenderContext(template.Application, key.Value!.Value));
             logger.RollbackPublished(key.Value!.Value, published.Version, source.Version);
             return Result.Success<Outcome>(new Outcome.RolledBack(Response.From(published, current?.Version)));
         }

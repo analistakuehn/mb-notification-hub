@@ -134,6 +134,17 @@
 - Contracts expose immutable DTOs and `Result`/`Result<T>` only; domain
   entities never cross the boundary. Only published state is visible: drafts
   and superseded versions stay internal.
+- The published reads memoize in process. Per-version values never expire,
+  because a version is immutable by the governance contract; the
+  current-published pointers expire 60 seconds after they load. A lifecycle
+  transition (template disable, template deprecation, version publication,
+  version rollback, layout disable, layout deprecation, and class policy
+  publication) drops the pointers it invalidates, in the process that
+  committed it, right after the commit. Every other process keeps answering
+  the previous value until its own pointer expires, so a stop command reaches
+  the fleet within 60 seconds and never sooner. Treat that bound as the
+  contract of this surface: a control that has to stop traffic faster does not
+  belong behind these pointers.
 
 ## Error axis
 

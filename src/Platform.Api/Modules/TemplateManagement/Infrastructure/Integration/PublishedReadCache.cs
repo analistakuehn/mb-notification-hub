@@ -9,8 +9,11 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integrat
 /// the "current published" pointers, valid for a short window because a
 /// publish may move them at any time; and per-version values, immutable by
 /// the governance contract and therefore never expired. Both live in memory
-/// per process: workers converge on a new publication within the pointer
-/// window, which is the accepted staleness.
+/// per process: the process that commits a lifecycle transition drops the
+/// pointers that transition names, right after the commit, and every other
+/// process converges on the new state within the pointer window. The window
+/// stays the guaranteed bound, because the commands run in the API host and
+/// the renders run in the workers.
 /// </summary>
 /// <remarks>
 /// Each family owns a store with its own budget, so pointer traffic can never
@@ -43,6 +46,7 @@ internal sealed class PublishedReadCache : IDisposable
 
     private readonly MemoryCache _pointers;
     private readonly MemoryCache _immutable;
+    private long _generation;
     private long _pointerHits;
     private long _pointerLoads;
 
@@ -52,6 +56,17 @@ internal sealed class PublishedReadCache : IDisposable
         _pointers = Build(clock);
         _immutable = Build(clock);
     }
+
+    /// <summary>
+    /// The fence a reader captures before it goes to the store and hands back
+    /// to <see cref="SetPointerIfCurrent{T}" />. It counts invalidations for
+    /// every pointer key at once, and that is deliberate: an invalidation also
+    /// discards the writes in flight for keys it did not name, which costs a
+    /// few cold loads and buys a design with a single counter. The transitions
+    /// that move it are human governance and rare, so those loads are rare
+    /// with them.
+    /// </summary>
+    internal long Generation => Interlocked.Read(ref _generation);
 
     /// <summary>How many pointer lookups were answered from memory. Observability for tests.</summary>
     internal long PointerHits => Interlocked.Read(ref _pointerHits);
@@ -87,9 +102,72 @@ internal sealed class PublishedReadCache : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Writes a pointer without reading the fence. No published read writes
+    /// through it: every reader captures <see cref="Generation" /> before its
+    /// query leaves and lands on <see cref="SetPointerIfCurrent{T}" />. This
+    /// one exists to seed a store directly, and the contention probe binds it
+    /// by name, so renaming it or turning it into an overload breaks that
+    /// binding at run time and not at compile time.
+    /// </summary>
     internal void SetPointer<T>(string key, T value)
         where T : class
         => _pointers.Set(key, value, PointerEntry);
+
+    /// <summary>
+    /// Memoizes a "current published" value under the fence its reader
+    /// captured before loading. It closes the read-old-write-late race, where
+    /// a load whose query left before a transition committed puts the
+    /// superseded value back for another whole window, on a key the process
+    /// running the command reads often.
+    /// <para>
+    /// The fence is read twice, and both readings are load bearing. The first
+    /// refuses a write whose transition already landed. The second covers the
+    /// interval the first cannot see, between the check and the end of the
+    /// write: an invalidation that lands there would leave the superseded
+    /// value resident, which is the same harm through a narrower door. Every
+    /// interleaving is covered by one of the two, or by the removal of the
+    /// invalidation itself, which always follows the increment that the second
+    /// reading observes.
+    /// </para>
+    /// <para>
+    /// The removal below can also drop a fresher value that a concurrent load
+    /// wrote in that same interval. That costs one cold load and never answers
+    /// a superseded value, which is the trade this surface takes. It runs on
+    /// the miss path only, after a query to the store.
+    /// </para>
+    /// </summary>
+    internal void SetPointerIfCurrent<T>(string key, T value, long generation)
+        where T : class
+    {
+        if (generation != Interlocked.Read(ref _generation))
+        {
+            return;
+        }
+
+        _pointers.Set(key, value, PointerEntry);
+
+        if (generation != Interlocked.Read(ref _generation))
+        {
+            _pointers.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// Drops one pointer key, in this process, for a transition that already
+    /// committed. The order of the two statements is load bearing and must not
+    /// be swapped: incrementing first means a reader that reads the fence from
+    /// here on is refused its write, and a reader already past its check is
+    /// caught by the second reading in <see cref="SetPointerIfCurrent{T}" />.
+    /// Removing first would open the whole interval between the removal and
+    /// the increment, in which a stale write passes both readings and stays
+    /// resident for a full window.
+    /// </summary>
+    internal void InvalidatePointer(string key)
+    {
+        Interlocked.Increment(ref _generation);
+        _pointers.Remove(key);
+    }
 
     /// <summary>A per-version value; versions are immutable, so entries never expire.</summary>
     internal bool TryGetImmutable<T>(string key, out T value)
