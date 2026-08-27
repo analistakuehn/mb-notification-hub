@@ -335,13 +335,21 @@ Template:  active ──▶ deprecated | disabled
 | Compilação | Scriban em sandbox: limites nativos (`LoopLimit`, limite de recursão, objetos expostos via `ScriptObject` apenas com dados) e timeout de parede imposto externamente (render em task com timeout e descarte do resultado); template com limite de tamanho (ADR-0013) |
 | Variáveis | usadas ⊆ declaradas no schema; obrigatórias declaradas são usadas; tipos compatíveis com formatters; limite de tamanho por variável |
 | Links por classe | Proibidos em `critical`; só domínios allowlistados nas demais; sem encurtadores; `links_allowed` respeitado |
-| Sensíveis | Variáveis `sensitive` só aparecem através de função de máscara (`mask_cpf`, `mask_phone`, ...) |
+| Sensíveis | Todo nome declarado `sensitive` resolve contra o `variables-schema` da versão, em qualquer profundidade; nome com ponto resolve segmento a segmento e é reprovado quando o caminho atravessa `additionalProperties`, `$ref`, `oneOf` ou `allOf`. Nenhum nome `sensitive` aparece em posição de URL |
 | Limites de canal | SMS: segmentos GSM-7/UCS-2; push: tamanho de título/corpo; e-mail: versão texto obrigatória |
 | WhatsApp | Número e ordem de variáveis iguais ao Content template; status Meta `approved` |
 | Completude | Locale default presente; conteúdo para todos os canais elegíveis da classe |
 | Léxico | Termos proibidos por classe; footer antiphishing obrigatório em `critical` |
 
 O relatório completo (`checks[]`) é devolvido por `validate` e `publish` (§7.4).
+
+O mascaramento em si não é validação e não depende do autor. Ele age sobre o
+payload antes do render mascarado, casando o nome declarado em qualquer
+profundidade, então alcança inclusive valor que o template nunca imprime e que
+mesmo assim seria persistido na projeção mascarada. Uma função de máscara
+invocada dentro do placeholder, que este documento prescreveu até 2026-08-26,
+seria estritamente mais fraca: dependeria de o autor lembrar em cada uso e
+protegeria apenas o texto renderizado.
 
 **Render de teste por API (preview).** `POST /v1/templates/{key}/versions/{n}/render` com variáveis de exemplo devolve o conteúdo renderizado por (canal, locale), sem envio. A v1 não tem envio de teste para destino real: a superfície de gestão não envia nada a destinatário (§10.2 A12).
 

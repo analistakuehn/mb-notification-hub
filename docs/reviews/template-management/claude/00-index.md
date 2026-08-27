@@ -73,6 +73,17 @@ nenhum check liga o nome declarado sensível ao schema de variáveis da versão.
 A consequência é dado pessoal em claro gravado na trilha WORM append-only como
 prova de "que um valor foi enviado, nunca qual", sem sinal em nenhuma camada.
 
+Fechado. O mascaramento passou a ser uma regra estrutural única sobre o payload,
+em `SharedKernel/SensitiveValueMask.cs`, lida pelos dois mascaradores. Ela
+alcança qualquer profundidade e elemento de array, resolve caminho com ponto só
+por caminho e nunca por chave literal, e recusa alto quando um prefixo próprio
+cai em nó que não é objeto. Como a regra lê o payload e não a declaração,
+template já publicado deixou de vazar no deploy, sem escrita de dado. A
+investigação achou dois defeitos que esta seção não registrava, e os dois eram
+piores do que o descrito: uma chave literal de topo que soletrava o caminho era
+mascarada no lugar do caminho real, e payload com chave duplicada derrubava a
+ingestão com `500` em qualquer template com variável sensível.
+
 ## Estado dos achados
 
 Levantado após a remediação. O estado de cada achado está também na sua própria
@@ -110,12 +121,12 @@ tenha uma resposta em um lugar só.
 | `PRF-005` | Performance | um `TemplateContext` por forma no lugar de um por render, menos 71,2% de alocação |
 | `PRF-007` | Performance | o teto por contagem, que não limitava memória, virou orçamento em caracteres |
 | `TST-002` | Test | `ScribanSandboxTests` cobre a família de fuga que faltava |
+| `SEC-001` | Security | regra estrutural única em `SensitiveValueMask`, lida pelos dois mascaradores; alcança qualquer profundidade e array |
 
 ### Parciais, adiado e obsoleto
 
 | Id | Estado | O que exige atenção |
 |---|---|---|
-| `SEC-001` | `PARCIAL` | publicação bloqueada, mas **templates já publicados seguem mascarando nada**. É questão de dados: pede auditoria dos publicados cujos nomes sensíveis não constem do schema da versão. |
 | `TST-001` | `PARCIAL` | o defeito ficou bloqueado na publicação, mas o oráculo de mascaramento sobre payload aninhado continua não existindo. |
 | `STK-002` | `ADIADO` | ligar o modo estrito trocaria entrega degradada por entrega zero em mensagem de autenticação. A metade correta é detectar em publicação. |
 | `TST-003` | `OBSOLETO` | a recomendação manda observar trabalho abandonado que não existe mais. Aplicá-la como escrita é trabalho perdido. |
@@ -134,8 +145,7 @@ ponto de vigilância sobre callback no token em `STK-004`.
 | Test | 7 | `TST-004` a `TST-010` |
 | .NET Quality | 1 | `STK-005` |
 
-O maior deles é `SEC-001` na sua metade residual, seguido pelos `HIGH` de
-conteúdo ainda intocados: `SEC-004` (allowlist só reconhece link literal),
+Os maiores são os `HIGH` de conteúdo ainda intocados: `SEC-004` (allowlist só reconhece link literal),
 `SEC-005` (catálogo de layout sem checks de link), `SEC-006` (status de layout
 nunca consultado no render), `SEC-007` (`purpose` não canonizado) e `ENG-002`
 (limite de canal medido sobre a fonte).

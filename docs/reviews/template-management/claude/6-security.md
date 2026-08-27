@@ -31,7 +31,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `SEC-008` | `HIGH` | **RESOLVIDO** | Retrocesso quadrático no check de posição de URL, escapando como... |
 | `SEC-009` | `HIGH` | **RESOLVIDO** | Timeout de expressão regular escapa do contrato publicado e produz... |
 | `SEC-010` | `HIGH` | **RESOLVIDO** | Alocação por largura contorna os dois tetos de saída |
-| `SEC-001` | `CRITICAL` | **PARCIAL** | O mascaramento só alcança o primeiro nível, e nada liga o nome sensível... |
+| `SEC-001` | `CRITICAL` | **RESOLVIDO** | O mascaramento só alcança o primeiro nível, e nada liga o nome sensível... |
 | `SEC-004` | `HIGH` | **PENDENTE** | O allowlist de domínios é, na prática, opcional para quem escreve o... |
 | `SEC-005` | `HIGH` | **PENDENTE** | O catálogo de validação de layout tem dois checks, e o layout envolve... |
 | `SEC-006` | `HIGH` | **PENDENTE** | `Layout.Status` nunca é consultado no render: desativar um layout não... |
@@ -42,7 +42,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `SEC-014` | `MEDIUM` | **PENDENTE** | A trilha grava relatório completo na publicação e um booleano no... |
 
 ---
-## `SEC-001` · PARCIAL
+## `SEC-001` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -54,8 +54,8 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | introduzido-por-diff | `false` |
 | revisores | dotnet-specialist (`CRITICAL`), dotnet-architect (`HIGH`), dotnet-engineer (`MEDIUM`) |
 | dissenso | severidade divergente entre os três, retido `CRITICAL` |
-| **estado** | **PARCIAL** |
-| nota de estado | A publicação passou a ser bloqueada quando um nome sensível não corresponde a propriedade declarada pelo schema, que fecha a classe de defeito na autoria. NÃO estende o mascaramento para caminho com pontos: o schema é plano por contrato (`VariableDeclaration` só carrega nomes de topo) e mudá-lo é decisão de contrato, não correção. RISCO RESIDUAL: templates já publicados antes desta mudança seguem mascarando nada em silêncio. Isso é questão de dados, não de código, e pede uma auditoria pontual dos templates publicados cujos nomes sensíveis não constem do schema da versão. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | Fechado nas duas metades. A primeira já bloqueava a publicação quando um nome sensível não corresponde ao schema. A segunda trocou o mascaramento de topo por uma regra estrutural única em `SharedKernel/SensitiveValueMask.cs`, que os dois mascaradores passam a ler: nome sem ponto casa a chave em qualquer profundidade, inclusive dentro de array; nome com ponto é caminho absoluto, resolvido só por caminho e nunca por chave literal; prefixo próprio que cai em nó não objeto é recusado e mascarado fechado. A travessia lê `JsonElement` e escreve por `Utf8JsonWriter`, sem `JsonNode` em ponto nenhum, e é FUNDIDA: decide e copia na mesma passagem, porque um "nada a mascarar" calculado à parte da máscara que rodou devolve a forma completa como mascarada. O portão de publicação passou a resolver em qualquer profundidade e recusa alto através de `additionalProperties`, `$ref`, `oneOf` e `allOf`. Duas divergências apareceram contra a previsão, ambas na direção de o defeito ser pior do que esta ficha registrava: uma chave literal de topo que soletra o caminho era mascarada no lugar do caminho real, e payload com chave duplicada derrubava a ingestão com `500` em qualquer template com variável sensível. As duas foram fechadas junto. O risco residual que esta ficha registrava caiu por construção: a regra lê o payload e não a declaração, então template já publicado para de vazar no deploy, sem escrita de dado. O que permanece aberto é de outra natureza, não é vazamento novo, e são dois itens: as linhas já gravadas antes desta correção, que o dono da decisão manteve fora do escopo; e o transporte da recusa, porque `RefusedName` é produzido e hoje descartado pelos dois consumidores, de modo que a falha fechada é o que impede o vazamento e o autor não recebe sinal de que o caminho declarado está errado. |
 
 **O mascaramento só alcança o primeiro nível, e nada liga o nome sensível ao schema.**
 

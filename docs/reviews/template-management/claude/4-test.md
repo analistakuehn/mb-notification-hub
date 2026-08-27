@@ -29,7 +29,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | Achado | Severidade | Estado | Assunto |
 |---|---|---|---|
 | `TST-002` | `HIGH` | **RESOLVIDO** | Os testes de sandbox cobrem a família errada de fuga |
-| `TST-001` | `HIGH` | **PARCIAL** | O oráculo do mascaramento não cobre o modo de falha que importa |
+| `TST-001` | `HIGH` | **RESOLVIDO** | O oráculo do mascaramento não cobre o modo de falha que importa |
 | `TST-003` | `HIGH` | **OBSOLETO** | O teste de deadline não pode falhar pela propriedade que o nome declara |
 | `TST-004` | `MEDIUM` | **PENDENTE** | A regra mais forte do módulo tem oráculo para 2 dos 11 efeitos... |
 | `TST-005` | `MEDIUM` | **PENDENTE** | Nenhum oráculo compara as duas superfícies de render |
@@ -40,7 +40,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `TST-010` | `LOW` | **PENDENTE** | `ShouldBeOneOf` aceita duas guardas distintas, e não diz qual protegeu |
 
 ---
-## `TST-001` · PARCIAL
+## `TST-001` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -51,8 +51,8 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | tipo-de-evidência | teste |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-specialist (`HIGH`), dotnet-architect (`MEDIUM`), dotnet-engineer (`MEDIUM`) |
-| **estado** | **PARCIAL** |
-| nota de estado | O defeito que este oráculo deveria pegar passou a ser bloqueado na publicação, e há teste para isso em `SensitiveVariableValidationTests`. O oráculo pedido aqui, mascaramento sobre payload aninhado, NÃO foi escrito: a lacuna de teste permanece, embora o caminho para ela ficou mais estreito. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | O oráculo pedido aqui passou a existir junto com a correção do mascaramento. `VariableMaskingTests` e `VariablesMaskTests` leem uma tabela de casos compartilhada, `SensitiveMaskingCases`, que carrega payload aninhado, elemento de array, chave duplicada, caminho quebrado em prefixo próprio e colisão de nome sob outro contêiner. Cada caso afirma primeiro o dano, e não a estrutura: além do valor mascarado, afirma que o texto cru serializado não contém o valor plantado, que é o único oráculo capaz de pegar um "nada mudou" devolvido depois de a máscara ter rodado. A falsificabilidade foi medida em vez de assumida: mutar a travessia para devolver `Changed: false` após mascarar derruba 18 dos 25 testes do arquivo, contra os zero que a suíte anterior derrubava sob mutação equivalente. |
 
 **O oráculo do mascaramento não cobre o modo de falha que importa.**
 
