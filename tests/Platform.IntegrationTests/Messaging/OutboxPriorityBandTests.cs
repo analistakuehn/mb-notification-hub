@@ -201,7 +201,7 @@ public sealed class OutboxPriorityBandTests : IAsyncLifetime
             .. CoreWorkerRole.BandQueues.Select(entry => entry.Queue),
             .. from channel in Channel.All
                select RouteStage.DestinationFor(
-                   ResolveStage.AuthenticationPurpose, channel.Value, NotificationClasses.Critical),
+                   TemplatePurposes.Authentication, channel.Value, NotificationClasses.Critical),
             .. from channel in Channel.All
                from canonicalClass in NotificationClasses.CanonicalValues
                select RouteStage.DestinationFor(null, channel.Value, canonicalClass),

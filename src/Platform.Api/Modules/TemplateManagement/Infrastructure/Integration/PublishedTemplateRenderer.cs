@@ -178,8 +178,7 @@ internal sealed class PublishedTemplateRenderer(
     /// </summary>
     private static bool CarriesAuthenticationSmsLink(Template template, Channel channel, RenderedForm form)
         => channel == Channel.Sms
-            && string.Equals(
-                template.Purpose, TemplateValidation.AuthenticationPurpose, StringComparison.Ordinal)
+            && TemplatePurposes.IsAuthentication(template.Purpose)
             && (TemplateValidation.ContainsLinkLikeText(form.Body)
                 || TemplateValidation.ContainsLinkLikeText(form.Subject)
                 || TemplateValidation.ContainsLinkLikeText(form.BodyText));

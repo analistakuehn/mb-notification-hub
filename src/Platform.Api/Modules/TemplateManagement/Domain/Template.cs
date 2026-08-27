@@ -86,7 +86,7 @@ public sealed partial class Template
             return new Result<Template>(false, null, ownerTeam.ErrorKind, ownerTeam.Error);
         }
 
-        Result<string> purpose = RequiredText(metadata.Purpose, "purpose");
+        Result<string> purpose = NormalizePurpose(metadata.Purpose);
         if (purpose.IsFailure)
         {
             return new Result<Template>(false, null, purpose.ErrorKind, purpose.Error);
@@ -191,6 +191,29 @@ public sealed partial class Template
                 $"Field '{fieldName}' is required and must have at most {MaxTextLength} characters."))
             : Result.Success(candidate);
     }
+
+    /// <summary>
+    /// Canonizes the purpose on the way in: lower case, then the same required
+    /// text guard as the neighbouring fields, so the length limit applies to
+    /// the form that is actually stored.
+    /// <para>
+    /// Only this field is folded, and only here. The purpose is the one
+    /// governance value machines read: an ordinal equality decides whether the
+    /// publication catalog bans links in an SMS, whether the render refuses to
+    /// ship one, whether a recipient read may fall back to the last known
+    /// snapshot, and whether a code takes the authentication queue instead of
+    /// the ordinary one. The go-live gate asks the same question in SQL, where
+    /// folding case would cost the index. This is the only write door of the
+    /// column, so a value canonized here can never be read past later.
+    /// </para>
+    /// <para>
+    /// The owner team and the legal basis share the required text guard and
+    /// are read by people, never compared for equality, so lowering their case
+    /// would rewrite two values nobody asked to change.
+    /// </para>
+    /// </summary>
+    private static Result<string> NormalizePurpose(string? value)
+        => RequiredText(value?.ToLowerInvariant(), "purpose");
 
     private static Result<List<string>> NormalizeLinkDomains(IReadOnlyList<string> domains)
     {

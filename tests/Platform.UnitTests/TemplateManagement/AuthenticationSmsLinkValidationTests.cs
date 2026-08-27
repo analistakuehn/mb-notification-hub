@@ -147,6 +147,77 @@ public sealed class AuthenticationSmsLinkValidationTests
         report.Passed.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("authentication")]
+    [InlineData("Authentication")]
+    [InlineData("AUTHENTICATION")]
+    [InlineData("  Authentication  ")]
+    public void A_link_in_an_authentication_sms_blocks_publication_whatever_the_case_of_the_purpose(
+        string purpose)
+    {
+        // The ban belongs to the purpose, not to the spelling whoever created
+        // the template happened to type. A template declared "Authentication"
+        // carries the same authentication material and reaches the same phone,
+        // so it has to answer to the same check.
+        Template template = Template.Create(Key, Metadata(purpose, ["banco.example.com"])).Value!;
+        TemplateVersion version = MakeVersion(
+            ("sms", "pt-BR", "Código {{ code }}. Confirme em https://banco.example.com/otp"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("sms", "pt-BR", ("body", ["code"])),
+        ]);
+
+        report.Checks.ShouldContain(
+            candidate => candidate.Name == ValidationCheckNames.AuthenticationSmsLinks
+                && candidate.Status == ValidationCheckStatuses.Failed
+                && candidate.Location == "sms/pt-BR/body");
+        report.Passed.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("order-updates")]
+    [InlineData("Order-Updates")]
+    [InlineData("ORDER-UPDATES")]
+    public void Another_purpose_with_a_link_in_its_sms_stays_out_of_the_ban(string purpose)
+    {
+        // Falsification of the theory above: what puts a template under the ban
+        // is one purpose, whatever its case, and not a case-insensitive reading
+        // that would drag every other purpose in with it.
+        Template template = Template.Create(Key, Metadata(purpose, ["loja.example.com"])).Value!;
+        TemplateVersion version = MakeVersion(
+            ("sms", "pt-BR", "Acompanhe em https://loja.example.com/pedido"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("sms", "pt-BR", ("body", [])),
+        ]);
+
+        report.Checks.ShouldNotContain(candidate =>
+            candidate.Name == ValidationCheckNames.AuthenticationSmsLinks);
+        report.Passed.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("auth")]
+    [InlineData("authentication-reminder")]
+    public void A_purpose_that_only_resembles_authentication_is_not_it(string purpose)
+    {
+        // Deliberate boundary, written down so nobody has to rediscover it: the
+        // ban reads one exact word. A purpose that abbreviates it, or merely
+        // contains it, keeps its links in SMS. Widening the reading is a
+        // governance decision about the purpose vocabulary itself, not
+        // something this check may take on its own.
+        Template template = Template.Create(Key, Metadata(purpose, ["banco.example.com"])).Value!;
+        TemplateVersion version = MakeVersion(
+            ("sms", "pt-BR", "Confirme em https://banco.example.com/otp"));
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("sms", "pt-BR", ("body", [])),
+        ]);
+
+        report.Checks.ShouldNotContain(candidate =>
+            candidate.Name == ValidationCheckNames.AuthenticationSmsLinks);
+    }
+
     private static Template Authentication(IReadOnlyList<string>? linkDomains = null)
         => Template.Create(
             Key,

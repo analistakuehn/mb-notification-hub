@@ -1,5 +1,6 @@
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
@@ -13,7 +14,6 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 /// </summary>
 internal sealed class ResolveStage(IRecipientDirectory recipientDirectory) : INotificationStage
 {
-    internal const string AuthenticationPurpose = "authentication";
     internal const string ReasonNoValidContact = "no-valid-contact";
 
     public string Name => "Resolve";
@@ -41,5 +41,5 @@ internal sealed class ResolveStage(IRecipientDirectory recipientDirectory) : INo
 
     internal static bool IsCriticalOrAuthentication(NotificationContext context)
         => context.Notification.Class == NotificationClasses.Critical
-            || string.Equals(context.Template?.Purpose, AuthenticationPurpose, StringComparison.Ordinal);
+            || TemplatePurposes.IsAuthentication(context.Template?.Purpose);
 }
