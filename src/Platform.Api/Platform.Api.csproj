@@ -21,6 +21,7 @@
     <InternalsVisibleTo Include="NotificationHub.SecurityArchTests" />
     <InternalsVisibleTo Include="NotificationHub.UnitTests" />
     <InternalsVisibleTo Include="NotificationHub.IntegrationTests" />
+    <InternalsVisibleTo Include="NotificationHub.StackProbe" />
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 

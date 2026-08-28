@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Console host for the checks that have to survive their own failure. A stack
+    overflow is not catchable in .NET: it ends the process it happens in. A test
+    that ran such a check in the test host would take the whole run down without
+    ever reporting an assertion, so the check runs here and the test reads the
+    exit code from outside.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NotificationHub.StackProbe</RootNamespace>
+    <AssemblyName>NotificationHub.StackProbe</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
+  </ItemGroup>
+
+</Project>
