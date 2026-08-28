@@ -332,7 +332,7 @@ Template:  active ──▶ deprecated | disabled
 
 | Verificação | Detalhe |
 |---|---|
-| Compilação | Scriban em sandbox: limites nativos (`LoopLimit`, limite de recursão, objetos expostos via `ScriptObject` apenas com dados) e timeout de parede imposto externamente (render em task com timeout e descarte do resultado); template com limite de tamanho (ADR-0013) |
+| Compilação | Scriban em sandbox: limites nativos (`LoopLimit`, limite de recursão, objetos expostos via `ScriptObject` apenas com dados), prazo de parede do render por token de cancelamento vinculado, e teto de complexidade da fonte medido antes do parse, que o prazo não alcança; template com limite de tamanho (ADR-0013, errata de 2026-08-27) |
 | Variáveis | usadas ⊆ declaradas no schema; obrigatórias declaradas são usadas; tipos compatíveis com formatters; limite de tamanho por variável |
 | Links por classe | Proibidos em `critical`; só domínios allowlistados nas demais; sem encurtadores; `links_allowed` respeitado |
 | Sensíveis | Todo nome declarado `sensitive` resolve contra o `variables-schema` da versão, em qualquer profundidade; nome com ponto resolve segmento a segmento e é reprovado quando o caminho atravessa `additionalProperties`, `$ref`, `oneOf` ou `allOf`. Nenhum nome `sensitive` aparece em posição de URL |
@@ -1516,6 +1516,8 @@ Serilog → sink OpenTelemetry → OTel Collector (DaemonSet no EKS) → backend
 **Decisão.** Scriban com sandbox nativo (`LoopLimit`, limite de recursão, objetos expostos via `ScriptObject` apenas com dados) e timeout de parede imposto externamente (render em task com timeout e descarte do resultado; template com limite de tamanho).
 **Alternativas.** Fluid/Liquid, Handlebars.Net, Razor. Fatores: sandbox nativo, limites de laço e recursão, sintaxe para não desenvolvedores, performance.
 **Consequências.** Lock-in de sintaxe nos templates governados; timeout externo necessário.
+
+**Errata de 2026-08-27: o prazo de parede não é descarte de task, e não cobre o parse.** A decisão acima descreve o timeout como render em task com descarte do resultado. Essa forma saiu: descartar a task descarta a espera e não o trabalho, que seguia queimando CPU numa thread do pool depois de o chamador já ter a resposta. O prazo passou a ser um token de cancelamento vinculado, observado pelo motor nos próprios pontos de verificação. E ele cobre o render e só ele: o parse acontece antes, o parser do Scriban não aceita token de cancelamento, e nenhuma medida externa o interrompe, porque abandonar a espera deixa a CPU queimando. Medido, a mesma fonte de 131.072 caracteres custa 0,6 ms de parse como texto corrido e 92 ms como um encadeamento de acesso a membro, um fator de 150 entre duas fontes do mesmo tamanho, e nenhum dos dois dentro de prazo algum. A contenção do parse é portanto de admissão e não de prazo: a fonte é medida pelo lexer do próprio motor, antes do parse, e recusada por dois tetos. O primeiro é a contagem de tokens da fonte, que é o que o custo de parse acompanha. O segundo é a contagem de tokens de um bloco, que limita a profundidade de uma expressão: um encadeamento pós-fixo (`a.b.c`, `a[0][0]`) é lido em laço, não entra no limite de profundidade do motor, e a partir de 1.500 elos, uma fonte de 3.007 caracteres, mata o processo por estouro de pilha durante o render, que é uma falha que não se captura.
 
 ---
 

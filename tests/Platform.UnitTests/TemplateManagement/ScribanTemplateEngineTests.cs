@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
@@ -13,7 +14,10 @@ public sealed class ScribanTemplateEngineTests
         int recursionLimit = 16,
         int maxSizeChars = 10_000,
         int timeoutMs = 2000,
-        int maxOutputChars = 1_000_000)
+        int maxOutputChars = 1_000_000,
+        int maxTemplateTokens = 8192,
+        int maxCodeBlockTokens = 512,
+        ScribanParseCache? parseCache = null)
         => new(Options.Create(new TemplatingOptions
         {
             LoopLimit = loopLimit,
@@ -21,7 +25,20 @@ public sealed class ScribanTemplateEngineTests
             MaxTemplateSizeChars = maxSizeChars,
             RenderTimeoutMilliseconds = timeoutMs,
             MaxOutputChars = maxOutputChars,
-        }), new ScribanParseCache());
+            MaxTemplateTokens = maxTemplateTokens,
+            MaxCodeBlockTokens = maxCodeBlockTokens,
+        }), parseCache ?? new ScribanParseCache());
+
+    private static string Repeat(string unit, int chars)
+    {
+        var builder = new StringBuilder(chars + unit.Length);
+        while (builder.Length < chars)
+        {
+            builder.Append(unit);
+        }
+
+        return builder.ToString(0, chars);
+    }
 
     private static JsonElement Variables(string json)
     {
@@ -197,5 +214,125 @@ public sealed class ScribanTemplateEngineTests
 
         result.IsFailure.ShouldBeTrue();
         result.Error!.ShouldContain("nome");
+    }
+
+    [Fact]
+    public async Task A_source_past_the_token_ceiling_is_refused_instead_of_parsed()
+    {
+        Result<string> result = await Engine(maxSizeChars: 131_072).RenderAsync(
+            Repeat("{{a.b.c.d.e.f.g.h.i.j}}", 131_072),
+            variables: null,
+            CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error!.ShouldContain("8192 token limit");
+    }
+
+    [Fact]
+    public void The_analysis_refuses_the_same_source_the_render_refuses()
+    {
+        TemplateSourceAnalysis analysis = Engine(maxSizeChars: 131_072).Analyze(
+            Repeat("{{a.b.c.d.e.f.g.h.i.j}}", 131_072),
+            "body");
+
+        // Publication and validation parse without the memoization and without a
+        // deadline of any kind, so the ceiling has to sit on this path too.
+        analysis.ParseSucceeded.ShouldBeFalse();
+        analysis.ParseError!.ShouldContain("8192 token limit");
+        analysis.UsedVariables.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_deep_member_chain_is_refused_by_the_expression_ceiling()
+    {
+        var builder = new StringBuilder("{{ a");
+        for (var link = 0; link < 400; link++)
+        {
+            builder.Append(".b");
+        }
+
+        Result<string> result = await Engine().RenderAsync(
+            builder.Append(" }}").ToString(),
+            variables: null,
+            CancellationToken.None);
+
+        // Not a cost limit: measured against this engine, a chain of 1500 links
+        // ends the process with a stack overflow while rendering, because every
+        // link is one more stack frame and the engine's own depth limit does not
+        // count a postfix chain. The refusal has to land before the parse builds
+        // the tree, because a stack overflow cannot be caught afterwards.
+        result.IsFailure.ShouldBeTrue();
+        result.Error!.ShouldContain("512 token limit");
+    }
+
+    [Fact]
+    public async Task Refusing_a_source_costs_a_fraction_of_parsing_it()
+    {
+        var source = Repeat("{{a.b.c.d.e.f.g.h.i.j}}", 131_072);
+        ScribanTemplateEngine engine = Engine(maxSizeChars: 131_072);
+
+        var watch = Stopwatch.StartNew();
+        Result<string> result = await engine.RenderAsync(source, variables: null, CancellationToken.None);
+        watch.Stop();
+
+        result.IsFailure.ShouldBeTrue();
+
+        // The measurement this ceiling exists for: parsing this source takes
+        // around 80 ms on the machine that sized it, against 0.6 ms for prose of
+        // the same length, and nothing stops a parse once it starts. The scan
+        // stops at the ceiling instead of at the end of the source, so the
+        // refusal is bounded by the ceiling and not by what the caller sent.
+        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromMilliseconds(25));
+    }
+
+    [Fact]
+    public async Task A_source_already_parsed_is_not_measured_again()
+    {
+        var cache = new ScribanParseCache();
+        var source = "Olá {{ nome }}, o seu pedido chegou e já está a caminho do endereço.";
+        JsonElement variables = Variables("""{ "nome": "Ana" }""");
+
+        // The memoization holds published sources only, so this is the published
+        // path: a draft is parsed and dropped on every call and never becomes
+        // resident at all.
+        ScribanTemplateEngine generous = Engine(parseCache: cache);
+        Result<string> admitted = await generous.RenderAsync(
+            generous.BeginForm(), source, variables, CancellationToken.None);
+
+        ScribanTemplateEngine strict = Engine(maxTemplateTokens: 4, maxCodeBlockTokens: 4, parseCache: cache);
+        Result<string> resident = await strict.RenderAsync(
+            strict.BeginForm(), source, variables, CancellationToken.None);
+        Result<string> arriving = await strict.RenderAsync(
+            strict.BeginForm(),
+            source.Replace("pedido", "envio", StringComparison.Ordinal),
+            variables,
+            CancellationToken.None);
+
+        // The measurement is charged to the call that parses and never to the
+        // one that looks up: charging every render for it would put the whole
+        // cost of the guard on the path the memoization exists to keep cheap.
+        // Tightening the ceilings therefore reaches the resident set on the next
+        // start, which is when a singleton bound at startup reads them anyway.
+        admitted.IsSuccess.ShouldBeTrue(admitted.Error);
+        resident.IsSuccess.ShouldBeTrue(resident.Error);
+        arriving.IsFailure.ShouldBeTrue();
+        arriving.Error!.ShouldContain("4 token limit");
+    }
+
+    [Fact]
+    public async Task A_long_message_of_plain_text_still_renders()
+    {
+        var source = Repeat("Olá, o seu pedido saiu para entrega hoje pela manhã. ", 131_000)
+            + "{{ nome }}";
+
+        Result<string> result = await Engine(maxSizeChars: 131_072).RenderAsync(
+            source,
+            Variables("""{ "nome": "Ana" }"""),
+            CancellationToken.None);
+
+        // The shape the ceiling must never touch: the longest thing an author
+        // writes is text, and text is the cheapest thing the parser reads.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldEndWith("Ana");
     }
 }

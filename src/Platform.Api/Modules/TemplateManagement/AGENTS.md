@@ -191,6 +191,19 @@
   requested application does not own, so read this asymmetry as deliberate and recorded,
   never as an oversight to close locally: the accepted risk and the containment that
   stands in for the scope live in the system design.
+- **Toda fonte de template passa por um teto de complexidade antes do parse.**
+  O prazo de render cobre o render e só ele: o parse roda antes, o parser do
+  Scriban não aceita token de cancelamento e nada o interrompe depois de
+  começar. A fonte é medida pelo lexer do próprio motor e recusada antes de
+  chegar ao parser, com dois tetos em `TemplatingOptions`. `MaxTemplateTokens`
+  limita o custo de parse, que medido acompanha a contagem de tokens.
+  `MaxCodeBlockTokens` limita a profundidade de uma expressão, porque um
+  encadeamento pós-fixo (`a.b.c`, `a[0][0]`) é lido em laço, não entra no limite
+  de profundidade do motor e derruba o processo por estouro de pilha em tudo
+  que percorre a árvore depois do parse. A medição roda na admissão do parse e
+  nunca na consulta à memoização. Limitar só o tamanho não substitui os dois
+  tetos: na mesma contagem de caracteres, o custo de parse varia por um fator
+  de 150 conforme a forma da fonte.
 - Never bind HTTP bodies directly to domain types.
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.

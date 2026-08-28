@@ -36,6 +36,30 @@ public sealed class TemplatingOptions
     public int RenderTimeoutMilliseconds { get; init; } = 2000;
 
     /// <summary>
+    /// Tokens one source may carry, counted by the engine's own lexer before
+    /// the source is parsed. The render deadline above starts only once the
+    /// parse has returned, and the parse takes no cancellation token, so this
+    /// is what bounds it: measured, parse cost follows the token count at
+    /// roughly 0.8 us per token, which puts the default near 7 ms of parse for
+    /// the most expensive shape that still fits. The richest legitimate source
+    /// probed, 128 KB of marketing HTML with 200 interpolations and loops, is
+    /// 2781 tokens.
+    /// </summary>
+    [Range(1, 1_000_000)]
+    public int MaxTemplateTokens { get; init; } = 8192;
+
+    /// <summary>
+    /// Tokens one code block may carry. Every syntax node costs at least one
+    /// token, so this bounds how deep a single expression nests, and with it
+    /// the recursion of everything that walks the parsed tree. The default
+    /// admits an expression some 250 levels deep, the same order as the
+    /// engine's own limit for the nesting it does count, and sits far under the
+    /// depth measured to overflow the stack.
+    /// </summary>
+    [Range(1, 100_000)]
+    public int MaxCodeBlockTokens { get; init; } = 512;
+
+    /// <summary>
     /// Ceiling for the rendered output. Loops multiplying large fragments can
     /// inflate the output far beyond the template size; the render aborts the
     /// moment the accumulated output crosses this limit.

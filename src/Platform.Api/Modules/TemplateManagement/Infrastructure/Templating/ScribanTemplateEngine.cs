@@ -44,9 +44,15 @@ internal enum TemplateProvenance
 /// <summary>
 /// Sandboxed Scriban execution. Templates only ever see plain data built from
 /// JSON: no .NET type is exposed and reflected member access is filtered out
-/// entirely. Loop and recursion limits are native to the engine; the wall-clock
-/// timeout is imposed externally by running the render in a task and discarding
-/// its result when the deadline passes.
+/// entirely. Loop and recursion limits are native to the engine, and the
+/// wall-clock deadline is a linked cancellation token the engine observes at
+/// its own checkpoints.
+/// <para>
+/// That deadline covers the render and only the render. The parse runs before
+/// it and takes no cancellation token, so it is bounded the only way an
+/// uninterruptible phase can be: the source is measured first and refused
+/// before the parser ever sees it, per <see cref="ScribanSourceComplexity"/>.
+/// </para>
 /// </summary>
 internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options, ScribanParseCache parseCache)
 {
@@ -85,6 +91,12 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         if (source.Length > options.Value.MaxTemplateSizeChars)
         {
             return new TemplateSourceAnalysis(false, SizeLimitMessage(source.Length), []);
+        }
+
+        SourceComplexityLimit exceeded = Exceeded(source);
+        if (exceeded is not SourceComplexityLimit.None)
+        {
+            return new TemplateSourceAnalysis(false, ComplexityLimitMessage(exceeded), []);
         }
 
         var template = Template.Parse(source, sourcePath);
@@ -185,7 +197,34 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         // the only writer there, and memoizing parses becomes an artifact of
         // the workers alone.
         var memoizable = provenance == TemplateProvenance.Published;
-        Template template = memoizable ? parseCache.GetOrParse(source) : Template.Parse(source);
+        Template? template = null;
+        if (memoizable)
+        {
+            parseCache.TryGet(source, out template);
+        }
+
+        if (template is null)
+        {
+            // Everything below this point is covered by the deadline. The parse
+            // is not: it takes no cancellation token, and the deadline starts
+            // only once it has returned. So a source that would be expensive to
+            // parse is refused before the parser is called, which is the one
+            // moment that cost can still be declined.
+            //
+            // The measurement is charged to the call that parses and never to
+            // the one that looks up: a resident source was measured when it was
+            // parsed. A draft therefore pays it on every call, which is exactly
+            // where it has to be paid, because a draft is never memoized and
+            // preview is the surface an author drives at will.
+            SourceComplexityLimit exceeded = Exceeded(source);
+            if (exceeded is not SourceComplexityLimit.None)
+            {
+                return Result.ValidationError<string>(ComplexityLimitMessage(exceeded));
+            }
+
+            template = memoizable ? parseCache.GetOrParse(source) : Template.Parse(source);
+        }
+
         if (template.HasErrors)
         {
             return Result.ValidationError<string>(
@@ -395,6 +434,18 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
             target.Remove(member);
         }
     }
+
+    /// <summary>The first admission ceiling this source crosses, if any.</summary>
+    private SourceComplexityLimit Exceeded(string source)
+        => ScribanSourceComplexity.Exceeded(
+            source,
+            options.Value.MaxTemplateTokens,
+            options.Value.MaxCodeBlockTokens);
+
+    private string ComplexityLimitMessage(SourceComplexityLimit exceeded)
+        => exceeded is SourceComplexityLimit.CodeBlockTokens
+            ? $"A single template expression exceeds the {options.Value.MaxCodeBlockTokens} token limit."
+            : $"The template exceeds the {options.Value.MaxTemplateTokens} token limit.";
 
     private string TimeLimitMessage()
         => $"Rendering exceeded the {options.Value.RenderTimeoutMilliseconds}ms time limit and was discarded.";

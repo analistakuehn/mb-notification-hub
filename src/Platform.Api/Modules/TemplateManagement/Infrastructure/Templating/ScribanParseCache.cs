@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Scriban;
@@ -162,6 +163,29 @@ internal sealed class ScribanParseCache : IDisposable
         }
 
         return nodes;
+    }
+
+    /// <summary>
+    /// The parsed template for the source, when the store already holds it.
+    /// </summary>
+    /// <remarks>
+    /// It exists so the caller can tell a hit from a miss before it acts. What
+    /// runs between the two is the admission check that bounds a parse, and
+    /// charging it to a hit would put the whole cost of that guard on the path
+    /// this memoization exists to keep cheap: a source resident here was
+    /// measured on the call that parsed it.
+    /// </remarks>
+    internal bool TryGet(string source, [NotNullWhen(true)] out Template? template)
+    {
+        if (_templates.TryGetValue(source, out var stored) && stored is Template cached)
+        {
+            Interlocked.Increment(ref _hits);
+            template = cached;
+            return true;
+        }
+
+        template = null;
+        return false;
     }
 
     /// <summary>
