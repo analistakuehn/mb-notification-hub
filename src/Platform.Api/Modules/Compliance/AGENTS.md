@@ -30,8 +30,8 @@
 
 | Path | Responsibility |
 |---|---|
-| `Features/Queries/GetNotificationEvidence/` | reconstruction of one notification: trail block, state block, prior accesses |
-| `Features/Queries/GetAttemptContent/` | opening the stored content of one attempt, in its masked form, with hash verification |
+| `Features/Disclosure/GetNotificationEvidence/` | reconstruction of one notification: trail block, state block, prior accesses |
+| `Features/Disclosure/GetAttemptContent/` | opening the stored content of one attempt, in its masked form, with hash verification |
 | `Infrastructure/Authorization/` | the audit policy, its requirement, and the security log of a denial |
 | `Infrastructure/RateLimiting/` | separate budgets for the evidence route and the content route |
 | `Infrastructure/Disclosure/` | the shape of a disclosure record and the append that writes it |

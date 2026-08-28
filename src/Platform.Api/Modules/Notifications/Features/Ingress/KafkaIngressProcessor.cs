@@ -5,7 +5,7 @@ using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
-using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+using RequestNotificationUseCase = NotificationHub.Api.Modules.Notifications.Features.Ingress.RequestNotification.RequestNotification;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
@@ -35,8 +35,8 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Ingress;
 /// replay never spends it.
 /// </summary>
 internal sealed class KafkaIngressProcessor(
-    RequestNotification.Handler handler,
-    IValidator<RequestNotification.Command> validator,
+    RequestNotificationUseCase.Handler handler,
+    IValidator<RequestNotificationUseCase.Command> validator,
     KafkaProducerAuthorizer authorizer,
     KafkaIngressSettlement settlement,
     KafkaIngressTopicMap topicMap,
@@ -150,7 +150,7 @@ internal sealed class KafkaIngressProcessor(
         ProducerAuthorization authorization,
         CancellationToken cancellationToken)
     {
-        Result<RequestNotification.Outcome> result = await handler.HandleAsync(
+        Result<RequestNotificationUseCase.Outcome> result = await handler.HandleAsync(
             request.Command,
             producer,
             authorization,
@@ -170,49 +170,49 @@ internal sealed class KafkaIngressProcessor(
         KafkaMessageContext context,
         IngressRequest request,
         string producer,
-        RequestNotification.Outcome outcome,
+        RequestNotificationUseCase.Outcome outcome,
         CancellationToken cancellationToken)
     {
         switch (outcome)
         {
-            case RequestNotification.Outcome.Accepted accepted:
+            case RequestNotificationUseCase.Outcome.Accepted accepted:
                 logger.IngressEventAccepted(context.Topic, context.Partition, context.Offset, accepted.NotificationId);
                 return await settlement.CommitAsync(
                     context, new KafkaDisposition.Processed(), cancellationToken);
 
-            case RequestNotification.Outcome.Replayed replayed:
+            case RequestNotificationUseCase.Outcome.Replayed replayed:
                 logger.IngressEventReplayed(context.Topic, context.Partition, context.Offset, replayed.NotificationId);
                 return await settlement.CommitAsync(
                     context, new KafkaDisposition.Duplicate(), cancellationToken);
 
-            case RequestNotification.Outcome.SensitiveVariablesOnBus sensitive:
+            case RequestNotificationUseCase.Outcome.SensitiveVariablesOnBus sensitive:
                 return await settlement.RefuseAsync(
                     context,
                     Diagnose(request, producer, NotificationRejectionReasons.SensitiveVariablesOnBus)
                         with { RedactedVariableNames = sensitive.VariableNames },
                     cancellationToken);
 
-            case RequestNotification.Outcome.ProducerNotAuthorized denied:
+            case RequestNotificationUseCase.Outcome.ProducerNotAuthorized denied:
                 return await settlement.RefuseAsync(
                     context, Diagnose(request, producer, denied.Reason), cancellationToken);
 
-            case RequestNotification.Outcome.TemplateRejected rejected:
+            case RequestNotificationUseCase.Outcome.TemplateRejected rejected:
                 return await settlement.RefuseAsync(
                     context, Diagnose(request, producer, rejected.Reason), cancellationToken);
 
-            case RequestNotification.Outcome.PayloadInvalid:
+            case RequestNotificationUseCase.Outcome.PayloadInvalid:
                 return await settlement.RefuseAsync(
                     context,
                     Diagnose(request, producer, NotificationRejectionReasons.PayloadInvalid),
                     cancellationToken);
 
-            case RequestNotification.Outcome.IdempotencyConflict:
+            case RequestNotificationUseCase.Outcome.IdempotencyConflict:
                 return await settlement.RefuseAsync(
                     context,
                     Diagnose(request, producer, NotificationRejectionReasons.IdempotencyKeyConflict),
                     cancellationToken);
 
-            case RequestNotification.Outcome.RateLimited:
+            case RequestNotificationUseCase.Outcome.RateLimited:
                 // Only the recipient budget rejects on this path: the
                 // principal dimension is counted and observed, never refused.
                 return await settlement.RefuseAsync(
@@ -232,12 +232,12 @@ internal sealed class KafkaIngressProcessor(
     /// them, and they are what lets a disputed request be checked against the
     /// record the broker still holds.
     /// </summary>
-    private static RequestNotification.IngestionOrigin OriginOf(
+    private static RequestNotificationUseCase.IngestionOrigin OriginOf(
         KafkaMessageContext context,
         CloudEvent cloudEvent)
         => new()
         {
-            Source = RequestNotification.IngestionSource.Kafka,
+            Source = RequestNotificationUseCase.IngestionSource.Kafka,
             Topic = context.Topic,
             Partition = context.Partition,
             Offset = context.Offset,
@@ -289,7 +289,7 @@ internal sealed class KafkaIngressSettlement(
 }
 
 /// <summary>One bus request bound to the ingestion command, with its idempotency scope.</summary>
-internal sealed record IngressRequest(RequestNotification.Command Command, string IdempotencyKey);
+internal sealed record IngressRequest(RequestNotificationUseCase.Command Command, string IdempotencyKey);
 
 /// <summary>
 /// Binds the event body to the ingestion command. Required command fields stay
@@ -329,7 +329,7 @@ internal static class IngressRequestBinder
             return null;
         }
 
-        var command = new RequestNotification.Command(
+        var command = new RequestNotificationUseCase.Command(
             ReadString(data, "application") ?? string.Empty,
             ReadString(data, "recipientId") ?? string.Empty,
             ReadString(data, "class") ?? string.Empty,

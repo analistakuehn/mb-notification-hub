@@ -43,7 +43,7 @@
 | Caminho | Responsabilidade |
 |---|---|
 | `src/Platform.Api/Modules/Notifications/Domain/` | entidades de notificação, tentativa, avaliação de política e idempotência, vocabulário de classes, JSON canônico, mascaramento de variáveis e forma pública do id |
-| `src/Platform.Api/Modules/Notifications/Features/` | slices verticais deste contexto: o pipeline Core em `Features/Pipeline/`, o consumer de dispatch em `Features/Dispatching/`, o handler de fallback em `Features/Fallback/`, a administração e os gates do kill switch em `Features/KillSwitch/`, o rastreamento de entrega em `Features/DeliveryTracking/` (recepção em `Webhooks/`, aplicação em `Events/`, varreduras em `Scheduling/` e reconciliação em `Reconciliation/`) e as slices de consulta em `Features/Queries/` |
+| `src/Platform.Api/Modules/Notifications/Features/` | slices verticais deste contexto: o pipeline Core em `Features/Pipeline/`, o consumer de dispatch em `Features/Dispatching/`, o handler de fallback em `Features/Fallback/`, a administração e os gates do kill switch em `Features/KillSwitch/`, o rastreamento de entrega em `Features/DeliveryTracking/` (recepção em `Webhooks/`, aplicação em `Events/`, varreduras em `Scheduling/` e reconciliação em `Reconciliation/`) e as slices de consulta em `Features/History/` |
 | `src/Platform.Api/Modules/Notifications/Infrastructure/` | persistência (schema `notifications`, contextos de escrita e somente leitura), controles Redis, gate de template, privacidade, cache do kill switch e ciclo de vida dos holds, gerenciador de partições, jobs de purge, writer de commit do pipeline, writer de dispatch de tentativas, writer da evidência de entrega, esquema de autenticação por assinatura de provedor, poison sinks, auxiliares de transporte para consultas e leitor de histórico |
 | `src/Platform.Api/Modules/Notifications/NotificationsModule.cs` | registro de serviços e mapeamento de endpoints deste contexto |
 | `src/Platform.Api/Modules/Notifications/Integration/V1/` | contrato publicado deste contexto: o catálogo canônico de motivos de rejeição |
@@ -74,7 +74,7 @@ curta própria.
 
 ## Um caso de uso de ingestão, dois transportes
 
-- `Features/Mutations/RequestNotification/` é neutro em relação ao transporte.
+- `Features/Ingress/RequestNotification/` é neutro em relação ao transporte.
   Ele recebe uma decisão de autorização já tomada, a origem da requisição e
   a chave de idempotência; responde com dados. Toda rejeição é um resultado
   legítimo, portanto a rota a mapeia para um problema RFC 9457, enquanto a
@@ -287,7 +287,7 @@ curta própria.
   mais de 24 h, de modo que um replay além da janela cria deliberadamente uma
   nova notificação.
 - O hash canônico do payload está documentado em
-  `Features/Mutations/RequestNotification/RequestNotification.PayloadHash.cs`.
+  `Features/Ingress/RequestNotification/RequestNotification.PayloadHash.cs`.
 
 ## Pipeline Core
 
@@ -919,7 +919,7 @@ e as duas respostas pertencem ao mesmo registro.
 
 - Os handlers retornam `Result<T>`; cada resultado da ingestão, inclusive as
   rejeições, é um dado dentro da união de respostas
-  (`Features/Mutations/RequestNotification/RequestNotification.Response.cs`), e
+  (`Features/Ingress/RequestNotification/RequestNotification.Response.cs`), e
   o endpoint mapeia cada caso para problemas RFC 9457
   (`Infrastructure/Http/IngestionProblems.cs`). Os valores de `type` dos
   problemas são códigos estáveis: `idempotency-key-conflict`,

@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
-using NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
+using NotificationHub.Api.Modules.TemplateManagement.Features;
 
 namespace NotificationHub.UnitTests.TemplateManagement;
 

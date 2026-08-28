@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Modules.Notifications.Domain;
-using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+using NotificationHub.Api.Modules.Notifications.Features.Ingress.RequestNotification;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using StackExchange.Redis;

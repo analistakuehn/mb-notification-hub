@@ -1,6 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
-using NotificationHub.Api.Modules.Compliance.Features.Queries;
+using NotificationHub.Api.Modules.Compliance.Features.Disclosure;
 using NotificationHub.Api.Modules.ContactConsent.Domain;
 using NotificationHub.Api.Modules.Notifications.Domain;
 

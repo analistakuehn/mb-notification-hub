@@ -1,4 +1,4 @@
-using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+using NotificationHub.Api.Modules.Notifications.Features.Ingress.RequestNotification;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 

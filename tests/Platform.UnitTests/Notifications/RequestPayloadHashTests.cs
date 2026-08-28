@@ -1,5 +1,5 @@
 using System.Text.Json;
-using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+using NotificationHub.Api.Modules.Notifications.Features.Ingress.RequestNotification;
 
 namespace NotificationHub.UnitTests.Notifications;
 

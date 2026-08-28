@@ -1,6 +1,6 @@
 using System.Text.Json;
 using NotificationHub.Api.Modules.ContactConsent.Features.Ingress;
-using NotificationHub.Api.Modules.ContactConsent.Features.Mutations;
+using NotificationHub.Api.Modules.ContactConsent.Features.Recipients;
 
 namespace NotificationHub.UnitTests.ContactConsent;
 

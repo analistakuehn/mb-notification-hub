@@ -100,7 +100,7 @@ public sealed class ArchitectureTests
             ("NotificationHub.Api.Modules.Consumer.Domain", "NotificationHub.Api.Modules.Consumer.Domain.Order"),
             ("NotificationHub.Api.Modules.Provider", "NotificationHub.Api.Modules.Provider.ProviderModule"),
             ("NotificationHub.Api.Modules.Provider.Domain", "NotificationHub.Api.Modules.Provider.Domain.Aggregate"),
-            ("NotificationHub.Api.Modules.Provider.Features.Mutations", "NotificationHub.Api.Modules.Provider.Features.Mutations.Handler"),
+            ("NotificationHub.Api.Modules.Provider.Features.Orders", "NotificationHub.Api.Modules.Provider.Features.Orders.Handler"),
             ("NotificationHub.Api.Modules.Provider.Infrastructure.Persistence", "NotificationHub.Api.Modules.Provider.Infrastructure.Persistence.ProviderDbContext"),
             ("NotificationHub.Api.Modules.Provider.Integration", "NotificationHub.Api.Modules.Provider.Integration.UnversionedContract"),
             ("NotificationHub.Api.Modules.Provider.Integration.V1", "NotificationHub.Api.Modules.Provider.Integration.V1.PublishedContract"),
@@ -114,7 +114,7 @@ public sealed class ArchitectureTests
         // published surface stays a forbidden dependency target, including a
         // contract namespace without a version segment.
         forbidden.ShouldContain("NotificationHub.Api.Modules.Provider.Domain");
-        forbidden.ShouldContain("NotificationHub.Api.Modules.Provider.Features.Mutations");
+        forbidden.ShouldContain("NotificationHub.Api.Modules.Provider.Features.Orders");
         forbidden.ShouldContain("NotificationHub.Api.Modules.Provider.Infrastructure.Persistence");
         forbidden.ShouldContain("NotificationHub.Api.Modules.Provider.ProviderModule");
         forbidden.ShouldContain("NotificationHub.Api.Modules.Provider.Integration.UnversionedContract");

@@ -6,7 +6,7 @@ using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Notifications.Features.Ingress;
-using NotificationHub.Api.Modules.Notifications.Features.Mutations;
+using NotificationHub.Api.Modules.Notifications.Features.Ingress.RequestNotification;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Idempotency;

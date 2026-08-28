@@ -5,7 +5,7 @@ using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Features.Ingress;
-using NotificationHub.Api.Modules.ContactConsent.Features.Mutations;
+using NotificationHub.Api.Modules.ContactConsent.Features.Recipients;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Privacy;

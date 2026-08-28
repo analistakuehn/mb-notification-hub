@@ -1,5 +1,5 @@
 using System.Text.Json;
-using NotificationHub.Api.Modules.Compliance.Features.Queries;
+using NotificationHub.Api.Modules.Compliance.Features.Disclosure;
 using NotificationHub.Api.Modules.Notifications.Integration.V1;
 
 namespace NotificationHub.UnitTests.Compliance;

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using FluentValidation;
 using FluentValidation.Results;
-using NotificationHub.Api.Modules.ContactConsent.Features.Mutations;
+using NotificationHub.Api.Modules.ContactConsent.Features.Recipients;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.SharedKernel;

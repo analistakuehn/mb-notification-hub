@@ -10,7 +10,7 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   because the append-only consent ledger holds a foreign key to the row.
 - **Evidence**: `Infrastructure/Persistence/Configurations/ContactPointConfiguration.cs`
   (restrict FK from `consent`), the append-only trigger on `consent`, and the
-  reconciliation in `Features/Mutations/DeclareContactPoints/`.
+  reconciliation in `Features/Recipients/DeclareContactPoints/`.
 - **Owner**: ContactConsent module maintainers with Arquitetura.
 - **Status**: accepted.
 - **Review condition**: the next data-model revision either adopts the column
@@ -86,7 +86,7 @@ Record only evidence-backed risks, accepted assumptions, scheduled actions, or f
   would remove.
 - **Evidence**: `Integration/V1/ConsentPurpose.cs`, the aggregate
   (`Domain/Consent.cs`), the two resolutions of the state in force
-  (`Features/Mutations/DeclareConsents/DeclareConsents.Handler.cs` and
+  (`Features/Recipients/DeclareConsents/DeclareConsents.Handler.cs` and
   `Infrastructure/Reads/RecipientDirectory.cs`), and the two comparison sites
   that read the snapshot against a class policy
   (`Modules/Notifications/Features/Pipeline/Rules/ConsentGateRule.cs` and

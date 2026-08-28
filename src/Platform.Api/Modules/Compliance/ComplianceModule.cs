@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
-using NotificationHub.Api.Modules.Compliance.Features.Queries;
+using NotificationHub.Api.Modules.Compliance.Features.Disclosure;
 using NotificationHub.Api.Modules.Compliance.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Compliance.Infrastructure.Disclosure;
 using NotificationHub.Api.Modules.Compliance.Infrastructure.Http;

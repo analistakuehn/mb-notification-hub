@@ -1,7 +1,7 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
-using NotificationHub.Api.Modules.ContactConsent.Features.Mutations;
+using NotificationHub.Api.Modules.ContactConsent.Features.Recipients;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Privacy;

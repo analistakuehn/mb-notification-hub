@@ -1,8 +1,9 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
-using NotificationHub.Api.Modules.TemplateManagement.Features.Mutations;
-using NotificationHub.Api.Modules.TemplateManagement.Features.Queries;
+using NotificationHub.Api.Modules.TemplateManagement.Features.ClassPolicies;
+using NotificationHub.Api.Modules.TemplateManagement.Features.Layouts;
+using NotificationHub.Api.Modules.TemplateManagement.Features.Templates;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Caching;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
