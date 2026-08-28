@@ -60,6 +60,17 @@
   its own: that list is the only part of the report a later revalidation cannot
   reproduce. The names that warned and their count are kept because publishing
   over a warning is a decision, and a decision belongs in the trail.
+- That revalidation is a surface, not a hope: every governed artifact answers
+  `POST .../versions/{v}/validate` with the integral report for the version the
+  route names, draft or published, and writes nothing. Read the reproducibility
+  of that report per artifact. A class policy reproduces it exactly, because the
+  validation is a function of the stored definition alone and a published
+  definition never changes; measured, a published version revalidates byte for
+  byte after a newer version supersedes it, after a layout publishes and is
+  disabled, and after a template of the same class changes. A template does not:
+  the `layout-reference` check reads the layout identity and version as they
+  stand today, so the same immutable version, at the same content hash, passed at
+  publication and fails on revalidation once the pinned layout stops resolving.
 - What never crosses into `details`: personal data, rendered content, the value
   **or the name** of a variable, and any text lifted out of the body of a
   template or of a layout. That last clause is what rules out the message and

@@ -7,8 +7,10 @@
 # Copie o token impresso por cada comando para as variáveis abaixo. Quatro olhos
 # vale também aqui: quem publica difere de quem criou ou editou o rascunho.
 #
-# Não existe rota separada de validação: o PUT do rascunho valida a definição
-# contra o vocabulário da versão 1 do schema e devolve o relatório checks[].
+# O PUT do rascunho valida a definição contra o vocabulário da versão 1 do
+# schema e recusa a definição que não passa, com o relatório checks[] no erro.
+# A rota de validação abaixo repete essa leitura sob demanda, para qualquer
+# versão já gravada, inclusive a publicada, que ninguém mais pode editar.
 # O primeiro PUT cria o rascunho sem If-Match; edições seguintes exigem o
 # If-Match atual e respondem 412 quando ele está desatualizado.
 
@@ -68,7 +70,11 @@ Authorization: Bearer {{publisherToken}}
 GET {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/versions/1
 Authorization: Bearer {{token}}
 
-### 6. Abrir um segundo rascunho para evoluir a política
+### 6. Rodar a validação de uma versão gravada (devolve o relatório checks[] completo)
+POST {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/versions/1/validate
+Authorization: Bearer {{token}}
+
+### 7. Abrir um segundo rascunho para evoluir a política
 # @name rascunhoV2
 PUT {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/draft
 Authorization: Bearer {{token}}
@@ -86,10 +92,10 @@ Content-Type: application/json
   "consentPurpose": null
 }
 
-### 7. Publicar a versão 2 com o segundo usuário
+### 8. Publicar a versão 2 com o segundo usuário
 POST {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/publish
 Authorization: Bearer {{publisherToken}}
 
-### 8. Diff entre a versão 2 e a versão 1
+### 9. Diff entre a versão 2 e a versão 1
 GET {{host}}/v1/applications/{{application}}/classes/{{class}}/policy/versions/2/diff?against=1
 Authorization: Bearer {{token}}
