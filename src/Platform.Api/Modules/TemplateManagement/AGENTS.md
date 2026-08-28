@@ -47,8 +47,41 @@
   `ApprovalSubjectTypes`, `ApprovalRoles`) lives in that contract. Approval
   subject ids are composed here, in this module's naming (template key, layout
   key, `application:class`).
-- `details` carries compact JSON evidence (content hash, validation outcome,
-  reason). Never personal data, variables, or rendered content.
+- `details` carries compact JSON evidence and nothing else. A publication or a
+  rollback records the content hash, the superseded version, the schema version
+  where the artifact has one, and a `validation` object holding the verdict, the
+  distinct names of the checks that ran, the distinct names of the checks that
+  warned, and how many warnings there were. Both write the same object: a
+  rollback is a publication and a weaker record of it says less for no gain.
+  There is no failed list and no failed count, because a report that does not
+  pass returns a blocked outcome before any audit entry exists, so the field
+  could only ever hold an empty value. The names of the checks that ran are
+  kept because the catalog is code, changes on deploy and carries no stamp of
+  its own: that list is the only part of the report a later revalidation cannot
+  reproduce. The names that warned and their count are kept because publishing
+  over a warning is a decision, and a decision belongs in the trail.
+- What never crosses into `details`: personal data, rendered content, the value
+  **or the name** of a variable, and any text lifted out of the body of a
+  template or of a layout. That last clause is what rules out the message and
+  the location of a validation check: the message interpolates a declared
+  variable name or a link host read off a wrapper body, and the location points
+  at the content unit the finding came from. `tests/Platform.SecurityArchTests`
+  scans the producers of `DetailsJson` in this module and fails on either one.
+- The reason of a deprecate or a disable is a code from
+  `Integration.V1.LifecycleReasons` plus an optional free-text note, never a
+  sentence in the code field: the periodic evidence read groups the trail by
+  that field and the archived report copies the group name verbatim, so prose
+  turns every phrasing into a category of its own. The note is capped at 500
+  characters and is required only for `other`, which is the single refusal the
+  note adds; `other` exists so that no operator is ever denied a traffic stop
+  for lack of a matching entry.
+- Rows written before this rule keep the full report, messages and locations
+  included, and a free-text reason. Nothing migrates them, and nothing can: the
+  trail is append-only by database trigger and hash-chained per partition, so
+  rewriting a row breaks the chain it belongs to. The cut is readable from the
+  row itself and needs no clock: a publication whose `validation` object carries
+  `warned` was written under this rule, and so was a lifecycle transition whose
+  details carry `note`.
 - Retention, export, and the 90-day verification criterion counted from the
   partition's upper boundary are the Audit module's concerns; nothing in this
   module may depend on them.

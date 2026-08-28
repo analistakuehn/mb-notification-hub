@@ -92,7 +92,7 @@ public sealed class ConcurrentLifecycleConflictTests(TemplateManagementApiFixtur
             verb: "UPDATE",
             batchMarker: "template_version",
             competingAction: () => competingPublisher.PostAsJsonAsync(
-                $"/v1/templates/{key}/disable", new { reason = "desativação concorrente" }));
+                $"/v1/templates/{key}/disable", new { reason = "retired", note = "desativação concorrente" }));
 
         Result<PublishTemplateVersion.Outcome> result;
         await using (TemplateManagementDbContext db = CreateDbContext(interceptor))

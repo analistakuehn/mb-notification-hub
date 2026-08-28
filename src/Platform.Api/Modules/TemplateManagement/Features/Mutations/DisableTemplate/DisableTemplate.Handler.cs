@@ -51,7 +51,7 @@ internal static partial class DisableTemplate
                 Action = AuditActions.TemplateDisabled,
                 EntityType = AuditEntityTypes.Template,
                 EntityId = key.Value!.Value,
-                DetailsJson = JsonSerializer.Serialize(new { reason = command.Reason }),
+                DetailsJson = JsonSerializer.Serialize(new { reason = command.Reason, note = command.Note }),
                 OccurredAt = timeProvider.GetUtcNow(),
             };
 

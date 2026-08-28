@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
@@ -135,7 +134,8 @@ internal static partial class RollbackTemplate
                 Action = AuditActions.TemplateRollback,
                 EntityType = AuditEntityTypes.TemplateVersion,
                 EntityId = $"{key.Value!.Value}:{published.Version}",
-                DetailsJson = RollbackDetails(published, source.Version, current?.Version, report),
+                DetailsJson = PublicationAuditDetails.ForRollback(
+                    published.ContentHash, published.Version, source.Version, current?.Version, report),
                 OccurredAt = now,
             };
 
@@ -183,19 +183,5 @@ internal static partial class RollbackTemplate
             logger.RollbackPublished(key.Value!.Value, published.Version, source.Version);
             return Result.Success<Outcome>(new Outcome.RolledBack(Response.From(published, current?.Version)));
         }
-
-        private static string RollbackDetails(
-            TemplateVersion published,
-            int fromVersion,
-            int? supersededVersion,
-            ValidationReport report)
-            => JsonSerializer.Serialize(new
-            {
-                rolledBackFrom = fromVersion,
-                publishedVersion = published.Version,
-                contentHash = published.ContentHash,
-                supersededVersion,
-                validation = new { passed = report.Passed },
-            });
     }
 }

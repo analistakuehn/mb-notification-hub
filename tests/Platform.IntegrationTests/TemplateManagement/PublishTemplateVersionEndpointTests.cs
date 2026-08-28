@@ -136,7 +136,8 @@ public sealed class PublishTemplateVersionEndpointTests(TemplateManagementApiFix
         HttpClient publisher = fixture.CreatePublisherClient("publisher-pub-5");
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/deprecate", new { reason = "substituído pelo fluxo novo" });
+            $"/v1/templates/{key}/deprecate",
+            new { reason = "superseded-by-new-version", note = "substituído pelo fluxo novo" });
         deprecated.EnsureSuccessStatusCode();
 
         HttpResponseMessage response = await publisher.PostAsync(

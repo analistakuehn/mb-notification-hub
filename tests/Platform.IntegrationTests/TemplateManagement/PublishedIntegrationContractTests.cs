@@ -77,7 +77,8 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await TemplateApi.PublishAsync(publisher, key, version);
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/deprecate", new { reason = "substituído pela nova jornada" });
+            $"/v1/templates/{key}/deprecate",
+            new { reason = "superseded-by-new-version", note = "substituído pela nova jornada" });
         deprecated.EnsureSuccessStatusCode();
 
         Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
@@ -95,7 +96,8 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await TemplateApi.PublishAsync(publisher, key, version);
         HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/disable", new { reason = "conteúdo incorreto em produção" });
+            $"/v1/templates/{key}/disable",
+            new { reason = "content-incorrect", note = "conteúdo incorreto em produção" });
         disabled.EnsureSuccessStatusCode();
 
         Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
@@ -336,7 +338,8 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         var key = await PublishTemplatePinnedToLayoutAsync(author, publisher, layoutKey, layoutVersion);
         HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/disable", new { reason = "conteúdo comprometido no próprio wrapper" });
+            $"/v1/layouts/{layoutKey}/disable",
+            new { reason = "content-compromised", note = "conteúdo comprometido no próprio wrapper" });
         disabled.EnsureSuccessStatusCode();
 
         // Nothing rendered this layout before it was disabled, so no memoized
@@ -363,7 +366,8 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         var key = await PublishTemplatePinnedToLayoutAsync(author, publisher, layoutKey, layoutVersion);
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "substituído pela nova identidade visual" });
+            $"/v1/layouts/{layoutKey}/deprecate",
+            new { reason = "visual-identity-change", note = "substituído pela nova identidade visual" });
         deprecated.EnsureSuccessStatusCode();
 
         Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
@@ -464,7 +468,8 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
 
         HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/disable", new { reason = "conteúdo incorreto em produção" });
+            $"/v1/templates/{key}/disable",
+            new { reason = "content-incorrect", note = "conteúdo incorreto em produção" });
         disabled.EnsureSuccessStatusCode();
 
         Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
@@ -487,7 +492,8 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
 
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/deprecate", new { reason = "substituído pela nova jornada" });
+            $"/v1/templates/{key}/deprecate",
+            new { reason = "superseded-by-new-version", note = "substituído pela nova jornada" });
         deprecated.EnsureSuccessStatusCode();
 
         Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
@@ -577,7 +583,8 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         (await FindTemplateAsync("araia-cambio", bystander)).IsSuccess.ShouldBeTrue();
 
         HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{target}/disable", new { reason = "conteúdo incorreto em produção" });
+            $"/v1/templates/{target}/disable",
+            new { reason = "content-incorrect", note = "conteúdo incorreto em produção" });
         disabled.EnsureSuccessStatusCode();
 
         PublishedReadCache cache = fixture.Services.GetRequiredService<PublishedReadCache>();

@@ -50,7 +50,7 @@ internal static partial class DeprecateLayout
                 Action = AuditActions.LayoutDeprecated,
                 EntityType = AuditEntityTypes.Layout,
                 EntityId = key.Value!.Value,
-                DetailsJson = JsonSerializer.Serialize(new { reason = command.Reason }),
+                DetailsJson = JsonSerializer.Serialize(new { reason = command.Reason, note = command.Note }),
                 OccurredAt = timeProvider.GetUtcNow(),
             };
 

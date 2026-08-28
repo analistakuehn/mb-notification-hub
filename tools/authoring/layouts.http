@@ -103,20 +103,22 @@ Content-Type: application/json
   "toVersion": 1
 }
 
-### 14. Depreciar o layout (justificativa vai para a auditoria)
+### 14. Depreciar o layout (o código e a nota vão para a auditoria)
 POST {{host}}/v1/layouts/{{layoutKey}}/deprecate
 Authorization: Bearer {{publisherToken}}
 Content-Type: application/json
 
 {
-  "reason": "Substituído pelo layout com a nova identidade visual"
+  "reason": "visual-identity-change",
+  "note": "Substituído pelo layout com a nova identidade visual"
 }
 
-### 15. Desabilitar o layout (justificativa vai para a auditoria)
+### 15. Desabilitar o layout (o código e a nota vão para a auditoria)
 POST {{host}}/v1/layouts/{{layoutKey}}/disable
 Authorization: Bearer {{publisherToken}}
 Content-Type: application/json
 
 {
-  "reason": "Identidade visual encerrada"
+  "reason": "retired",
+  "note": "Identidade visual encerrada"
 }

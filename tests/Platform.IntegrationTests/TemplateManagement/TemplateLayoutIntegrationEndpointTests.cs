@@ -87,7 +87,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-9");
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         (await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/disable", new { reason = "conteúdo comprometido no wrapper" }))
+            $"/v1/layouts/{layoutKey}/disable",
+            new { reason = "content-compromised", note = "conteúdo comprometido no wrapper" }))
             .EnsureSuccessStatusCode();
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
@@ -117,7 +118,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         HttpClient publisher = fixture.CreatePublisherClient("publisher-tl-10");
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         (await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "identidade visual antiga" }))
+            $"/v1/layouts/{layoutKey}/deprecate",
+            new { reason = "visual-identity-change", note = "identidade visual antiga" }))
             .EnsureSuccessStatusCode();
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
@@ -235,7 +237,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
         (await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/disable", new { reason = "wrapper retirado de circulação" }))
+            $"/v1/layouts/{layoutKey}/disable",
+            new { reason = "retired", note = "wrapper retirado de circulação" }))
             .EnsureSuccessStatusCode();
 
         HttpResponseMessage response = await author.PostAsJsonAsync(
@@ -260,7 +263,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
         (await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "identidade visual antiga" }))
+            $"/v1/layouts/{layoutKey}/deprecate",
+            new { reason = "visual-identity-change", note = "identidade visual antiga" }))
             .EnsureSuccessStatusCode();
 
         HttpResponseMessage response = await author.PostAsJsonAsync(
@@ -319,7 +323,7 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
             body: """<html><header>MB</header><a href="https://evil.example.io/x">promo</a>{{ content }}</html>""");
         await LayoutApi.PublishAsync(publisher, layoutKey, layoutVersion);
         (await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/disable", new { reason = "wrapper fora de uso" }))
+            $"/v1/layouts/{layoutKey}/disable", new { reason = "retired", note = "wrapper fora de uso" }))
             .EnsureSuccessStatusCode();
         (var key, var version) = await CreateDraftAllowingMonteBravoAsync(author);
         await PinLayoutAsync(author, key, version, layoutKey, layoutVersion);
@@ -349,7 +353,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
 
         (await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/disable", new { reason = "wrapper retirado de circulação" }))
+            $"/v1/layouts/{layoutKey}/disable",
+            new { reason = "retired", note = "wrapper retirado de circulação" }))
             .EnsureSuccessStatusCode();
 
         Result<PublishedTemplateRender> rendered = await RenderPublishedEmailAsync(key);
@@ -373,7 +378,8 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
         (await RenderPublishedEmailAsync(key)).IsSuccess.ShouldBeTrue();
 
         (await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{layoutKey}/deprecate", new { reason = "identidade visual antiga" }))
+            $"/v1/layouts/{layoutKey}/deprecate",
+            new { reason = "visual-identity-change", note = "identidade visual antiga" }))
             .EnsureSuccessStatusCode();
 
         PublishedReadCache cache = fixture.Services.GetRequiredService<PublishedReadCache>();

@@ -30,7 +30,7 @@ internal static partial class DeprecateTemplate
         }
 
         Result<Response> result = await handler.HandleAsync(
-            new Command(key, request.Reason, actor.Value!),
+            new Command(key, request.Reason, request.Note, actor.Value!),
             cancellationToken);
         return result.IsSuccess ? Results.Ok(result.Value) : ApiResults.Problem(result);
     }

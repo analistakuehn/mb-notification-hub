@@ -153,20 +153,22 @@ Content-Type: application/json
   "toVersion": 1
 }
 
-### 17. Depreciar o template (novos usos desaconselhados; justificativa vai para a auditoria)
+### 17. Depreciar o template (novos usos desaconselhados; o código e a nota vão para a auditoria)
 POST {{host}}/v1/templates/{{templateKey}}/deprecate
 Authorization: Bearer {{publisherToken}}
 Content-Type: application/json
 
 {
-  "reason": "Substituído pela nova comunicação de pedidos"
+  "reason": "superseded-by-new-version",
+  "note": "Substituído pela nova comunicação de pedidos"
 }
 
-### 18. Desabilitar o template (interrompe o uso; justificativa vai para a auditoria)
+### 18. Desabilitar o template (interrompe o uso; o código e a nota vão para a auditoria)
 POST {{host}}/v1/templates/{{templateKey}}/disable
 Authorization: Bearer {{publisherToken}}
 Content-Type: application/json
 
 {
-  "reason": "Comunicação encerrada"
+  "reason": "retired",
+  "note": "Comunicação encerrada"
 }

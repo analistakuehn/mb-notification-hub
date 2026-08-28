@@ -561,7 +561,7 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
         HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
         (await publisher.PostAsJsonAsync(
                 $"/v1/templates/{templateKey}/deprecate",
-                new { reason = "substituído pela campanha nova" }))
+                new { reason = "superseded-by-new-version", note = "substituído pela campanha nova" }))
             .EnsureSuccessStatusCode();
         HttpClient producer = fixture.CreateProducerClient("producer-deprecated", NotificationsApi.SendTransactional);
 

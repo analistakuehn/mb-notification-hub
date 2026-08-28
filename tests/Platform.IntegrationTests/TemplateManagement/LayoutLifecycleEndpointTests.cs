@@ -210,9 +210,11 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         var key = await LayoutApi.CreateLayoutAsync(author, LayoutApi.NewKey());
 
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{key}/deprecate", new { reason = "identidade visual antiga" });
+            $"/v1/layouts/{key}/deprecate",
+            new { reason = "visual-identity-change", note = "identidade visual antiga" });
         HttpResponseMessage disabled = await publisher.PostAsJsonAsync(
-            $"/v1/layouts/{key}/disable", new { reason = "substituído em produção" });
+            $"/v1/layouts/{key}/disable",
+            new { reason = "superseded-by-new-version", note = "substituído em produção" });
 
         deprecated.StatusCode.ShouldBe(HttpStatusCode.OK);
         disabled.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -234,7 +236,8 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         HttpClient author = fixture.CreateAuthorClient("author-lay-10");
         HttpClient publisher = fixture.CreatePublisherClient("publisher-lay-10");
         (var key, var version) = await LayoutApi.CreatePublishableDraftAsync(author);
-        (await publisher.PostAsJsonAsync($"/v1/layouts/{key}/deprecate", new { reason = "aposentando" }))
+        (await publisher.PostAsJsonAsync($"/v1/layouts/{key}/deprecate",
+            new { reason = "retired", note = "aposentando" }))
             .EnsureSuccessStatusCode();
 
         HttpResponseMessage response = await publisher.PostAsync(

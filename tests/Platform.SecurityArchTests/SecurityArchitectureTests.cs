@@ -114,6 +114,46 @@ public sealed partial class SecurityArchitectureTests
         findings.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// The audit trail carries evidence a reader can act on, and the message
+    /// and the location of a validation check are not that: the message
+    /// interpolates a name lifted out of the content being published (a
+    /// declared variable, a link host offered by a wrapper), and the location
+    /// points at the exact content unit that produced the finding. The check
+    /// name and the fact that it warned answer the audit question; the text
+    /// around them only carries content into a row nobody can rewrite.
+    /// <para>
+    /// The scan covers the two places this module builds such a document: the
+    /// handler that assigns <c>DetailsJson</c>, and the shared producer, whose
+    /// file is named for what it produces so this rule can find it without
+    /// following a call. A type-level rule cannot reach either one, because the
+    /// field selection happens inside an anonymous type and leaves no member to
+    /// inspect in the assembly.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void No_audit_details_of_the_template_module_serialize_a_validation_check_message()
+    {
+        var moduleRoot = Path.Combine("Modules", "TemplateManagement");
+        var producers = SourceFiles()
+            .Where(path => path.Contains(moduleRoot, StringComparison.OrdinalIgnoreCase))
+            .Where(path => path.EndsWith("AuditDetails.cs", StringComparison.Ordinal)
+                || File.ReadAllText(path).Contains("DetailsJson", StringComparison.Ordinal))
+            .ToArray();
+
+        // A path that stops matching would turn the rule into a green that
+        // scanned nothing at all.
+        producers.ShouldNotBeEmpty();
+
+        var findings = producers
+            .SelectMany(path => File.ReadLines(path).Select((line, index) => (path, line, number: index + 1)))
+            .Where(item => ValidationCheckText().IsMatch(item.line))
+            .Select(item => $"{item.path}:{item.number}")
+            .ToArray();
+
+        findings.ShouldBeEmpty();
+    }
+
     private static IEnumerable<string> SourceFiles()
         => ProductionRoots
             .Select(relative => Path.Combine(
@@ -156,4 +196,7 @@ public sealed partial class SecurityArchitectureTests
 
     [GeneratedRegex(@"\bRandom(?:\.Shared)?\b")]
     private static partial Regex PseudoRandom();
+
+    [GeneratedRegex(@"\b\w*[Cc]heck\w*\.(?:Message|Location)\b")]
+    private static partial Regex ValidationCheckText();
 }

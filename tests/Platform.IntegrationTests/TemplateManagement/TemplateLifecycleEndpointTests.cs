@@ -17,7 +17,8 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/deprecate", new { reason = "substituído pela campanha nova" });
+            $"/v1/templates/{key}/deprecate",
+            new { reason = "superseded-by-new-version", note = "substituído pela campanha nova" });
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         JsonElement body = await TemplateApi.ReadJsonAsync(response);
@@ -54,11 +55,12 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         HttpClient author = fixture.CreateAuthorClient("author-lc-3");
         HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-3");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
-        (await publisher.PostAsJsonAsync($"/v1/templates/{key}/deprecate", new { reason = "primeira" }))
+        (await publisher.PostAsJsonAsync($"/v1/templates/{key}/deprecate",
+            new { reason = "superseded-by-new-version", note = "primeira" }))
             .EnsureSuccessStatusCode();
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/deprecate", new { reason = "segunda" });
+            $"/v1/templates/{key}/deprecate", new { reason = "superseded-by-new-version", note = "segunda" });
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         JsonElement problem = await TemplateApi.ReadJsonAsync(response);
@@ -75,11 +77,13 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         HttpClient author = fixture.CreateAuthorClient("author-lc-4");
         HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-4");
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
-        (await publisher.PostAsJsonAsync($"/v1/templates/{key}/deprecate", new { reason = "aposentando" }))
+        (await publisher.PostAsJsonAsync($"/v1/templates/{key}/deprecate",
+            new { reason = "retired", note = "aposentando" }))
             .EnsureSuccessStatusCode();
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/disable", new { reason = "conteúdo incorreto em produção" });
+            $"/v1/templates/{key}/disable",
+            new { reason = "content-incorrect", note = "conteúdo incorreto em produção" });
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         JsonElement body = await TemplateApi.ReadJsonAsync(response);
@@ -99,7 +103,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
 
         HttpResponseMessage response = await author.PostAsJsonAsync(
-            $"/v1/templates/{key}/deprecate", new { reason = "sem papel de publicador" });
+            $"/v1/templates/{key}/deprecate", new { reason = "retired", note = "sem papel de publicador" });
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
@@ -110,7 +114,7 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         HttpClient publisher = fixture.CreatePublisherClient("publisher-lc-6");
 
         HttpResponseMessage response = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{TemplateApi.NewKey()}/deprecate", new { reason = "não existe" });
+            $"/v1/templates/{TemplateApi.NewKey()}/deprecate", new { reason = "retired", note = "não existe" });
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         JsonElement problem = await TemplateApi.ReadJsonAsync(response);

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
@@ -117,7 +116,8 @@ internal static partial class PublishClassPolicyVersion
                 Action = AuditActions.ClassPolicyVersionPublished,
                 EntityType = AuditEntityTypes.ClassPolicyVersion,
                 EntityId = $"{app}:{canonicalClass}:{draft.Version}",
-                DetailsJson = PublicationDetails(draft, report, current?.Version),
+                DetailsJson = PublicationAuditDetails.ForClassPolicyPublication(
+                    draft.ContentHash, draft.SchemaVersion, current?.Version, report),
                 OccurredAt = now,
             };
 
@@ -158,27 +158,5 @@ internal static partial class PublishClassPolicyVersion
             logger.ClassPolicyVersionPublished(app, canonicalClass, draft.Version, current?.Version);
             return Result.Success<Outcome>(new Outcome.Published(Response.From(draft, current?.Version)));
         }
-
-        private static string PublicationDetails(
-            ClassPolicyVersion version,
-            ValidationReport report,
-            int? supersededVersion)
-            => JsonSerializer.Serialize(new
-            {
-                contentHash = version.ContentHash,
-                schemaVersion = version.SchemaVersion,
-                supersededVersion,
-                validation = new
-                {
-                    passed = report.Passed,
-                    checks = report.Checks.Select(check => new
-                    {
-                        name = check.Name,
-                        status = check.Status,
-                        message = check.Message,
-                        location = check.Location,
-                    }).ToList(),
-                },
-            });
     }
 }

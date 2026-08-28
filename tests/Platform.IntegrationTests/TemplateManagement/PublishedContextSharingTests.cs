@@ -104,7 +104,8 @@ public sealed class PublishedContextSharingTests(TemplateManagementApiFixture fi
         HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
         var key = await PublishTemplateAsync();
         HttpResponseMessage deprecated = await publisher.PostAsJsonAsync(
-            $"/v1/templates/{key}/deprecate", new { reason = "substituído pela nova jornada" });
+            $"/v1/templates/{key}/deprecate",
+            new { reason = "superseded-by-new-version", note = "substituído pela nova jornada" });
         deprecated.EnsureSuccessStatusCode();
 
         Result<VariablesValidationReport> refused = await ValidateThroughTheHostAsync(Application, key);
