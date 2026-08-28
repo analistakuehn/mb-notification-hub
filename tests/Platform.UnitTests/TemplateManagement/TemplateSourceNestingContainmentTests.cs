@@ -4,18 +4,22 @@ using System.Reflection;
 namespace NotificationHub.UnitTests.TemplateManagement;
 
 /// <summary>
-/// Proves the analysis survives the deepest source the templating ceiling
-/// accepts. The engine parses a postfix chain in a loop rather than a
-/// recursion, so it takes 'a.b.b.b...' as far as the character ceiling allows
-/// and returns a syntax tree of the same depth; a walk that recursed over that
-/// tree ran out of call stack at roughly a fifth of the ceiling.
+/// Pins where a deep template source is stopped. The engine parses a postfix
+/// chain in a loop rather than a recursion, so it takes 'a.b.b.b...' as far as
+/// the source affords and returns a syntax tree of the same depth, and a walk
+/// that recursed over such a tree ran out of call stack well inside the
+/// character ceiling. What stops that source today is the ceiling on the tokens
+/// of a single code block, measured before the parse: it admits 255 links of
+/// 'a.b' and refuses everything past that, where the depth that exhausts a one
+/// megabyte stack is some nine thousand links.
 /// </summary>
 /// <remarks>
-/// A stack overflow is not catchable in .NET: it ends the process it happens
-/// in. Running the deep source here would end the test host mid-run, with no
-/// failing assertion and no report, so the analysis runs in a process of its
-/// own and this test reads its exit code. A regression therefore shows up as a
-/// failed test and not as a run that disappears.
+/// Both ends of that statement run in a process of their own. A stack overflow
+/// is not catchable in .NET: it ends the process it happens in, so a regression
+/// that let a deep source through would end the test host mid-run, with no
+/// failing assertion and no report. The probe reports through its exit code
+/// instead, and a regression shows up as a failed test rather than as a run that
+/// disappears.
 /// </remarks>
 public sealed class TemplateSourceNestingContainmentTests
 {
@@ -27,23 +31,35 @@ public sealed class TemplateSourceNestingContainmentTests
     [Theory]
     [InlineData("member")]
     [InlineData("index")]
-    public async Task The_deepest_source_the_ceiling_accepts_is_analyzed_without_ending_the_process(
+    public async Task The_deepest_source_the_size_ceiling_accepts_is_refused_before_a_tree_exists(
         string shape)
     {
-        ProbeRun run = await RunProbeAsync(shape);
+        ProbeRun run = await RunProbeAsync(shape, "refusal");
 
         run.ExitCode.ShouldBe(0, run.Report);
     }
 
-    private static async Task<ProbeRun> RunProbeAsync(string shape)
+    [Theory]
+    [InlineData("member")]
+    [InlineData("index")]
+    public async Task The_deepest_chain_the_complexity_ceiling_admits_is_analyzed_without_ending_the_process(
+        string shape)
+    {
+        ProbeRun run = await RunProbeAsync(shape, "walk");
+
+        run.ExitCode.ShouldBe(0, run.Report);
+    }
+
+    private static async Task<ProbeRun> RunProbeAsync(string shape, string check)
     {
         var path = ProbePath();
         File.Exists(path).ShouldBeTrue($"The probe executable is missing at '{path}'.");
 
         using var process = new Process
         {
-            StartInfo = new ProcessStartInfo(path, shape)
+            StartInfo = new ProcessStartInfo(path)
             {
+                ArgumentList = { shape, check },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

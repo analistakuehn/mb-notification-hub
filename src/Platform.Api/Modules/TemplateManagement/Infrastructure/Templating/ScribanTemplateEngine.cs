@@ -669,6 +669,19 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     /// source an author submits for validation, so the whole process would go
     /// down on a source the module accepts.
     /// <para>
+    /// No source reaches that depth today. Every source is measured before it
+    /// is parsed, and <see cref="TemplatingOptions.MaxCodeBlockTokens"/> caps
+    /// one expression at 512 tokens, which is 255 links of <c>a.b.b</c>. What
+    /// the parser does recurse over is capped by its own statement depth limit
+    /// of 250 levels, and it refuses a source outright once the stack left runs
+    /// low. Measured together, those two gates admit a tree about a thousand
+    /// nodes deep, against the nine thousand links that exhaust a one megabyte
+    /// stack here, so the walk below has no reachable trigger and is defense in
+    /// depth. It stays iterative all the same: the first of those gates is a
+    /// configuration value, and a walk written to assume it would fail the
+    /// moment it moved.
+    /// </para>
+    /// <para>
     /// Dispatch stays the engine's own: every node type reaches the handler it
     /// reached before, including the ones that only look like the types handled
     /// below. What changed is where the pending nodes wait.
