@@ -109,19 +109,30 @@ dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode parse
 
 O modo `parse` também não toca banco. O braço `S1` mantém 205 formas quentes,
 cinco fontes cada, e as lê com uma thread por núcleo. Ele não tem cauda fria de
-propósito: toda fonte que ele pede foi parseada na passagem descartada, então o
-que sobra para medir é o custo da busca em si e se o catálogo continua lá no
-fim. A segunda resposta é a que se move com a política de evicção. Uma política
-que limita a memoização contando entradas derruba um catálogo desse tamanho
-enquanto ele está sendo lido, e o braço passa a pagar parse por fonte que já
-tinha parseado, de novo e de novo.
+propósito: toda fonte que ele pede foi carregada antes da passagem descartada,
+então o que sobra para medir é o custo da busca em si e se o catálogo continua
+lá no fim. A segunda resposta é a que se move com a política de evicção. Uma
+política que limita a memoização contando entradas derruba um catálogo desse
+tamanho enquanto ele está sendo lido, e o braço passa a pagar parse por fonte
+que já tinha parseado, de novo e de novo.
 
-Duas das quatro checagens não têm referência nem tolerância. A primeira é
-reparse: o braço oferece bem menos do que o orçamento cabe, então uma fonte
-parseada durante ele é uma fonte que a política jogou fora enquanto era lida. A
-segunda é o catálogo no fim da rodada, caractere a caractere. Zero não é limiar
-a calibrar nem número a afrouxar: o custo de errar aqui se mede em passagens
-inteiras, nunca numa busca ou duas.
+O braço `S2` existe porque o `S1` não alcança o portão de admissão: as fontes
+dele são pequenas e o orçamento começa vazio, e uma loja com espaço aceita tudo
+o que lhe oferecem. Então o `S2` carrega o orçamento até a borda com lastro que
+ninguém no braço volta a pedir, e põe no conjunto quente uma fonte cuja árvore
+pesa mais do que uma passagem de compactação libera. Essa é exatamente a fonte
+que uma política que responde à recusa liberando uma fatia fixa do orçamento
+recusa para sempre, e sem esse braço o modo de falha nunca é visitado.
+
+Quatro das seis checagens não têm referência nem tolerância. As duas primeiras
+são reparse, uma por braço: o conjunto quente inteiro cabe no orçamento, então
+uma fonte parseada durante a medição é uma fonte que a política jogou fora
+enquanto era lida. A terceira é o catálogo do `S1` no fim da rodada, fonte a
+fonte. A quarta é a fonte pesada do `S2` respondida de memória no fim, que a
+contagem de entradas não consegue afirmar sozinha: o lastro a infla, e a única
+fonte pela qual o braço existe poderia sumir sem mexer no total. Zero não é
+limiar a calibrar nem número a afrouxar: o custo de errar aqui se mede em
+passagens inteiras, nunca numa busca ou duas.
 
 A referência é a mediana de três passagens, e não de uma. A dispersão entre duas
 passagens honestas deste braço chega a um quarto do valor, que é metade da
@@ -351,9 +362,14 @@ saída é outra porque o risco é outro. A cadeia de auditoria tem forma estáve
 um oráculo que denuncia divergência, então reimplementá-la custa pouco; uma
 política de evicção reimplementada mediria uma cópia, e a pergunta toda é como
 o tipo publicado se comporta no teto. `Contention/PublishedReadCacheHandle.cs` e
-`Infrastructure/ScribanParseCacheHandle.cs` ligam cada membro uma vez em
-delegate, de modo que o braço paga uma chamada de delegate por operação e
-nenhuma reflexão, e recusam a rodada com mensagem clara se o tipo deixar de
-expor o que elas ligam. Conceder visibilidade de internos a
-este projeto trocaria o arquivo inteiro por um `using`, e essa é uma decisão de
-produção que a fatia da medição não toma sozinha.
+`Infrastructure/ScribanParseCacheHandle.cs` ligam em delegate cada membro que o
+laço medido toca, de modo que o braço paga uma chamada de delegate por operação
+e nenhuma reflexão, e recusam a rodada com mensagem clara se o tipo deixar de
+expor o que elas ligam. A única exceção é o carregamento do conjunto quente, que
+devolve a árvore parseada para a loja guardar: o tipo dela vem do pacote do
+motor, que este projeto não referencia de propósito, e um delegate não se liga
+com um parâmetro mais frouxo. Nenhuma operação medida passa por lá.
+
+Conceder visibilidade de internos a este projeto trocaria o arquivo inteiro por
+um `using`, e essa é uma decisão de produção que a fatia da medição não toma
+sozinha.

@@ -16,6 +16,32 @@ internal sealed record TemplateSourceAnalysis(
     IReadOnlyList<string> UsedVariables);
 
 /// <summary>
+/// Where the source of one render comes from, which is what decides whether its
+/// parse is worth keeping.
+/// </summary>
+/// <remarks>
+/// The caller states it, and it is deliberately not read off the presence of a
+/// form scope: the scope exists so the fields of one form can share an
+/// execution context, and reading provenance from it would tie two decisions
+/// that have nothing to do with each other.
+/// </remarks>
+internal enum TemplateProvenance
+{
+    /// <summary>
+    /// Content the author is still editing. The same text is a different
+    /// template one keystroke later, so its parse is worth nothing to the call
+    /// after it.
+    /// </summary>
+    Draft,
+
+    /// <summary>
+    /// Published content, immutable per version: the same text is always the
+    /// same template, and its parse is worth keeping.
+    /// </summary>
+    Published,
+}
+
+/// <summary>
 /// Sandboxed Scriban execution. Templates only ever see plain data built from
 /// JSON: no .NET type is exposed and reflected member access is filtered out
 /// entirely. Loop and recursion limits are native to the engine; the wall-clock
@@ -73,21 +99,36 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         return new TemplateSourceAnalysis(true, null, collector.UsedVariables());
     }
 
+    /// <summary>
+    /// Renders one source the author may still be editing, on a context of its
+    /// own.
+    /// </summary>
     internal Task<Result<string>> RenderAsync(
         string source,
         JsonElement? variables,
         CancellationToken cancellationToken)
-        => Task.FromResult(Render(scope: null, source, RenderInput.OfPayload(variables), cancellationToken));
+        => Task.FromResult(Render(
+            scope: null,
+            source,
+            RenderInput.OfPayload(variables),
+            provenance: TemplateProvenance.Draft,
+            cancellationToken));
 
     /// <summary>
-    /// Renders one field of a form on the context that form's renders share.
+    /// Renders one field of a published form on the context that form's renders
+    /// share.
     /// </summary>
     internal Task<Result<string>> RenderAsync(
         FormRenderScope scope,
         string source,
         JsonElement? variables,
         CancellationToken cancellationToken)
-        => Task.FromResult(Render(scope, source, RenderInput.OfPayload(variables), cancellationToken));
+        => Task.FromResult(Render(
+            scope,
+            source,
+            RenderInput.OfPayload(variables),
+            provenance: TemplateProvenance.Published,
+            cancellationToken));
 
     /// <summary>
     /// Renders a source over one finished text, exposed under the single
@@ -103,8 +144,12 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         string variableName,
         string content,
         CancellationToken cancellationToken)
-        => Task.FromResult(
-            Render(scope, source, RenderInput.OfContent(variableName, content), cancellationToken));
+        => Task.FromResult(Render(
+            scope,
+            source,
+            RenderInput.OfContent(variableName, content),
+            provenance: TemplateProvenance.Published,
+            cancellationToken));
 
     /// <summary>
     /// Opens the execution context the renders of one form share. The caller
@@ -118,6 +163,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         FormRenderScope? scope,
         string source,
         RenderInput input,
+        TemplateProvenance provenance,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -127,10 +173,19 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
             return Result.ValidationError<string>(SizeLimitMessage(source.Length));
         }
 
-        // Published sources are immutable, so the parse memoizes per source
+        // Published sources are immutable, so their parse memoizes per source
         // text; the shared AST is read-only during a render, and every render
-        // still pushes its own data and its own buffer over it.
-        Template template = parseCache.GetOrParse(source);
+        // still pushes its own data and its own buffer over it. A draft is
+        // parsed and dropped: the same text is a different template one
+        // keystroke later, and memoizing it would spend the budget on content
+        // nobody will ask for twice.
+        //
+        // One consequence is a simplification and not a side effect: the
+        // memoization of the API host stays empty for good, because preview is
+        // the only writer there, and memoizing parses becomes an artifact of
+        // the workers alone.
+        var memoizable = provenance == TemplateProvenance.Published;
+        Template template = memoizable ? parseCache.GetOrParse(source) : Template.Parse(source);
         if (template.HasErrors)
         {
             return Result.ValidationError<string>(
@@ -156,7 +211,18 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
 
         try
         {
-            return Result.Success(template.Render(active.Context));
+            var rendered = template.Render(active.Context);
+
+            // Only a render that finished puts its source in the memoization. A
+            // source the engine refused would otherwise be answered from memory
+            // on every later call and charged to the budget, while nobody can
+            // render it.
+            if (memoizable)
+            {
+                parseCache.Keep(source, template);
+            }
+
+            return Result.Success(rendered);
         }
         catch (OperationCanceledException)
         {

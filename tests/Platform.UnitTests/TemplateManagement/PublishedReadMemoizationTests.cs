@@ -72,10 +72,13 @@ public sealed class PublishedReadMemoizationTests
         var cache = new ScribanParseCache();
         var engine = new ScribanTemplateEngine(Options.Create(new TemplatingOptions()), cache);
 
+        // Through the published path on purpose: it is the one whose sources
+        // are immutable per version, and the only one that writes to the
+        // memoization.
         Result<string> first = await engine.RenderAsync(
-            "Olá {{ name }}", Variables("""{"name":"Ana"}"""), CancellationToken.None);
+            engine.BeginForm(), "Olá {{ name }}", Variables("""{"name":"Ana"}"""), CancellationToken.None);
         Result<string> second = await engine.RenderAsync(
-            "Olá {{ name }}", Variables("""{"name":"Bia"}"""), CancellationToken.None);
+            engine.BeginForm(), "Olá {{ name }}", Variables("""{"name":"Bia"}"""), CancellationToken.None);
 
         first.Value.ShouldBe("Olá Ana");
         second.Value.ShouldBe("Olá Bia");
@@ -89,8 +92,10 @@ public sealed class PublishedReadMemoizationTests
         var cache = new ScribanParseCache();
         var engine = new ScribanTemplateEngine(Options.Create(new TemplatingOptions()), cache);
 
-        Result<string> first = await engine.RenderAsync("{{ 1 + }}", null, CancellationToken.None);
-        Result<string> second = await engine.RenderAsync("{{ 1 + }}", null, CancellationToken.None);
+        Result<string> first = await engine.RenderAsync(
+            engine.BeginForm(), "{{ 1 + }}", null, CancellationToken.None);
+        Result<string> second = await engine.RenderAsync(
+            engine.BeginForm(), "{{ 1 + }}", null, CancellationToken.None);
 
         first.IsFailure.ShouldBeTrue();
         second.IsFailure.ShouldBeTrue();

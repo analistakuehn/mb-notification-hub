@@ -40,6 +40,7 @@ internal static class ParseMemoizationGate
         ArgumentNullException.ThrowIfNull(outcome);
 
         ParseMemoizationArm hot = ArmOf(outcome, ScribanParseMemoizationScenario.HotArm);
+        ParseMemoizationArm loaded = ArmOf(outcome, ScribanParseMemoizationScenario.LoadedArm);
         var contentionLimit = (baseline.ContentionsPerThousand * (1 + tolerance)) + ContentionHeadroom;
         GateCheck[] checks =
         [
@@ -59,19 +60,43 @@ internal static class ParseMemoizationGate
             // read. Zero is not a threshold to tune: one reparse here means the
             // catalogue no longer survives its own traffic, and the cost of that
             // is measured in whole passes, never in a lookup or two.
-            new GateCheck("reparses do conjunto quente", 0, hot.Parses, 0, hot.Parses == 0),
+            Reparses(hot),
 
             // And the same claim at the end of the run rather than during it:
-            // every character the arm offered is still answerable.
+            // every source the arm offered is still answerable.
             Whole(hot),
+
+            // The second arm reads the same catalogue against a budget that is
+            // already full, with one source heavier than a compaction pass in
+            // it. A policy that answers a refusal by freeing a fixed share of
+            // the budget never admits that source again, and the arm then pays
+            // its parse on every visit.
+            Reparses(loaded),
+            Heavy(loaded),
         ];
         return new GateOutcome(Array.TrueForAll(checks, check => check.Passes), tolerance, checks);
     }
 
-    private static GateCheck Whole(ParseMemoizationArm hot)
+    private static GateCheck Reparses(ParseMemoizationArm arm)
+        => new($"reparses do conjunto quente ({arm.ArmId})", 0, arm.Parses, 0, arm.Parses == 0);
+
+    private static GateCheck Whole(ParseMemoizationArm arm)
     {
-        var missing = hot.OfferedChars - hot.ResidentChars;
-        return new GateCheck("caracteres do catálogo fora da memória", 0, missing, 0, missing <= 0);
+        var missing = arm.Sources - arm.ResidentEntries;
+        return new GateCheck($"fontes do catálogo fora da memória ({arm.ArmId})", 0, missing, 0, missing <= 0);
+    }
+
+    /// <summary>
+    /// Whether the heavy source answered from memory at the end of the run. The
+    /// entry count cannot carry this one: the ballast that loads the budget
+    /// pads it, so the single source the arm exists for could go missing
+    /// without moving the total by enough to notice.
+    /// </summary>
+    private static GateCheck Heavy(ParseMemoizationArm arm)
+    {
+        var answered = arm.LargeSourceHits ?? 0;
+        return new GateCheck(
+            $"fonte pesada respondida de memória ({arm.ArmId})", 1, answered, 1, answered >= 1);
     }
 
     private static ParseMemoizationArm ArmOf(ParseMemoizationOutcome outcome, string armId)

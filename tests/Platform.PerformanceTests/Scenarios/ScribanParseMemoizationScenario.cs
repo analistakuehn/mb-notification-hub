@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using NotificationHub.PerformanceTests.Infrastructure;
 
 namespace NotificationHub.PerformanceTests.Scenarios;
@@ -18,7 +19,9 @@ internal sealed record ParseMemoizationArm(
     long Contentions,
     double ContentionsPerThousand,
     long Parses,
-    long ResidentChars);
+    long ResidentBytes,
+    long ResidentEntries,
+    long? LargeSourceHits);
 
 /// <summary>Everything one parse memoization run produced.</summary>
 internal sealed record ParseMemoizationOutcome(
@@ -32,22 +35,46 @@ internal sealed record ParseMemoizationOutcome(
 /// What the parse memoization costs when every thread on the machine reads a
 /// published catalogue that is already in memory.
 /// <para>
-/// The arm has no cold tail on purpose: every source it asks for was parsed
-/// during the discarded pass, so the only thing left to measure is what the
+/// Neither arm has a cold tail on purpose: every source they ask for was loaded
+/// before the discarded pass, so the only thing left to measure is what the
 /// lookup itself costs and whether the catalogue is still there at the end.
 /// That second answer is the one that moves with the eviction policy. A policy
 /// that bounds the memoization by counting entries drops a catalogue of this
 /// size while it is being read, and the arm then pays a parse for sources it
 /// had already parsed, over and over.
 /// </para>
+/// <para>
+/// The second arm exists because the first one cannot reach the admission gate:
+/// its sources are small and its budget is empty, and a store with room takes
+/// everything it is offered. So the second arm loads the budget first and puts
+/// one source heavier than a compaction pass in the hot set, which is the shape
+/// that a policy freeing a fixed share of the budget refuses forever.
+/// </para>
 /// </summary>
 internal static class ScribanParseMemoizationScenario
 {
-    /// <summary>The single arm: the whole catalogue hot, nothing else offered.</summary>
+    /// <summary>The whole catalogue hot in an empty budget, nothing else offered.</summary>
     internal const string HotArm = "S1";
+
+    /// <summary>The same catalogue plus one heavy source, in a budget already full.</summary>
+    internal const string LoadedArm = "S2";
 
     /// <summary>Subject, body, text body and the two layout frames around them.</summary>
     private const int SourcesPerForm = 5;
+
+    /// <summary>
+    /// One source of the ballast that loads the budget of the second arm. Small
+    /// enough that what is left over at the end is a rounding error, and heavy
+    /// enough that loading the budget costs dozens of parses and not thousands.
+    /// </summary>
+    private const int BallastChars = 5_000;
+
+    /// <summary>
+    /// The heavy source of the second arm. Its parsed tree outweighs what one
+    /// compaction pass frees, which is what makes it the source a fixed-share
+    /// policy stops admitting once the budget is full.
+    /// </summary>
+    private const int HeavyChars = 25_000;
 
     internal static ParseMemoizationOutcome Run(
         int workers,
@@ -61,54 +88,122 @@ internal static class ScribanParseMemoizationScenario
         ArgumentOutOfRangeException.ThrowIfLessThan(forms, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(passes, 1);
 
-        using ScribanParseCacheHandle cache = ScribanParseCacheHandle.Create();
-        var sources = FormSources(forms);
-        var offered = sources.Sum(source => (long)source.Length);
+        return new ParseMemoizationOutcome(
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            Environment.MachineName,
+            Environment.ProcessorCount,
+            Environment.Version.ToString(),
+            [
+                Hot(new ArmPlan(HotArm, FormSources(forms), null, workers, passes, duration), report),
+                Loaded(new ArmPlan(
+                    LoadedArm, FormSources(forms), Dense(HeavyChars, 0), workers, passes, duration), report),
+            ]);
+    }
 
-        // A discarded pass first. It parses every source once, so the measured
-        // passes start with the catalogue whole, and it pays for the cold
-        // buffers, the cold plan of the delegates and the tiered recompilation,
-        // all of which would otherwise land on the first measured pass.
-        Drive(cache, sources, workers, TimeSpan.FromSeconds(2));
+    /// <summary>The catalogue alone, in a store that has room for all of it.</summary>
+    private static ParseMemoizationArm Hot(ArmPlan plan, Action<string> report)
+    {
+        using ScribanParseCacheHandle cache = ScribanParseCacheHandle.Create();
+        return Measure(plan, cache, report);
+    }
+
+    /// <summary>
+    /// The catalogue and one heavy source, in a store loaded to the brim by
+    /// content nobody in the arm ever asks for again. The ballast is what puts
+    /// the admission gate in the path of the hot set.
+    /// </summary>
+    private static ParseMemoizationArm Loaded(ArmPlan plan, Action<string> report)
+    {
+        using ScribanParseCacheHandle cache = ScribanParseCacheHandle.Create();
+        var before = cache.ResidentBytes;
+        cache.Load(Dense(BallastChars, 0));
+        var weight = cache.ResidentBytes - before;
+        var filler = 1;
+        while (cache.ResidentBytes + weight <= cache.Budget)
+        {
+            cache.Load(Dense(BallastChars, filler));
+            filler++;
+        }
 
         report(string.Create(
             CultureInfo.InvariantCulture,
-            $"Braço {HotArm}: {workers} threads sobre {forms:N0} formas, "
-            + $"{sources.Length:N0} fontes, {offered:N0} de {cache.Budget:N0} caracteres, "
-            + $"{passes} passagens."));
+            $"Lastro do braço {plan.ArmId}: {filler:N0} fontes, "
+            + $"{cache.ResidentBytes:N0} de {cache.Budget:N0} bytes residentes."));
+        return Measure(plan, cache, report);
+    }
+
+    private static ParseMemoizationArm Measure(ArmPlan plan, ScribanParseCacheHandle cache, Action<string> report)
+    {
+        var sources = plan.HotSet();
+        var offered = sources.Sum(source => (long)source.Length);
+
+        // Every source of the hot set is loaded the way a published render
+        // loads it, and only then measured. A lookup that had to parse after
+        // this is a source the policy threw away while it was being read.
+        foreach (var source in sources)
+        {
+            cache.Load(source);
+        }
+
+        // A discarded pass next. It pays for the cold buffers, the cold plan of
+        // the delegates and the tiered recompilation, all of which would
+        // otherwise land on the first measured pass.
+        Drive(cache, sources, plan.Workers, TimeSpan.FromSeconds(2));
+
+        report(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Braço {plan.ArmId}: {plan.Workers} threads sobre {plan.Forms():N0} formas, "
+            + $"{sources.Length:N0} fontes, {offered:N0} caracteres, "
+            + $"{cache.ResidentBytes:N0} de {cache.Budget:N0} bytes residentes, "
+            + $"{plan.Passes} passagens."));
 
         var measured = new List<ParseMemoizationArm>();
-        for (var pass = 0; pass < passes; pass++)
+        for (var pass = 0; pass < plan.Passes; pass++)
         {
-            ParseMemoizationArm result = Measure(HotArm, cache, sources, offered, workers, duration);
+            ParseMemoizationArm result = Pass(plan, cache, sources, offered);
             Describe(result, report);
             measured.Add(result);
         }
 
         // The median of the passes, never a single one: a reference taken on a
         // lucky pass leaves the next honest run without margin, and one taken on
-        // an unlucky pass buys silence. Two terms are deliberately not the
+        // an unlucky pass buys silence. Three terms are deliberately not the
         // median's. The reparses are the sum over every pass, because one pass
         // that had to parse a source it already held is a failure whether or not
-        // its throughput happened to sit in the middle; and the resident set is
-        // read once at the end, which is the only moment the claim is about.
+        // its throughput happened to sit in the middle; and the resident set and
+        // the heavy source are read once at the end, which is the only moment
+        // those claims are about.
         measured.Sort((left, right) => left.OperationsPerSecond.CompareTo(right.OperationsPerSecond));
-        ParseMemoizationArm hot = measured[measured.Count / 2] with
+        ParseMemoizationArm arm = measured[measured.Count / 2] with
         {
-            Parses = measured.Sum(arm => arm.Parses),
-            ResidentChars = cache.ResidentChars,
+            Parses = measured.Sum(pass => pass.Parses),
+            ResidentBytes = cache.ResidentBytes,
+            ResidentEntries = cache.ResidentEntries,
+            LargeSourceHits = Answered(cache, plan.Large),
         };
         report(string.Create(
             CultureInfo.InvariantCulture,
-            $"  mediana: {hot.OperationsPerSecond / 1_000_000:N2} Mops/s, "
-            + $"{hot.Parses:N0} reparses somados, residente {hot.ResidentChars:N0} caracteres."));
+            $"  mediana: {arm.OperationsPerSecond / 1_000_000:N2} Mops/s, "
+            + $"{arm.Parses:N0} reparses somados, residente {arm.ResidentBytes:N0} bytes "
+            + $"em {arm.ResidentEntries:N0} entradas."));
+        return arm;
+    }
 
-        return new ParseMemoizationOutcome(
-            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-            Environment.MachineName,
-            Environment.ProcessorCount,
-            Environment.Version.ToString(),
-            [hot]);
+    /// <summary>
+    /// Whether the heavy source is still answerable once the passes are over.
+    /// The entry count cannot say it: the ballast pads it, and the one source
+    /// the arm exists for would go missing without moving the total.
+    /// </summary>
+    private static long? Answered(ScribanParseCacheHandle cache, string? large)
+    {
+        if (large is null)
+        {
+            return null;
+        }
+
+        var before = cache.Hits;
+        cache.GetOrParse(large);
+        return cache.Hits - before;
     }
 
     private static void Describe(ParseMemoizationArm arm, Action<string> report)
@@ -116,28 +211,26 @@ internal static class ScribanParseMemoizationScenario
             CultureInfo.InvariantCulture,
             $"  {arm.Operations:N0} buscas, {arm.OperationsPerSecond / 1_000_000:N2} Mops/s, "
             + $"{arm.ContentionsPerThousand:0.000} disputas de lock por mil, "
-            + $"{arm.Parses:N0} reparses, residente {arm.ResidentChars:N0} caracteres."));
+            + $"{arm.Parses:N0} reparses, residente {arm.ResidentBytes:N0} bytes."));
 
-    private static ParseMemoizationArm Measure(
-        string armId,
+    private static ParseMemoizationArm Pass(
+        ArmPlan plan,
         ScribanParseCacheHandle cache,
         string[] sources,
-        long offered,
-        int workers,
-        TimeSpan duration)
+        long offered)
     {
         var parsesBefore = cache.Parses;
         var contentionsBefore = Monitor.LockContentionCount;
         var started = Stopwatch.GetTimestamp();
 
-        var operations = Drive(cache, sources, workers, duration);
+        var operations = Drive(cache, sources, plan.Workers, plan.Duration);
 
         var elapsed = Stopwatch.GetElapsedTime(started).TotalSeconds;
         var contentions = Monitor.LockContentionCount - contentionsBefore;
         return new ParseMemoizationArm(
-            armId,
-            workers,
-            sources.Length / SourcesPerForm,
+            plan.ArmId,
+            plan.Workers,
+            plan.Forms(),
             sources.Length,
             offered,
             cache.Budget,
@@ -147,7 +240,9 @@ internal static class ScribanParseMemoizationScenario
             contentions,
             operations > 0 ? contentions * 1000d / operations : double.NaN,
             cache.Parses - parsesBefore,
-            cache.ResidentChars);
+            cache.ResidentBytes,
+            cache.ResidentEntries,
+            null);
     }
 
     /// <summary>
@@ -218,5 +313,39 @@ internal static class ScribanParseMemoizationScenario
         }
 
         return sources;
+    }
+
+    /// <summary>
+    /// One source of exactly the given length spent almost entirely on
+    /// expressions, which is the heaviest tree an author buys per character
+    /// without nesting anything.
+    /// </summary>
+    private static string Dense(int chars, int mark)
+    {
+        const string Unit = "{{a.b}}";
+        const int MarkChars = 8;
+        var builder = new StringBuilder(chars);
+        while (builder.Length + Unit.Length + MarkChars <= chars)
+        {
+            builder.Append(Unit);
+        }
+
+        builder.Append(mark.ToString("D8", CultureInfo.InvariantCulture));
+        return builder.Append('.', chars - builder.Length).ToString();
+    }
+
+    /// <summary>What one arm reads and under which conditions it reads it.</summary>
+    private sealed record ArmPlan(
+        string ArmId,
+        string[] Catalog,
+        string? Large,
+        int Workers,
+        int Passes,
+        TimeSpan Duration)
+    {
+        /// <summary>The catalogue, and the heavy source when the arm carries one.</summary>
+        internal string[] HotSet() => Large is null ? Catalog : [.. Catalog, Large];
+
+        internal int Forms() => Catalog.Length / SourcesPerForm;
     }
 }
