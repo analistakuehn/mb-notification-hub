@@ -13,6 +13,20 @@
     <ProjectReference Include="..\..\tools\Platform.GoLiveChecks\Platform.GoLiveChecks.csproj" />
   </ItemGroup>
 
+  <!--
+    The probe is started as a process and never loaded as an assembly, so the
+    reference exists to build it and to hand its location to the test that runs
+    it. Composing the path here keeps the configuration and the framework the
+    test project was built with, instead of guessing them at run time.
+  -->
+  <ItemGroup Label="Out Of Process Probe">
+    <ProjectReference Include="..\Platform.StackProbe\Platform.StackProbe.csproj" ReferenceOutputAssembly="false" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>StackProbeDirectory</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)../Platform.StackProbe/bin/$(Configuration)/$(TargetFramework)/</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <ItemGroup Label="Implicit Usings">
     <Using Include="Shouldly" />
     <Using Include="Xunit" />

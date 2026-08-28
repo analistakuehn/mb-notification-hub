@@ -95,7 +95,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         }
 
         var collector = new GlobalVariableCollector();
-        template.Page?.Accept(collector);
+        collector.Collect(template.Page);
         return new TemplateSourceAnalysis(true, null, collector.UsedVariables());
     }
 
@@ -608,10 +608,40 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     /// assignments, function names and member names do not count as usage;
     /// engine builtins are excluded because no schema declares them.
     /// </summary>
+    /// <remarks>
+    /// The walk keeps the nodes it still owes on a stack in the heap and never
+    /// descends into itself. The engine parses a postfix chain such as
+    /// <c>a.b.b.b</c> in a loop instead of a recursion, so it accepts one as
+    /// deep as the source ceiling allows and hands back a tree just as deep; a
+    /// walk that recursed over that tree ran out of call stack far inside the
+    /// ceiling. A stack overflow is not catchable in .NET, and this walk reads
+    /// source an author submits for validation, so the whole process would go
+    /// down on a source the module accepts.
+    /// <para>
+    /// Dispatch stays the engine's own: every node type reaches the handler it
+    /// reached before, including the ones that only look like the types handled
+    /// below. What changed is where the pending nodes wait.
+    /// </para>
+    /// </remarks>
     private sealed class GlobalVariableCollector : ScriptVisitor
     {
         private readonly HashSet<string> _reads = new(StringComparer.Ordinal);
         private readonly HashSet<string> _writes = new(StringComparer.Ordinal);
+
+        /// <summary>Nodes reached and not yet handled, in the heap.</summary>
+        private readonly Stack<ScriptNode> _pending = new();
+
+        /// <summary>
+        /// Walks the tree rooted at the node given and records what it names.
+        /// </summary>
+        public void Collect(ScriptNode? root)
+        {
+            Enqueue(root);
+            while (_pending.TryPop(out ScriptNode? node))
+            {
+                node.Accept(this);
+            }
+        }
 
         public List<string> UsedVariables()
             => _reads.Except(_writes, StringComparer.Ordinal)
@@ -669,6 +699,41 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         public override void Visit(ScriptMemberExpression node)
             // Only the target counts: 'user.name' reads the variable 'user',
             // and 'name' is a member of it, not a template variable.
-            => node.Target?.Accept(this);
+            => Enqueue(node.Target);
+
+        /// <summary>
+        /// Reaches a node without descending into it. Every generic path the
+        /// base class offers a caller lands here, so none of them can turn the
+        /// walk back into a recursion.
+        /// </summary>
+        public override void Visit(ScriptNode? node) => Enqueue(node);
+
+        public override void Visit(ScriptList? list) => DefaultVisit(list);
+
+        /// <summary>
+        /// The point every node type funnels into once its own handler is done.
+        /// Children are stacked back to front so they come out in source order,
+        /// which keeps the visit order the recursive walk had.
+        /// </summary>
+        protected override void DefaultVisit(ScriptNode? node)
+        {
+            if (node is null)
+            {
+                return;
+            }
+
+            for (var index = node.ChildrenCount - 1; index >= 0; index--)
+            {
+                Enqueue(node.GetChildren(index));
+            }
+        }
+
+        private void Enqueue(ScriptNode? node)
+        {
+            if (node is not null)
+            {
+                _pending.Push(node);
+            }
+        }
     }
 }
