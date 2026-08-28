@@ -38,7 +38,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `SEC-007` | `HIGH` | **RESOLVIDO** | `purpose` não é canonizado, e uma variação de caixa desliga o controle... |
 | `SEC-011` | `MEDIUM` | **RESOLVIDO** | Nenhuma transição de ciclo de vida invalida o cache, nem no processo... |
 | `SEC-012` | `MEDIUM` | **ADIADO** | A superfície de governança não impõe posse por aplicação; o contrato de... |
-| `SEC-013` | `MEDIUM` | **PENDENTE** | Cache de parse limitado por contagem, com o texto fonte como chave... |
+| `SEC-013` | `MEDIUM` | **RESOLVIDO** | Cache de parse limitado por contagem, com o texto fonte como chave... |
 | `SEC-014` | `MEDIUM` | **PENDENTE** | A trilha grava relatório completo na publicação e um booleano no... |
 
 ---
@@ -696,7 +696,7 @@ identidade, e o achado fechado como aceito.
 
 ---
 
-## `SEC-013` · PENDENTE
+## `SEC-013` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -707,8 +707,8 @@ identidade, e o achado fechado como aceito.
 | tipo-de-evidência | leitura-de-código |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-engineer, dotnet-specialist (convergência independente) |
-| **estado** | **PENDENTE** |
-| nota de estado | Componente de cache, ainda não tratado. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | Fechado, e a sondagem refutou duas queixas da ficha, confirmou duas subestimadas e achou um defeito que a ficha não nomeia e que dói mais que o descrito. Antes de tudo, duas queixas já haviam caído por outro achado: o teto por contagem virou orçamento com despejo gradual, e a limpeza total virou compactação de uma fatia. **Refutado**: o custo de chave. A chave é a mesma referência de objeto que a árvore sintática já retém por fatias, medido por identidade referencial, então o custo sempre foi zero e a aritmética da ficha contava a fonte duas vezes; por isso a chave de tamanho fixo saiu de escopo, e mais: calcular hash na consulta custaria 79,52 microssegundos contra 29,37 da comparação atual, ou seja 2,7 vezes pior. **Refutado também**: que as fontes publicadas quentes do despacho voltariam a pagar parse por causa do preview. Na topologia implantada, preview vive no host de API e despacho nos workers, e nenhum processo hospeda os dois; mesmo no contrafactual de processo único a inundação é autolimitada. **Confirmado e subestimado**: a razão entre árvore e fonte varia 96 vezes, então o mesmo orçamento admitia 2,0 megabytes ou 191,5 megabytes de heap. E rascunho não só entrava: o parse era memoizado **mesmo quando o render era recusado**. **O defeito novo**, e é o operacionalmente mais caro: o teto real de admissão era a fatia de compactação e não o orçamento. Com o orçamento cheio, qualquer fonte acima da fatia nunca mais entrava, porque a recusa caía numa compactação de marca d'água que não a alcançava e que abaixo da marca virava no-op. Medido: fontes de 60.000, 90.000 e 131.072 caracteres deram dez parses e zero acertos em dez tentativas espaçadas, enquanto as de até 52.000 entravam na segunda. No worker isso significava um corpo publicado plenamente legal pagando de 337 a 729 microssegundos de parse em **cada** notificação, para sempre. O teste unitário existente afirmava a propriedade contrária e passava por exercitar cache vazio. A correção tem quatro frentes. A procedência virou parâmetro explícito, e não a presença do escopo de render, porque o escopo existe para compartilhar contexto entre campos e usá-lo como marca de origem acoplaria duas decisões sem relação; só fonte publicada é memoizada, e fonte cujo render foi recusado deixou de entrar. O orçamento passou a contar a árvore, denominado em bytes com alvo de 64 megabytes, usando o peso por nó medido como constante comentada com a data e a versão do pacote, e travado por teste que falha alto se uma atualização movê-la. A recusa por capacidade passou a compactar pelo tamanho da entrada que chegou, o que troca o congelamento por despejo de verdade e é o que o comentário do próprio arquivo já dizia fazer. E o teste que mentia foi estendido ao caso quente em vez de apenas renomeado, porque renomear travaria uma propriedade que vale trivialmente em loja vazia. Uma divergência contra o desenho aprovado, correta e mantida: o contador de nós foi implementado como caminhada iterativa com pilha no heap, e não como visitor recursivo conforme o desenho pedia, porque a medição mostrou que um visitor recursivo estoura a pilha em 4.500 aninhamentos, numa fonte de cerca de 9.005 caracteres, dentro do teto de 131.072. Seguir o desenho teria posto um encerramento de processo no caminho de render de cada worker, e o estouro de pilha não é capturável. Essa medição levantou um defeito **pré-existente e mais grave**, aberto à parte: o coletor de variáveis usado na validação já é um visitor recursivo sobre fonte de autor, e estoura por volta de 40.005 caracteres, de modo que um template publicável derruba o processo da API pelo endpoint de validação. O que permanece aberto, além desse: o vetor de CPU não muda com esta correção, porque com o orçamento saturado cada requisição já pagava o parse inteiro, e o parse roda antes de o deadline de render ser criado, o que também foi aberto à parte; e a separação por processo que hoje protege o despacho passou a ser garantida por construção pela procedência explícita, não mais por acidente de composição. |
 
 **Cache de parse limitado por contagem, com o texto fonte como chave, alimentado por rascunhos.**
 
