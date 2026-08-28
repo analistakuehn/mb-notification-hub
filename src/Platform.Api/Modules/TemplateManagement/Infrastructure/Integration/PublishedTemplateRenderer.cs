@@ -99,7 +99,7 @@ internal sealed class PublishedTemplateRenderer(
 
         TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
         Result<RenderedForm> full = await RenderFormAsync(
-            channel.Value!, content, request.Variables, wrapper.Value, cancellationToken);
+            template, channel.Value!, content, request.Variables, wrapper.Value, cancellationToken);
         if (full.IsFailure)
         {
             return full.AsFailure<RenderedForm, PublishedTemplateRender>();
@@ -167,7 +167,7 @@ internal sealed class PublishedTemplateRenderer(
             return Result.Success(full);
         }
 
-        return await RenderFormAsync(channel, content, masked.Value, wrapper, cancellationToken);
+        return await RenderFormAsync(template, channel, content, masked.Value, wrapper, cancellationToken);
     }
 
     /// <summary>
@@ -184,6 +184,7 @@ internal sealed class PublishedTemplateRenderer(
                 || TemplateValidation.ContainsLinkLikeText(form.BodyText));
 
     private async Task<Result<RenderedForm>> RenderFormAsync(
+        Template template,
         Channel channel,
         TemplateContent content,
         JsonElement? variables,
@@ -260,6 +261,17 @@ internal sealed class PublishedTemplateRenderer(
             normalizedBodyText = normalizedBodyText is null
                 ? null
                 : SmsContentNormalizer.Normalize(normalizedBodyText);
+        }
+
+        Result destinationGuard = RenderedDestinationPolicy.Validate(
+            template,
+            channel,
+            normalizedSubject,
+            normalizedBody,
+            normalizedBodyText);
+        if (destinationGuard.IsFailure)
+        {
+            return destinationGuard.AsFailure<RenderedForm>();
         }
 
         return Result.Success(new RenderedForm(

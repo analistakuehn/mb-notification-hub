@@ -7,7 +7,7 @@ source-revision: cc754e5a56dcbe1cae9cf05cf9303f7b0eb189d2
 findings: 2
 ---
 
-# Lente `SEC`: Security
+# Lente `SEC`: Segurança
 
 Proteção de entrada e dados, caminhos de abuso, antifraude, auditabilidade e
 retenção.
@@ -24,23 +24,23 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 
 | Achado | Severidade | Estado | Assunto |
 |---|---|---|---|
-| `SEC-001` | `HIGH` | **PENDENTE** | A validação de URLs pode ser contornada no conteúdo renderizado |
+| `SEC-001` | `HIGH` | **RESOLVIDO** | A validação de URLs pode ser contornada no conteúdo renderizado |
 | `SEC-002` | `HIGH` | **PENDENTE** | Motivos livres podem persistir dados sensíveis na auditoria imutável |
 
 ---
-## `SEC-001` · PENDENTE
+## `SEC-001` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
 | severidade | `HIGH` |
 | confiança | alta |
-| arquivo | `Infrastructure/Integration/PublishedTemplateRenderer.cs` |
-| linha | `375-414` |
+| arquivo | `Domain/RenderedDestinationPolicy.cs` |
+| linha | `14-61` |
 | tipo-de-evidência | teste-executado e leitura-de-código |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-architect, dotnet-engineer e dotnet-specialist |
-| **estado** | **PENDENTE** |
-| nota de estado | Não tratado. Converge com `SEC-004` do relatório paralelo em `../claude/`, e acrescenta um detalhe que aquele não traz: a expressão de link literal não é insensível a caixa, então `HTTPS://` em caixa alta não casa. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | Fechado com uma política compartilhada aplicada ao conteúdo final. O preview e o render publicado agora validam depois da interpolação, do layout e da normalização, antes da resposta e do hash, incluindo as formas full e masked. A política usa `System.Uri` e `IdnHost`, trata caixa mista, IPv6, IDN, userinfo, href, src, srcset, CSS url() e meta refresh, e falha fechada para entradas ilegíveis. A autoria exige uma variável global inteira com format url ou uri para destinos dinâmicos. Os erros retornam somente host canônico seguro ou marcador fixo, sem query, token, CPF ou userinfo. A validação executada passou 122/122 testes unitários afetados, 39/39 integrações sem skips, 1333/1333 testes unitários completos e build sem avisos ou erros; a avaliação independente confirmou o fechamento. |
 
 **A validação de URLs pode ser contornada no conteúdo renderizado.**
 

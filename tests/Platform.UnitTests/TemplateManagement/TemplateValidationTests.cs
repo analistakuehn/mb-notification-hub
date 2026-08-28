@@ -259,6 +259,276 @@ public sealed class TemplateValidationTests
         check.Location.ShouldBe("email/pt-BR/body");
     }
 
+    [Theory]
+    [InlineData("href", "a")]
+    [InlineData("src", "img")]
+    public void A_string_variable_cannot_be_used_as_a_markup_destination(string attribute, string element)
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            $"<{element} {attribute}=\"{{{{ destination }}}}\">conteúdo</{element}>",
+            "texto"));
+        SetSchema(version, """
+            { "type": "object", "properties": { "destination": { "type": "string" } } }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["destination"])),
+        ]);
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist
+            && candidate.Status == ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("'destination'");
+        check.Message.ShouldContain("'url'");
+        check.Message.ShouldContain("'uri'");
+        check.Location.ShouldBe("email/pt-BR/body");
+    }
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("uri")]
+    public void A_whole_markup_destination_declared_as_a_url_passes(string format)
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<a href="{{ destination }}">abrir</a>""",
+            "texto"));
+        SetSchema(version, $$"""
+            { "type": "object", "properties": { "destination": { "type": "string", "format": "{{format}}" } } }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["destination"])),
+        ]);
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist);
+        check.Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
+    public void A_string_variable_in_an_escaped_css_url_function_fails()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<div style="background:\75\72\6c({{ destination }})"></div>""",
+            "texto"));
+        SetSchema(version, """
+            { "type": "object", "properties": { "destination": { "type": "string" } } }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["destination"])),
+        ]);
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist
+            && candidate.Status == ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("'destination'");
+        check.Message.ShouldContain("'url'");
+        check.Message.ShouldContain("'uri'");
+    }
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("uri")]
+    public void A_whole_url_variable_in_an_escaped_css_url_function_passes(string format)
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<div style="background:\75\72\6c({{ destination }})"></div>""",
+            "texto"));
+        SetSchema(version, $$"""
+            { "type": "object", "properties": { "destination": { "type": "string", "format": "{{format}}" } } }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["destination"])),
+        ]);
+
+        report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist)
+            .Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
+    public void An_escaped_css_url_function_cannot_compose_a_destination_from_fragments()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<div style="background:\75\72\6c({{ scheme }}{{ separator }}{{ host }})"></div>""",
+            "texto"));
+        SetSchema(version, """
+            {
+              "type": "object",
+              "properties": {
+                "scheme": { "type": "string" },
+                "separator": { "type": "string" },
+                "host": { "type": "string" }
+              }
+            }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["scheme", "separator", "host"])),
+        ]);
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist
+            && candidate.Status == ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("one complete global variable");
+    }
+
+    [Fact]
+    public void A_string_variable_in_a_meta_refresh_destination_fails()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<meta http-equiv="refresh" content="0;url={{ destination }}">""",
+            "texto"));
+        SetSchema(version, """
+            { "type": "object", "properties": { "destination": { "type": "string" } } }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["destination"])),
+        ]);
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist
+            && candidate.Status == ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("'destination'");
+        check.Message.ShouldContain("'url'");
+        check.Message.ShouldContain("'uri'");
+    }
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("uri")]
+    public void A_whole_url_variable_in_a_meta_refresh_destination_passes(string format)
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<meta content='0; URL={{ destination }}' HTTP-EQUIV='ReFrEsH'>""",
+            "texto"));
+        SetSchema(version, $$"""
+            { "type": "object", "properties": { "destination": { "type": "string", "format": "{{format}}" } } }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["destination"])),
+        ]);
+
+        report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist)
+            .Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
+    public void A_meta_refresh_cannot_compose_a_destination_from_fragments()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<meta http-equiv=refresh content="0;url={{ scheme }}{{ separator }}{{ host }}">""",
+            "texto"));
+        SetSchema(version, """
+            {
+              "type": "object",
+              "properties": {
+                "scheme": { "type": "string" },
+                "separator": { "type": "string" },
+                "host": { "type": "string" }
+              }
+            }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["scheme", "separator", "host"])),
+        ]);
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist
+            && candidate.Status == ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("one complete global variable");
+    }
+
+    [Fact]
+    public void A_content_variable_in_a_non_refresh_meta_element_is_not_a_destination()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<meta name="description" content="{{ description }}">""",
+            "texto"));
+        SetSchema(version, """
+            { "type": "object", "properties": { "description": { "type": "string" } } }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["description"])),
+        ]);
+
+        report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.UrlAllowlist)
+            .Status.ShouldBe(ValidationCheckStatuses.Passed);
+    }
+
+    [Fact]
+    public void A_markup_destination_composed_from_fragments_fails_closed()
+    {
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
+        TemplateVersion version = MakeVersion((
+            "email",
+            "pt-BR",
+            "Oi",
+            """<img src="{{ scheme }}{{ separator }}{{ host }}">""",
+            "texto"));
+        SetSchema(version, """
+            {
+              "type": "object",
+              "properties": {
+                "scheme": { "type": "string" },
+                "separator": { "type": "string" },
+                "host": { "type": "string" }
+              }
+            }
+            """);
+
+        ValidationReport report = TemplateValidation.Validate(template, version, [
+            Analysis("email", "pt-BR", ("body", ["scheme", "separator", "host"])),
+        ]);
+
+        ValidationCheck check = report.Checks.Single(candidate =>
+            candidate.Name == ValidationCheckNames.UrlAllowlist
+            && candidate.Status == ValidationCheckStatuses.Failed);
+        check.Message.ShouldContain("one complete global variable");
+        check.Location.ShouldBe("email/pt-BR/body");
+    }
+
     [Fact]
     public void A_sensitive_variable_in_a_url_position_fails()
     {

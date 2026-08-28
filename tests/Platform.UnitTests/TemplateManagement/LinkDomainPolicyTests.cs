@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 
 namespace NotificationHub.UnitTests.TemplateManagement;
@@ -36,8 +37,8 @@ public sealed class LinkDomainPolicyTests
     {
         IReadOnlyList<string> hosts = LinkDomainPolicy.HostsIn(text);
 
-        hosts.ShouldHaveSingleItem().ShouldContain("{");
-        LinkDomainPolicy.FirstDisallowedHost(text, MakeTemplate()).ShouldBe(hosts[0]);
+        hosts.ShouldHaveSingleItem().ShouldBe(LinkDomainPolicy.UnresolvedHost);
+        LinkDomainPolicy.FirstDisallowedHost(text, MakeTemplate()).ShouldBe(LinkDomainPolicy.UnresolvedHost);
     }
 
     [Fact]
@@ -48,8 +49,8 @@ public sealed class LinkDomainPolicyTests
         IReadOnlyList<string> hosts = LinkDomainPolicy.HostsIn(Text);
 
         hosts.Count.ShouldBe(2);
-        hosts[0].ShouldBe("montebravo.com.br");
-        hosts[1].ShouldBe("evil.com");
+        hosts[0].ShouldBe("evil.com");
+        hosts[1].ShouldBe(LinkDomainPolicy.UnresolvedHost);
         LinkDomainPolicy.FirstDisallowedHost(Text, MakeTemplate()).ShouldBe("evil.com");
     }
 
@@ -90,6 +91,34 @@ public sealed class LinkDomainPolicyTests
             .ShouldHaveSingleItem()
             .ShouldBe("evil.example.io");
         LinkDomainPolicy.FirstDisallowedHostInMarkup(Markup, MakeTemplate()).ShouldBe("evil.example.io");
+    }
+
+    [Fact]
+    public void An_entity_encoded_scheme_in_markup_does_not_hide_its_host()
+    {
+        const string Markup = """<img src="HTTPS&#58;//evil.example.io/pixel">""";
+
+        LinkDomainPolicy.FirstDisallowedHostInMarkup(Markup, MakeTemplate()).ShouldBe("evil.example.io");
+    }
+
+    [Theory]
+    [InlineData("https://[2001:db8::1]/pay", "2001:db8::1")]
+    [InlineData("https://аpple.com/pay", "xn--pple-43d.com")]
+    [InlineData("//аpple.com/pay", "xn--pple-43d.com")]
+    public void An_announced_destination_yields_its_canonical_uri_host(string destination, string expectedHost)
+    {
+        LinkDomainPolicy.HostsIn(destination).ShouldHaveSingleItem().ShouldBe(expectedHost);
+        LinkDomainPolicy.FirstDisallowedHost(destination, MakeTemplate()).ShouldBe(expectedHost);
+    }
+
+    [Theory]
+    [InlineData("https://assets.montebravo.com.br/pay", true)]
+    [InlineData("//assets.montebravo.com.br/pay", false)]
+    public void A_url_variable_still_requires_an_absolute_http_destination(string destination, bool expected)
+    {
+        JsonElement value = JsonSerializer.SerializeToElement(destination);
+
+        LinkDomainPolicy.IsAllowedUrlValue(MakeTemplate(), value).ShouldBe(expected);
     }
 
     private static Template MakeTemplate()

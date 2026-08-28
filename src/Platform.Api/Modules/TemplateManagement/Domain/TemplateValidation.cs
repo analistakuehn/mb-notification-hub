@@ -244,21 +244,28 @@ public static partial class TemplateValidation
         LayoutReferenceFacts? facts)
     {
         var before = checks.Count;
+        HashSet<string> urlVariables = new(
+            declarations.Where(declaration => declaration.IsUrl).Select(declaration => declaration.Name),
+            StringComparer.Ordinal);
+        HashSet<string> layoutUrlVariables = new(StringComparer.Ordinal);
         foreach (TemplateContent content in version.Contents)
         {
             foreach ((var field, var text) in Fields(content))
             {
-                foreach (var host in LinkDomainPolicy.HostsIn(text))
+                var linkText = content.Channel == Channel.Email && field == TemplateContentFields.Body
+                    ? LinkDomainPolicy.MarkupForLinkScan(text)
+                    : text;
+                var location = At(content.Channel, content.Locale, field);
+                foreach (var host in LinkDomainPolicy.HostsIn(linkText))
                 {
-                    ValidationCheck? finding = CheckLink(
-                        template,
-                        host,
-                        At(content.Channel, content.Locale, field));
+                    ValidationCheck? finding = CheckLink(template, host, location);
                     if (finding is not null)
                     {
                         checks.Add(finding);
                     }
                 }
+
+                AddDynamicDestinationChecks(checks, text, urlVariables, location);
             }
 
             // The layout text answers to the allowed domains, and never to the
@@ -283,10 +290,25 @@ public static partial class TemplateValidation
                     checks.Add(LayoutHostFinding(inMarkup, AtLayout(facts, content, TemplateContentFields.Body)));
                 }
 
+                AddDynamicDestinationChecks(
+                    checks,
+                    framing.Body,
+                    layoutUrlVariables,
+                    AtLayout(facts, content, TemplateContentFields.Body));
+
                 if (LinkDomainPolicy.FirstDisallowedHost(framing.BodyText, template) is { } inPlainText)
                 {
                     checks.Add(LayoutHostFinding(
                         inPlainText, AtLayout(facts, content, TemplateContentFields.BodyText)));
+                }
+
+                if (framing.BodyText is not null)
+                {
+                    AddDynamicDestinationChecks(
+                        checks,
+                        framing.BodyText,
+                        layoutUrlVariables,
+                        AtLayout(facts, content, TemplateContentFields.BodyText));
                 }
             }
         }
@@ -370,6 +392,124 @@ public static partial class TemplateValidation
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// A destination assembled from source fragments has no declaration whose
+    /// value can be checked before render. The only dynamic shape with that
+    /// property is one complete global variable marked as a URL by the schema;
+    /// every expression, suffix, prefix, or multi-variable composition fails
+    /// closed here.
+    /// </summary>
+    private static void AddDynamicDestinationChecks(
+        List<ValidationCheck> checks,
+        string text,
+        HashSet<string> urlVariables,
+        string location)
+    {
+        foreach (var destination in DynamicDestinationsIn(text))
+        {
+            if (destination is not null
+                && LinkDomainPolicy.HostsIn(destination).Any(host =>
+                    host.Contains('{', StringComparison.Ordinal)
+                    || string.Equals(host, LinkDomainPolicy.UnresolvedHost, StringComparison.Ordinal)))
+            {
+                // The literal-host check already reports this destination.
+                // Keeping one finding per cause prevents a report from
+                // presenting the same repair twice under different wording.
+                continue;
+            }
+
+            if (TryWholeUrlVariable(destination, out var variable))
+            {
+                if (urlVariables.Contains(variable))
+                {
+                    continue;
+                }
+
+                checks.Add(Failed(
+                    ValidationCheckNames.UrlAllowlist,
+                    $"Variable '{variable}' is used as a link destination and must declare format 'url' or 'uri'.",
+                    location));
+                continue;
+            }
+
+            checks.Add(Failed(
+                ValidationCheckNames.UrlAllowlist,
+                "A dynamic link destination must be one complete global variable "
+                + "declared with format 'url' or 'uri'.",
+                location));
+        }
+    }
+
+    private static List<string?> DynamicDestinationsIn(string text)
+    {
+        if (string.IsNullOrEmpty(text) || !text.Contains("{{", StringComparison.Ordinal))
+        {
+            return [];
+        }
+
+        List<string?> destinations = [];
+        try
+        {
+            foreach (Match match in DestinationValue().Matches(text))
+            {
+                var value = match.Groups["destination"].Value;
+                if (value.Contains("{{", StringComparison.Ordinal))
+                {
+                    destinations.Add(value.Trim());
+                }
+            }
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A source the bounded detector cannot inspect cannot be allowed
+            // to carry a dynamic destination.
+            return [null];
+        }
+
+        foreach (var destination in LinkDomainPolicy.CssUrlDestinationsIn(text))
+        {
+            if (destination is null || destination.Contains("{{", StringComparison.Ordinal))
+            {
+                destinations.Add(destination?.Trim());
+            }
+        }
+
+        foreach (var destination in LinkDomainPolicy.MetaRefreshDestinationsIn(text))
+        {
+            if (destination is null || destination.Contains("{{", StringComparison.Ordinal))
+            {
+                destinations.Add(destination?.Trim());
+            }
+        }
+
+        return destinations;
+    }
+
+    private static bool TryWholeUrlVariable(string? destination, out string variable)
+    {
+        variable = string.Empty;
+        if (destination is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            Match match = WholeUrlVariable().Match(destination);
+            if (!match.Success)
+            {
+                return false;
+            }
+
+            variable = match.Groups["variable"].Value;
+            return true;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
         }
     }
 
@@ -856,4 +996,25 @@ public static partial class TemplateValidation
         RegexOptions.NonBacktracking,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex Identifier();
+
+    /// <summary>
+    /// URI-bearing HTML attributes, CSS url() values, and Markdown link
+    /// targets. Each alternative consumes a bounded value without nesting or
+    /// backtracking; the source can arrive from an authoring request.
+    /// </summary>
+    [GeneratedRegex(
+        @"\b(?:href|src|action|formaction|poster|cite|background|data|longdesc|manifest|ping|srcset)\s*=\s*"
+        + @"(?:""(?<destination>[^""]*)""|'(?<destination>[^']*)'|(?<destination>[^\s>]+))"
+        + @"|\]\(\s*(?:<(?<destination>[^>\r\n]*)>|(?<destination>\{\{[^{}\r\n]*\}\})"
+        + @"|(?<destination>[^\s)\r\n]+))",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+        matchTimeoutMilliseconds: 1000)]
+    private static partial Regex DestinationValue();
+
+    /// <summary>One complete read of a top-level global, with optional whitespace trimming.</summary>
+    [GeneratedRegex(
+        @"\A\{\{~?\s*(?<variable>[A-Za-z_][A-Za-z0-9_]*)\s*~?\}\}\z",
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+        matchTimeoutMilliseconds: 1000)]
+    private static partial Regex WholeUrlVariable();
 }

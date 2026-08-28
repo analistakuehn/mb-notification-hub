@@ -98,7 +98,7 @@ internal static partial class RenderTemplateVersion
 
             TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
             Result<Response> rendered = await RenderContentAsync(
-                content, locale.Value!, resolved, request.Variables, wrapper.Value, cancellationToken);
+                template, content, locale.Value!, resolved, request.Variables, wrapper.Value, cancellationToken);
             if (rendered.IsSuccess)
             {
                 logger.VersionRendered(
@@ -112,6 +112,7 @@ internal static partial class RenderTemplateVersion
         }
 
         private async Task<Result<Response>> RenderContentAsync(
+            Template template,
             TemplateContent content,
             Locale requested,
             Locale resolved,
@@ -167,13 +168,38 @@ internal static partial class RenderTemplateVersion
                 }
             }
 
+            var normalizedSubject = subject.Value;
+            var normalizedBody = wrappedBody;
+            var normalizedBodyText = wrappedBodyText;
+            if (content.Channel == Channel.Sms)
+            {
+                normalizedSubject = normalizedSubject is null
+                    ? null
+                    : SmsContentNormalizer.Normalize(normalizedSubject);
+                normalizedBody = SmsContentNormalizer.Normalize(normalizedBody);
+                normalizedBodyText = normalizedBodyText is null
+                    ? null
+                    : SmsContentNormalizer.Normalize(normalizedBodyText);
+            }
+
+            Result destinationGuard = RenderedDestinationPolicy.Validate(
+                template,
+                content.Channel,
+                normalizedSubject,
+                normalizedBody,
+                normalizedBodyText);
+            if (destinationGuard.IsFailure)
+            {
+                return destinationGuard.AsFailure<Response>();
+            }
+
             return Result.Success(new Response(
                 content.Channel.Value,
                 requested.Value,
                 resolved.Value,
-                subject.Value,
-                wrappedBody,
-                wrappedBodyText));
+                normalizedSubject,
+                normalizedBody,
+                normalizedBodyText));
         }
 
         /// <summary>
