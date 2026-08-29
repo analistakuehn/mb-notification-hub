@@ -134,25 +134,67 @@ public sealed partial class SecurityArchitectureTests
     [Fact]
     public void No_audit_details_of_the_template_module_serialize_a_validation_check_message()
     {
-        var moduleRoot = Path.Combine("Modules", "TemplateManagement");
-        var producers = SourceFiles()
-            .Where(path => path.Contains(moduleRoot, StringComparison.OrdinalIgnoreCase))
-            .Where(path => path.EndsWith("AuditDetails.cs", StringComparison.Ordinal)
-                || File.ReadAllText(path).Contains("DetailsJson", StringComparison.Ordinal))
-            .ToArray();
+        var producers = AuditDetailsProducers();
 
         // A path that stops matching would turn the rule into a green that
         // scanned nothing at all.
         producers.ShouldNotBeEmpty();
 
-        var findings = producers
-            .SelectMany(path => File.ReadLines(path).Select((line, index) => (path, line, number: index + 1)))
-            .Where(item => ValidationCheckText().IsMatch(item.line))
-            .Select(item => $"{item.path}:{item.number}")
-            .ToArray();
+        var findings = Findings(producers, ValidationCheckText());
 
         findings.ShouldBeEmpty();
     }
+
+    /// <summary>
+    /// The prose an operator types beside the reason code of a deprecate or a
+    /// disable never reaches the trail. It is free text written while traffic
+    /// is being stopped, so nothing bounds what lands in it, and the trail is
+    /// append-only by trigger and hash-chained per partition: a national
+    /// identifier or a token that arrives there stays for the retention of the
+    /// trail, inside the bytes the chain covers. The details carry the
+    /// reference to the stored note instead, and the note itself lives in a
+    /// row that can be erased.
+    /// <para>
+    /// The rule is checkable only because the note reaches the handler as a
+    /// type. As a bare string beside the reason it read exactly like the
+    /// reason, and no scan could tell the two apart; carried as a type, the
+    /// single way to reach the prose is to name <c>Text</c>, which is what
+    /// this pattern looks for. It catches the local and the member alike and,
+    /// like the rule above, it stops at the file boundary: prose laundered
+    /// through a helper in another file is out of its reach.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void No_audit_details_of_the_template_module_serialize_the_text_of_a_lifecycle_note()
+    {
+        var producers = AuditDetailsProducers();
+
+        producers.ShouldNotBeEmpty();
+
+        var findings = Findings(producers, LifecycleNoteProse());
+
+        findings.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The two places this module builds an audit details document: a file
+    /// that assigns <c>DetailsJson</c>, and the shared producer, named for
+    /// what it produces so a rule finds it without following a call.
+    /// </summary>
+    private static string[] AuditDetailsProducers()
+    {
+        var moduleRoot = Path.Combine("Modules", "TemplateManagement");
+        return [.. SourceFiles()
+            .Where(path => path.Contains(moduleRoot, StringComparison.OrdinalIgnoreCase))
+            .Where(path => path.EndsWith("AuditDetails.cs", StringComparison.Ordinal)
+                || File.ReadAllText(path).Contains("DetailsJson", StringComparison.Ordinal))];
+    }
+
+    private static string[] Findings(IEnumerable<string> files, Regex pattern)
+        => [.. files
+            .SelectMany(path => File.ReadLines(path).Select((line, index) => (path, line, number: index + 1)))
+            .Where(item => pattern.IsMatch(item.line))
+            .Select(item => $"{item.path}:{item.number}")];
 
     private static IEnumerable<string> SourceFiles()
         => ProductionRoots
@@ -197,6 +239,9 @@ public sealed partial class SecurityArchitectureTests
     [GeneratedRegex(@"\bRandom(?:\.Shared)?\b")]
     private static partial Regex PseudoRandom();
 
-    [GeneratedRegex(@"\b\w*[Cc]heck\w*\.(?:Message|Location)\b")]
+    [GeneratedRegex(@"\b\w*[Cc]heck\w*\??\.(?:Message|Location)\b")]
     private static partial Regex ValidationCheckText();
+
+    [GeneratedRegex(@"\b\w*[Nn]ote\w*\??\.Text\b")]
+    private static partial Regex LifecycleNoteProse();
 }

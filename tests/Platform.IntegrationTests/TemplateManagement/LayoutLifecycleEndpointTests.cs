@@ -223,10 +223,14 @@ public sealed class LayoutLifecycleEndpointTests(TemplateManagementApiFixture fi
         {
             AuditEvent deprecatedAudit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "layout.deprecated" && candidate.EntityId == key);
-            deprecatedAudit.DetailsJson.ShouldContain("identidade visual antiga");
+            deprecatedAudit.DetailsJson.ShouldContain("visual-identity-change");
+            deprecatedAudit.DetailsJson.Contains("identidade visual antiga", StringComparison.Ordinal)
+                .ShouldBeFalse("the trail records the code and a reference, never the operator's words");
             AuditEvent disabledAudit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "layout.disabled" && candidate.EntityId == key);
-            disabledAudit.DetailsJson.ShouldContain("substituído em produção");
+            disabledAudit.DetailsJson.ShouldContain("superseded-by-new-version");
+            disabledAudit.DetailsJson.Contains("substituído em produção", StringComparison.Ordinal)
+                .ShouldBeFalse("the trail records the code and a reference, never the operator's words");
         });
     }
 

@@ -1,12 +1,11 @@
 using FluentValidation;
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Features.Layouts;
 
 internal static partial class DisableLayout
 {
-    internal const int MaxNoteLength = 500;
-
     internal sealed class Validator : AbstractValidator<Request>
     {
         public Validator()
@@ -27,7 +26,12 @@ internal static partial class DisableLayout
                 .When(request => string.Equals(request.Reason, LifecycleReasons.Other, StringComparison.Ordinal))
                 .WithMessage($"Note is required when Reason is '{LifecycleReasons.Other}'.");
 
-            RuleFor(request => request.Note).MaximumLength(MaxNoteLength);
+            // The ceiling is the note's own, not this endpoint's copy of it:
+            // the column that stores the note is sized from the same number,
+            // and two numbers over one field is how a request the door admits
+            // dies at the insert, inside the transaction that carries the
+            // transition and its trail entry.
+            RuleFor(request => request.Note).MaximumLength(LifecycleNoteText.MaxLength);
         }
     }
 }

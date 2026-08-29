@@ -18,6 +18,12 @@ public sealed class TemplateManagementDbContext(DbContextOptions<TemplateManagem
 
     public DbSet<ClassPolicyVersion> ClassPolicyVersions => Set<ClassPolicyVersion>();
 
+    /// <summary>
+    /// Prose written beside a lifecycle transition, kept here so the trail can
+    /// carry a reference instead of the words themselves.
+    /// </summary>
+    public DbSet<LifecycleNote> LifecycleNotes => Set<LifecycleNote>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("templatemanagement");

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using NotificationHub.Api.Infrastructure.EndpointFilters;
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Http;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.RateLimiting;
@@ -30,7 +31,7 @@ internal static partial class DisableLayout
         }
 
         Result<Response> result = await handler.HandleAsync(
-            new Command(key, request.Reason, request.Note, actor.Value!),
+            new Command(key, request.Reason, LifecycleNoteText.Create(request.Note), actor.Value!),
             cancellationToken);
         return result.IsSuccess ? Results.Ok(result.Value) : ApiResults.Problem(result);
     }

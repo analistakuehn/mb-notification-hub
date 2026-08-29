@@ -32,7 +32,10 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
                 candidate.Action == "template.deprecated" && candidate.EntityId == key);
             audit.ActorId.ShouldBe("publisher-lc-1");
             audit.EntityType.ShouldBe("template");
-            audit.DetailsJson.ShouldContain("substituído pela campanha nova");
+            audit.DetailsJson.ShouldContain("superseded-by-new-version");
+            audit.DetailsJson.ShouldContain("noteRef");
+            audit.DetailsJson.Contains("substituído pela campanha nova", StringComparison.Ordinal)
+                .ShouldBeFalse("the trail records the code and a reference, never the operator's words");
         });
     }
 
@@ -92,7 +95,9 @@ public sealed class TemplateLifecycleEndpointTests(TemplateManagementApiFixture 
         {
             AuditEvent audit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "template.disabled" && candidate.EntityId == key);
-            audit.DetailsJson.ShouldContain("conteúdo incorreto em produção");
+            audit.DetailsJson.ShouldContain("content-incorrect");
+            audit.DetailsJson.Contains("conteúdo incorreto em produção", StringComparison.Ordinal)
+                .ShouldBeFalse("the trail records the code and a reference, never the operator's words");
         });
     }
 

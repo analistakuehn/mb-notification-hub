@@ -76,23 +76,60 @@
   template or of a layout. That last clause is what rules out the message and
   the location of a validation check: the message interpolates a declared
   variable name or a link host read off a wrapper body, and the location points
-  at the content unit the finding came from. `tests/Platform.SecurityArchTests`
-  scans the producers of `DetailsJson` in this module and fails on either one.
+  at the content unit the finding came from. It also rules out the note of a
+  lifecycle transition, which is why that note reaches the handler as a type and
+  not as a second string beside the reason code: carried as a type, the only way
+  to reach the prose is to name `Text`, and a scan can look for that.
+  `tests/Platform.SecurityArchTests` scans the producers of `DetailsJson` in
+  this module and fails on a check message, a check location, or the text of a
+  note.
 - The reason of a deprecate or a disable is a code from
   `Integration.V1.LifecycleReasons` plus an optional free-text note, never a
   sentence in the code field: the periodic evidence read groups the trail by
   that field and the archived report copies the group name verbatim, so prose
-  turns every phrasing into a category of its own. The note is capped at 500
-  characters and is required only for `other`, which is the single refusal the
-  note adds; `other` exists so that no operator is ever denied a traffic stop
-  for lack of a matching entry.
-- Rows written before this rule keep the full report, messages and locations
-  included, and a free-text reason. Nothing migrates them, and nothing can: the
-  trail is append-only by database trigger and hash-chained per partition, so
-  rewriting a row breaks the chain it belongs to. The cut is readable from the
-  row itself and needs no clock: a publication whose `validation` object carries
-  `warned` was written under this rule, and so was a lifecycle transition whose
-  details carry `note`.
+  turns every phrasing into a category of its own. The note is capped at
+  `Domain.LifecycleNoteText.MaxLength`, read by the four endpoint validators and
+  by the column that stores it, and is required only for `other`, which is the
+  single refusal the note adds; `other` exists so that no operator is ever
+  denied a traffic stop for lack of a matching entry.
+- **The note is not in the trail.** It is stored in `lifecycle_note`, owned by
+  this context, and the trail records the reason code plus `noteRef`, a random
+  identifier of the stored row. The prose is unbounded in content by design: it
+  is written under pressure while traffic is being stopped, and refusing a stop
+  because the words look like personal data is worse than the ambiguity such a
+  refusal would remove. Since nothing can bound the content, the content must
+  not go where nothing can remove it. `noteRef` is `Guid.CreateVersion7()` and
+  never a digest of the words: a digest of a short value is a lookup table away
+  from the value, and it would tie every transition carrying the same sentence
+  together forever, which is the link an erasure exists to break.
+- **Erasure is an act, not an absence.** The eraser under
+  `Infrastructure/Retention/` deletes the row and appends the erasure action of
+  the subject, carrying the same `noteRef`, in one transaction and in the same
+  shape as the transitions. Without that event, a reference pointing
+  at nothing would read the same as a transition that never carried a note, and
+  a store that can lose a record without saying so is a store an auditor cannot
+  use. It has **no HTTP surface**, and that is deliberate: no context of this
+  system exposes a forgetting endpoint, and the first one is a capability with
+  its own review, not a rider on a storage change. Whoever adds the trigger owns
+  the authorization, the rate limit and the four-eyes question that come with
+  it.
+- The note is written by the `SaveChanges` the transition already runs, one
+  statement before the append, and the erasure follows the same order. Nothing
+  is placed between the append and the commit: the append holds the chain
+  advisory lock of the partition until the transaction ends.
+- Nothing migrates the rows written before each of these rules, and nothing
+  can: the trail is append-only by database trigger and hash-chained per
+  partition, so rewriting a row breaks the chain it belongs to. The eras are
+  readable from the row itself and need no clock. A publication whose
+  `validation` object carries `warned` was written under the compact-evidence
+  rule; an earlier one carries the full report, with check messages and
+  locations. A lifecycle transition reads in three eras: details with neither
+  `note` nor `noteRef` are the oldest, from when the reason was free prose;
+  details carrying `note` hold the operator's words in the trail itself and
+  cannot be cleared; details carrying `noteRef` are current, and the words they
+  point at are erasable. The middle era is the one an operator asking to be
+  forgotten cannot be fully served in, and saying so is the only thing this
+  module can do about it.
 - Retention, export, and the 90-day verification criterion counted from the
   partition's upper boundary are the Audit module's concerns; nothing in this
   module may depend on them.

@@ -43,6 +43,26 @@ internal static partial class DeprecateLayout
                 return transition.AsFailure<Response>();
             }
 
+            // The note is minted before the entry that references it and is
+            // written by the SaveChanges that already runs below, one
+            // statement before the append. Nothing is added between the append
+            // and the commit: the append takes the chain advisory lock of the
+            // partition and holds it until the transaction ends, so work
+            // placed after it stretches the serialization window of every
+            // governed effect of the month.
+            DateTimeOffset occurredAt = timeProvider.GetUtcNow();
+            LifecycleNote? note = LifecycleNote.For(
+                command.Note,
+                AuditEntityTypes.Layout,
+                key.Value!.Value,
+                application: null,
+                command.Actor,
+                occurredAt);
+            if (note is not null)
+            {
+                dbContext.LifecycleNotes.Add(note);
+            }
+
             var entry = new AuditEntry
             {
                 ActorType = AuditActorTypes.User,
@@ -50,8 +70,8 @@ internal static partial class DeprecateLayout
                 Action = AuditActions.LayoutDeprecated,
                 EntityType = AuditEntityTypes.Layout,
                 EntityId = key.Value!.Value,
-                DetailsJson = JsonSerializer.Serialize(new { reason = command.Reason, note = command.Note }),
-                OccurredAt = timeProvider.GetUtcNow(),
+                DetailsJson = JsonSerializer.Serialize(new { reason = command.Reason, noteRef = note?.Id }),
+                OccurredAt = occurredAt,
             };
 
             // One database transaction shared with the audit contract: the

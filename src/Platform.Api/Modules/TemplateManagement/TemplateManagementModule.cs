@@ -9,6 +9,7 @@ using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Caching;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.RateLimiting;
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Retention;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
@@ -69,6 +70,12 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<IPublishedCatalog, PublishedCatalog>();
         services.AddScoped<IPublishedVariablesValidator, PublishedVariablesValidator>();
         services.AddScoped<IPublishedTemplateRenderer, PublishedTemplateRenderer>();
+
+        // The only writer in this context that removes anything. Registered
+        // without an HTTP route on purpose: the act exists so the trail can
+        // record it, and the surface that triggers it is a decision of its
+        // own.
+        services.AddScoped<LifecycleNoteEraser>();
 
         // Reconstruction surface: the exact version a past notification used,
         // never memoized as a current pointer.

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NotificationHub.Api.Modules.Audit.Domain;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
@@ -31,13 +32,25 @@ public sealed class LifecycleReasonEndpointTests(TemplateManagementApiFixture fi
             new { reason = LifecycleReasons.ContentIncorrect, note = Note });
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        Guid noteRef = Guid.Empty;
         await fixture.ExecuteAuditDbAsync(async db =>
         {
             JsonElement details = await DetailsOfAsync(db, "template.disabled", key);
             var reason = details.GetProperty("reason").GetString();
             LifecycleReasons.IsCanonical(reason).ShouldBeTrue(reason);
             reason.ShouldBe(LifecycleReasons.ContentIncorrect);
-            details.GetProperty("note").GetString().ShouldBe(Note);
+            noteRef = details.GetProperty("noteRef").GetGuid();
+        });
+
+        // The reference is worth nothing if it points at nothing: the words
+        // still have to be readable, only from a store that can lose them on
+        // purpose rather than from one that cannot.
+        await fixture.ExecuteDbAsync(async db =>
+        {
+            LifecycleNote stored = await db.LifecycleNotes.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == noteRef);
+            stored.Text.ShouldBe(Note);
+            stored.SubjectKey.ShouldBe(key);
         });
     }
 
@@ -98,7 +111,7 @@ public sealed class LifecycleReasonEndpointTests(TemplateManagementApiFixture fi
             JsonElement deprecated = await DetailsOfAsync(db, "layout.deprecated", layoutKey);
 
             Names(deprecated).ShouldBe(Names(disabled), ignoreOrder: true);
-            Names(deprecated).ShouldBe(["note", "reason"], ignoreOrder: true);
+            Names(deprecated).ShouldBe(["noteRef", "reason"], ignoreOrder: true);
             LifecycleReasons.IsCanonical(deprecated.GetProperty("reason").GetString()).ShouldBeTrue();
         });
     }

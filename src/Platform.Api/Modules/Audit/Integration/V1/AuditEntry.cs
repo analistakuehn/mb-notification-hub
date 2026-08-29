@@ -60,6 +60,19 @@ public static class AuditActions
     public const string LayoutRollback = "layout.rollback";
     public const string ClassPolicyVersionPublished = "class_policy.version.published";
 
+    /// <summary>
+    /// The prose an operator wrote beside a lifecycle transition was erased
+    /// from the store that held it. The details carry the same reference the
+    /// transition recorded, so following that reference lands on this event
+    /// instead of on nothing: without it, "no note was ever written" and "a
+    /// note was written and later erased" read identically, and a silent gap
+    /// where a record used to be is the signature of tampering.
+    /// </summary>
+    public const string TemplateLifecycleNoteErased = "template.lifecycle_note.erased";
+
+    /// <summary>The same act over the note of a layout transition.</summary>
+    public const string LayoutLifecycleNoteErased = "layout.lifecycle_note.erased";
+
     /// <summary>A verification round closed with the chain intact over the range it covered.</summary>
     public const string AuditChainVerified = "audit.chain.verified";
 
