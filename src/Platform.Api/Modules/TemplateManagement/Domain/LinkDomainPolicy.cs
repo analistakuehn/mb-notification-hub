@@ -24,6 +24,14 @@ public static partial class LinkDomainPolicy
 {
     private const string MalformedDestination = "https://%";
 
+    // The three characters a URL parser removes from anywhere in the string it
+    // parses, before it reads the scheme or the authority. Every other space or
+    // control the specification names is stripped from the ends only, which is
+    // what UrlTrimmedCharacters below covers.
+    private const char Tab = '\t';
+    private const char LineFeed = '\n';
+    private const char CarriageReturn = '\r';
+
     /// <summary>
     /// Stands in for the host of a candidate that resolved to nothing. It
     /// never reaches the allowlist as a domain: it is refused on sight, which
@@ -42,6 +50,13 @@ public static partial class LinkDomainPolicy
         "info", "biz", "xyz", "link", "site", "shop", "store", "online", "club", "top", "us", "uk",
         "de", "fr", "es", "it", "pt", "ar", "cl", "mx",
     };
+
+    /// <summary>
+    /// The C0 controls and the space, which a URL parser strips from both ends
+    /// of the value before parsing it.
+    /// </summary>
+    private static readonly char[] UrlTrimmedCharacters =
+        [.. Enumerable.Range(0, 0x21).Select(code => (char)code)];
 
     private static readonly Dictionary<string, char> Html5UriPunctuation = new(StringComparer.Ordinal)
     {
@@ -81,8 +96,9 @@ public static partial class LinkDomainPolicy
         {
             for (Match match = LinkCandidate().Match(text); match.Success; match = match.NextMatch())
             {
-                if (match.Groups["announced"].Success)
+                if (match.Groups["authority"].Success)
                 {
+                    Group scheme = match.Groups["scheme"];
                     var authority = match.Groups["authority"].Value;
                     if (authority.Length == 0)
                     {
@@ -100,11 +116,23 @@ public static partial class LinkDomainPolicy
                         continue;
                     }
 
-                    if (!TryCanonicalHttpHost(
-                        match.Groups["announced"].Value,
+                    var canonical = TryCanonicalHttpHost(
+                        CanonicalSeparator(match),
                         allowProtocolRelative: true,
                         out var host,
-                        out var userInfo))
+                        out var userInfo);
+
+                    // A destination whose separator carries nothing is spelled
+                    // exactly like ordinary writing, so it has to earn the
+                    // reading before it gets one.
+                    var spelledLikeProse = !scheme.Success
+                        || match.Length == scheme.Length + authority.Length;
+                    if (spelledLikeProse && !IsAddressRatherThanProse(scheme.Value, authority))
+                    {
+                        continue;
+                    }
+
+                    if (!canonical)
                     {
                         hosts.Add(UnresolvedHost);
                         continue;
@@ -150,6 +178,88 @@ public static partial class LinkDomainPolicy
 
         return hosts;
     }
+
+    /// <summary>
+    /// The candidate rewritten with the two slashes the canonizer expects, so
+    /// the run of slashes and backslashes the detector accepted reaches
+    /// <see cref="System.Uri"/> in the one form it parses. The rewrite covers
+    /// the separator and nothing else: a backslash later in the authority is
+    /// left where the author wrote it, and the destination that carries one
+    /// keeps failing closed instead of being reinterpreted into a host.
+    /// </summary>
+    /// <summary>
+    /// Whether a destination written without the two slashes that announce an
+    /// authority is an address at all.
+    /// <para>
+    /// Two spellings reach a host with no separator to mark them: a scheme
+    /// glued straight to its authority, and an authority with no scheme in
+    /// front of it. Both are also how ordinary writing looks. Measured over
+    /// Portuguese operational text, reading every one of them as a destination
+    /// refused a note that says <c>codigo HTTP:200</c>, <c>HTTPS:443</c>,
+    /// <c>http:port nao configurado</c>, <c>Https:Sim</c>, <c>campo
+    /// https:true</c>, and a Windows share path, which is the vocabulary of the
+    /// notes an operator writes about configuration.
+    /// </para>
+    /// <para>
+    /// A dot or a colon in the authority is what separates the two: every
+    /// public name and every IP literal carries one, and none of those notes
+    /// does. The dot has to sit inside the part a parser would read as the
+    /// authority, which is everything before the first backslash: a trailing
+    /// period ends a sentence and a dot after a backslash belongs to a file
+    /// name, and neither one names a host. The exception is the address written as a single number, which is
+    /// why a bare word still counts when the canonizer turns it into a dotted
+    /// address outside <c>0.0.0.0/8</c>. That keeps <c>https:3232235777</c>,
+    /// which is 192.168.1.1 spelled without dots, and drops <c>HTTP:200</c>,
+    /// which is 0.0.0.200, an address in the block reserved for "this network"
+    /// that no client routes to. What the rule gives up is named: a dotless
+    /// intranet name such as <c>https:relatorios</c> stops being read as a
+    /// destination.
+    /// </para>
+    /// </summary>
+    private static bool IsAddressRatherThanProse(string scheme, string authority)
+    {
+        // A URL parser ends an authority at the first backslash, so only what
+        // stands in front of one can name a host. Reading the whole run instead
+        // borrowed the dot of a file extension and turned a Windows share path
+        // into a destination.
+        var backslash = authority.IndexOf('\\');
+        var named = backslash < 0
+            ? authority
+            : authority[..backslash];
+
+        var dot = named.IndexOf('.', StringComparison.Ordinal);
+        if ((dot > 0 && dot < named.Length - 1)
+            || named.Contains(':', StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // The canonizer is asked about the same text the dot was looked for in,
+        // and a refusal here answers "address", never "prose". Silence is the
+        // one thing this gate must not produce: a value the canonizer cannot
+        // read is an unreadable destination, which already has an answer, and
+        // treating it as writing turned every percent-encoded dot into an
+        // approval with no host to show for it.
+        if (!TryCanonicalHttpHost(
+            scheme + "//" + named,
+            allowProtocolRelative: true,
+            out var host,
+            out _))
+        {
+            return true;
+        }
+
+        var hostDot = host.IndexOf('.', StringComparison.Ordinal);
+        return hostDot > 0
+            && hostDot < host.Length - 1
+            && !host.StartsWith("0.", StringComparison.Ordinal);
+    }
+
+    private static string CanonicalSeparator(Match match)
+        => string.Concat(
+            match.Groups["scheme"].ValueSpan,
+            "//",
+            match.Groups["authority"].ValueSpan);
 
     /// <summary>
     /// The first host of any string value of the payload that the template
@@ -297,6 +407,11 @@ public static partial class LinkDomainPolicy
         }
 
         markup = WebUtility.HtmlDecode(normalizedMarkup);
+        if (!TryReadAttributeDestinations(markup, out markup))
+        {
+            return MalformedDestination;
+        }
+
         CssUrlScanResult cssUrls = ScanCssUrlDestinations(markup);
         MetaRefreshScanResult refreshUrls = ScanMetaRefreshDestinations(markup);
         if (cssUrls.IsMalformed || refreshUrls.IsMalformed)
@@ -467,6 +582,336 @@ public static partial class LinkDomainPolicy
             && PlausibleSuffixes.Contains(host[(lastDot + 1)..]);
     }
 
+    /// <summary>
+    /// Attribute destinations in the form a client resolves them, and only
+    /// those a client should be asked to resolve.
+    /// <para>
+    /// The tab, the line feed, and the carriage return are removed from the
+    /// value before anything reads it, which is the step every URL parser
+    /// performs on the string it is handed. The order is the whole point: the
+    /// detector's authority stops at the first whitespace, so a value cleaned
+    /// after the candidate has been cut is cleaned too late and the host the
+    /// client would reach was already discarded. Decoded character references
+    /// deliver those characters as readily as a literal one, which is why the
+    /// removal sits after the single decode.
+    /// </para>
+    /// <para>
+    /// A destination that declares a scheme this module does not deliver is
+    /// refused here rather than measured against the allowed domains, because
+    /// there is no host in it to measure. The allowlist is a statement about
+    /// where a reader is sent, and a destination that carries its payload
+    /// instead of naming a place answers that question by having no answer.
+    /// </para>
+    /// </summary>
+    private static bool TryReadAttributeDestinations(string markup, out string normalized)
+    {
+        MatchCollection matches;
+        try
+        {
+            matches = UriBearingAttribute().Matches(markup);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            normalized = string.Empty;
+            return false;
+        }
+
+        StringBuilder? output = null;
+        var markupIndex = 0;
+        foreach (Match match in matches)
+        {
+            Group destination = match.Groups["destination"];
+            var prepared = IsListValued(match.Groups["attribute"].ValueSpan)
+                ? PreparedListDestination(destination.ValueSpan)
+                : PreparedCandidate(destination.ValueSpan);
+            if (prepared is null || destination.ValueSpan.SequenceEqual(prepared))
+            {
+                continue;
+            }
+
+            output ??= new StringBuilder(markup.Length);
+            output.Append(markup, markupIndex, destination.Index - markupIndex);
+            output.Append(prepared);
+            markupIndex = destination.Index + destination.Length;
+        }
+
+        if (output is null)
+        {
+            normalized = markup;
+            return true;
+        }
+
+        output.Append(markup, markupIndex, markup.Length - markupIndex);
+        normalized = output.ToString();
+        return true;
+    }
+
+    /// <summary>
+    /// The destination in the form the scan can read whole, or null when it is
+    /// already in that form.
+    /// <para>
+    /// A destination that names a scheme the catalog does not deliver keeps its
+    /// text and gains the malformed marker beside it. Refusing the whole markup
+    /// on sight was cheaper and said less: a value like
+    /// <c>blob:https://elsewhere.example/1</c> carries the host an author has to
+    /// read to fix the template, and answering only with the marker made the
+    /// refusal indistinguishable from an unreadable one. The text is left
+    /// unencoded there on purpose, because the marker already decides the
+    /// verdict and the only remaining job is to name a host if the value holds
+    /// one.
+    /// </para>
+    /// </summary>
+    private static string? PreparedCandidate(ReadOnlySpan<char> destination)
+    {
+        var removed = false;
+        var encoded = false;
+        foreach (var character in destination)
+        {
+            if (character is Tab or LineFeed or CarriageReturn)
+            {
+                removed = true;
+            }
+            else if (!IsCarriedByCandidate(character))
+            {
+                encoded = true;
+            }
+        }
+
+        if (!removed && !encoded && IsDeliverableDestination(destination))
+        {
+            return null;
+        }
+
+        var cleaned = removed
+            ? WithoutUrlRemovedCharacters(destination)
+            : destination.ToString();
+
+        return IsDeliverableDestination(cleaned)
+            ? WithUncarriedCharactersEncoded(cleaned)
+            : cleaned + " " + MalformedDestination;
+    }
+
+    /// <summary>
+    /// A value that holds several destinations, prepared one destination at a
+    /// time.
+    /// <para>
+    /// srcset and ping separate their entries with ASCII whitespace and commas,
+    /// and those separators are the boundary the scan reads a destination from.
+    /// Percent-encoding one of them, which is right everywhere else because a
+    /// space inside a single URL belongs to the userinfo, welded two entries
+    /// into one and hid the second: the character in front of it stopped being
+    /// a boundary. Preparing each entry on its own keeps both rules, the
+    /// separator stays a separator and everything inside an entry is still
+    /// handed to the canonizer whole.
+    /// </para>
+    /// </summary>
+    private static string PreparedListDestination(ReadOnlySpan<char> destination)
+    {
+        var output = new StringBuilder(destination.Length + 8);
+        var start = 0;
+        for (var index = 0; index <= destination.Length; index++)
+        {
+            if (index < destination.Length && !IsListSeparator(destination[index]))
+            {
+                continue;
+            }
+
+            if (index > start)
+            {
+                ReadOnlySpan<char> candidate = destination[start..index];
+                if (output.Length > 0)
+                {
+                    output.Append(' ');
+                }
+
+                output.Append(PreparedCandidate(candidate) ?? candidate.ToString());
+            }
+
+            start = index + 1;
+        }
+
+        return output.ToString();
+    }
+
+    /// <summary>
+    /// The attributes whose value is a list of destinations rather than one.
+    /// </summary>
+    private static bool IsListValued(ReadOnlySpan<char> attribute)
+        => attribute.Equals("srcset", StringComparison.OrdinalIgnoreCase)
+            || attribute.Equals("ping", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// ASCII whitespace and the comma, which is what the srcset and ping
+    /// grammars split on. Nothing wider: a no-break space is not a separator in
+    /// either grammar, so it stays inside the entry and reaches the canonizer.
+    /// </summary>
+    private static bool IsListSeparator(char character)
+        => character is ',' or ' ' or Tab or LineFeed or CarriageReturn or '\f';
+
+    /// <summary>
+    /// Whether the candidate grammar can carry the character inside an
+    /// authority. The answer is read off that grammar and not off a list of
+    /// characters somebody remembered: the detector excludes whitespace and the
+    /// four markup delimiters, and everything else it excludes is a real URL
+    /// delimiter that has to keep delimiting.
+    /// </summary>
+    private static bool IsCarriedByCandidate(char character)
+        => !char.IsWhiteSpace(character)
+            && character is not ('<' or '>' or '"' or '\'');
+
+    /// <summary>
+    /// The destination with every character the candidate grammar cannot carry
+    /// replaced by its percent-encoding.
+    /// <para>
+    /// This is the rule the whole guard turns on, and the one the two findings
+    /// broke twice: the detector must never be stricter than the canonizer it
+    /// feeds. A URL parser ends an authority at a slash, a backslash, a question
+    /// mark, a number sign, or the end of the value, and at nothing else; it
+    /// carries a quote, an angle bracket, and every kind of space straight into
+    /// the userinfo and reads the host after the at sign. A detector that stops
+    /// at those characters hands over a prefix, gets back the wrong host, and
+    /// approves. Percent-encoding them is what the parser itself does with them,
+    /// so the authority arrives whole and the decision stays with System.Uri.
+    /// </para>
+    /// </summary>
+    private static string WithUncarriedCharactersEncoded(string value)
+    {
+        StringBuilder? output = null;
+        var copiedThrough = 0;
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (IsCarriedByCandidate(value[index]))
+            {
+                continue;
+            }
+
+            output ??= new StringBuilder(value.Length + 8);
+            output.Append(value, copiedThrough, index - copiedThrough);
+            AppendPercentEncoded(output, value, ref index);
+            copiedThrough = index + 1;
+        }
+
+        if (output is null)
+        {
+            return value;
+        }
+
+        output.Append(value, copiedThrough, value.Length - copiedThrough);
+        return output.ToString();
+    }
+
+    private static void AppendPercentEncoded(StringBuilder output, string value, ref int index)
+    {
+        const string Hexadecimal = "0123456789ABCDEF";
+        var length = char.IsHighSurrogate(value[index])
+            && index + 1 < value.Length
+            && char.IsLowSurrogate(value[index + 1])
+                ? 2
+                : 1;
+
+        Span<byte> utf8 = stackalloc byte[4];
+        var written = Encoding.UTF8.GetBytes(value.AsSpan(index, length), utf8);
+        for (var position = 0; position < written; position++)
+        {
+            output.Append('%');
+            output.Append(Hexadecimal[utf8[position] >> 4]);
+            output.Append(Hexadecimal[utf8[position] & 0xF]);
+        }
+
+        index += length - 1;
+    }
+
+    private static string WithoutUrlRemovedCharacters(ReadOnlySpan<char> destination)
+    {
+        var kept = new StringBuilder(destination.Length);
+        foreach (var character in destination)
+        {
+            if (character is not (Tab or LineFeed or CarriageReturn))
+            {
+                kept.Append(character);
+            }
+        }
+
+        return kept.ToString();
+    }
+
+    /// <summary>
+    /// Whether the destination names a place this module is willing to send a
+    /// reader to. A value with no scheme is relative and stays: it resolves
+    /// against the message it was delivered in, which is the sender's own
+    /// document.
+    /// <para>
+    /// Five schemes are delivered. Two of them, http and https, name a place on
+    /// the network and the allowed domains decide them. The other three name no
+    /// place at all: mailto addresses a mailbox, tel a telephone number, and
+    /// cid a part of the message the reader already holds, which is how an
+    /// inline image is written in mail. Having no host is not the same failure
+    /// as data and blob, which carry their payload instead of naming anything:
+    /// no host here means no external destination, so the allowlist has nothing
+    /// to rule on and nothing to protect. What is left of their value still
+    /// goes through the same preparation and the same scan, so a literal
+    /// address written inside one of them is read exactly as it would be
+    /// anywhere else.
+    /// </para>
+    /// </summary>
+    private static bool IsDeliverableDestination(ReadOnlySpan<char> destination)
+    {
+        ReadOnlySpan<char> value = destination.Trim(UrlTrimmedCharacters);
+        var colon = -1;
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] == ':')
+            {
+                colon = index;
+                break;
+            }
+
+            var isSchemeCharacter = index == 0
+                ? char.IsAsciiLetter(value[index])
+                : char.IsAsciiLetterOrDigit(value[index]) || value[index] is '+' or '-' or '.';
+            if (!isSchemeCharacter)
+            {
+                // No scheme is declared before the value stops looking like
+                // one, so this is a relative reference.
+                return true;
+            }
+        }
+
+        if (colon <= 0)
+        {
+            return true;
+        }
+
+        ReadOnlySpan<char> scheme = value[..colon];
+        if (scheme.Equals("http", StringComparison.OrdinalIgnoreCase)
+            || scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!scheme.Equals("mailto", StringComparison.OrdinalIgnoreCase)
+            && !scheme.Equals("cid", StringComparison.OrdinalIgnoreCase)
+            && !scheme.Equals("tel", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // None of these three names a place on the network, so none of them has
+        // an authority to name one with: a Content-ID addresses a part of the
+        // message the reader already has, and a telephone number and a mailbox
+        // address no place at all. A value that opens an authority is therefore
+        // not one of them whatever it wrote before the colon, and it is refused
+        // rather than trusted to a client's reading of a scheme that has no
+        // authority to read.
+        ReadOnlySpan<char> opaque = value[(colon + 1)..];
+        return opaque.Length < 2
+            || !IsAuthoritySlash(opaque[0])
+            || !IsAuthoritySlash(opaque[1]);
+    }
+
+    private static bool IsAuthoritySlash(char character)
+        => character is '/' or '\\';
+
     private static bool TryNormalizeMarkupUriReferences(string markup, out string normalized)
     {
         if (!TryNormalizeUriAttributeReferences(markup, out var withAttributes))
@@ -515,13 +960,117 @@ public static partial class LinkDomainPolicy
             }
 
             output.Append(markup, markupIndex, destination.Index - markupIndex);
-            output.Append(normalizedDestination);
+            output.Append(WithQuotesKeptInsideTheValue(normalizedDestination));
             markupIndex = destination.Index + destination.Length;
         }
 
         output.Append(markup, markupIndex, markup.Length - markupIndex);
         normalized = output.ToString();
         return true;
+    }
+
+    /// <summary>
+    /// The value with the character references that spell an attribute quote
+    /// replaced by their percent-encodings.
+    /// <para>
+    /// An HTML parser reads the attribute value first and resolves the
+    /// references inside it afterwards, so a quote written as a reference is
+    /// data. Decoding the whole document before the values are cut reverses
+    /// that order and turns the data back into structure: the reference closes
+    /// the attribute a scan later reads, and everything the author put after it,
+    /// userinfo and host included, falls outside the destination. The two
+    /// characters here are exactly the two the attribute grammar uses to
+    /// delimit a value, and the percent-encoding is what a URL parser writes
+    /// for them anyway.
+    /// </para>
+    /// </summary>
+    private static string WithQuotesKeptInsideTheValue(string value)
+    {
+        if (!value.Contains('&', StringComparison.Ordinal))
+        {
+            return value;
+        }
+
+        StringBuilder? output = null;
+        var copiedThrough = 0;
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] != '&'
+                || !TryFindCharacterReference(value, index, out var semicolon))
+            {
+                continue;
+            }
+
+            var reference = value.Substring(index, semicolon - index + 1);
+            var decoded = WebUtility.HtmlDecode(reference);
+            if (decoded is not ("\"" or "'"))
+            {
+                index = semicolon;
+                continue;
+            }
+
+            output ??= new StringBuilder(value.Length);
+            output.Append(value, copiedThrough, index - copiedThrough);
+            output.Append(decoded == "\"" ? "%22" : "%27");
+            copiedThrough = semicolon + 1;
+            index = semicolon;
+        }
+
+        if (output is null)
+        {
+            return value;
+        }
+
+        output.Append(value, copiedThrough, value.Length - copiedThrough);
+        return output.ToString();
+    }
+
+    /// <summary>
+    /// One character reference, named or numeric, ending at its semicolon.
+    /// Wider than the named-only reader above, because a numeric reference
+    /// spells the same character and has to be recognized in the same place.
+    /// </summary>
+    private static bool TryFindCharacterReference(string value, int ampersand, out int semicolon)
+    {
+        semicolon = -1;
+        var start = ampersand + 1;
+        if (start >= value.Length)
+        {
+            return false;
+        }
+
+        var index = start;
+        if (value[index] == '#')
+        {
+            index++;
+            if (index < value.Length && (value[index] is 'x' or 'X'))
+            {
+                index++;
+            }
+        }
+
+        var body = index;
+        var limit = Math.Min(value.Length, start + 32);
+        for (; index < limit; index++)
+        {
+            if (value[index] == ';')
+            {
+                if (index == body)
+                {
+                    return false;
+                }
+
+                semicolon = index;
+                return true;
+            }
+
+            if (!char.IsAsciiLetterOrDigit(value[index]))
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private static bool TryNormalizeCssCarrierReferences(string markup, out string normalized)
@@ -1039,21 +1588,35 @@ public static partial class LinkDomainPolicy
             return false;
         }
 
-        var decoded = new StringBuilder(3);
+        // The name that decides this is three characters long, so it is read
+        // into the frame. The question is asked once per word start over the
+        // whole body, and a builder and a string per question is what made the
+        // scan allocate tens of megabytes on a body at the render ceiling.
+        Span<char> decoded = stackalloc char[4];
+        var length = 0;
         var index = start;
         while (index < markup.Length)
         {
             var character = markup[index];
             if (IsCssIdentifierCharacter(character))
             {
-                decoded.Append(character);
+                decoded[Math.Min(length, decoded.Length - 1)] = character;
+                length++;
                 index++;
             }
             else if (character == '\\')
             {
-                if (!TryAppendCssEscape(markup, ref index, decoded))
+                if (!TryReadCssEscape(markup, ref index, out var high, out var low, out var escaped))
                 {
                     return false;
+                }
+
+                decoded[Math.Min(length, decoded.Length - 1)] = high;
+                length++;
+                if (escaped == 2)
+                {
+                    decoded[Math.Min(length, decoded.Length - 1)] = low;
+                    length++;
                 }
             }
             else
@@ -1061,13 +1624,14 @@ public static partial class LinkDomainPolicy
                 break;
             }
 
-            if (decoded.Length > 3)
+            if (length > 3)
             {
                 return false;
             }
         }
 
-        if (!decoded.ToString().Equals("url", StringComparison.OrdinalIgnoreCase)
+        if (length != 3
+            || !decoded[..3].Equals("url", StringComparison.OrdinalIgnoreCase)
             || index >= markup.Length
             || markup[index] != '(')
         {
@@ -1192,6 +1756,35 @@ public static partial class LinkDomainPolicy
 
     private static bool TryAppendCssEscape(string markup, ref int index, StringBuilder decoded)
     {
+        if (!TryReadCssEscape(markup, ref index, out var high, out var low, out var escaped))
+        {
+            return false;
+        }
+
+        decoded.Append(high);
+        if (escaped == 2)
+        {
+            decoded.Append(low);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// One CSS escape, decoded into its UTF-16 code units rather than into a
+    /// string, so a caller that only needs to compare a short name pays no
+    /// allocation for the comparison. <paramref name="escaped"/> is 1 or 2.
+    /// </summary>
+    private static bool TryReadCssEscape(
+        string markup,
+        ref int index,
+        out char high,
+        out char low,
+        out int escaped)
+    {
+        high = '\0';
+        low = '\0';
+        escaped = 0;
         index++;
         if (index >= markup.Length || IsCssNewLine(markup[index]))
         {
@@ -1200,7 +1793,8 @@ public static partial class LinkDomainPolicy
 
         if (!IsCssHexDigit(markup[index]))
         {
-            decoded.Append(markup[index]);
+            high = markup[index];
+            escaped = 1;
             index++;
             return true;
         }
@@ -1231,7 +1825,17 @@ public static partial class LinkDomainPolicy
             return false;
         }
 
-        decoded.Append(char.ConvertFromUtf32(scalar));
+        if (scalar <= 0xFFFF)
+        {
+            high = (char)scalar;
+            escaped = 1;
+            return true;
+        }
+
+        var supplementary = scalar - 0x10000;
+        high = (char)(0xD800 + (supplementary >> 10));
+        low = (char)(0xDC00 + (supplementary & 0x3FF));
+        escaped = 2;
         return true;
     }
 
@@ -1275,36 +1879,72 @@ public static partial class LinkDomainPolicy
 
     private readonly record struct HtmlAttributeValue(int Start, int End, string Value);
 
+    // No expression in this file carries a match timeout, and that is a
+    // correctness rule rather than a preference. NonBacktracking already
+    // guarantees linear time, which is the whole reason it is here, so a
+    // timeout buys nothing; and measured on this runtime the two together
+    // answer "no match" instead of matching or throwing once the stretch
+    // before the first match passes roughly a hundred thousand characters.
+    // A refusal that never throws never reaches a catch, so the guard reads
+    // "no match" as "no host" and approves, which turns failing closed into
+    // a silent approval an author can switch on by writing a long enough
+    // body. Do not add one back for symmetry with a neighbour.
+    //
     // Announced and protocol-relative destinations are delimited here, but
     // their authority is interpreted by System.Uri above. The expression does
     // not try to encode DNS, IDN, IP-literal, userinfo, or port grammar: doing
     // so is what made a syntactically valid destination invisible whenever its
     // host was not an ASCII label.
     //
+    // The separator between the scheme and the authority is any run of slashes
+    // and backslashes, empty included, because that is what a client accepts:
+    // after a special scheme a URL parser skips every slash and backslash it
+    // finds and starts the authority at the next character. The alternative
+    // with no scheme skips the same run for the same reason: a client that
+    // reads two of them stops counting and consumes the rest. Demanding the two
+    // canonical slashes made the detector stricter than the canonizer it feeds,
+    // and a destination the canonizer resolves but the detector never sees is
+    // an approval, not a refusal.
+    //
+    // The width is paid for in false positives, and they are not rare. A scheme
+    // glued to a token reads as an address whatever the token is, and the
+    // measured shapes are the ordinary vocabulary of a note about
+    // configuration: "código HTTP:200", "HTTPS:443", "erro HTTP:404",
+    // "status http:500", "http:port nao configurado", "Https:Sim", "campo
+    // https:true", plus a Windows share path and an arithmetic ratio for the
+    // alternative below. None of them is refused, and none of the shapes that
+    // matter is let through: HostsIn answers with the gate in
+    // IsAddressRatherThanProse rather than with a narrower expression here,
+    // because no expression tells 200 from 3232235777, which is 192.168.1.1
+    // spelled without a dot.
+    //
+    // The alternative with no scheme answers only at a value boundary. A run
+    // of slashes in the middle of a value is a path a doubled separator
+    // produced, not a second destination, and reading one as a host stopped a
+    // template that already publishes from rendering at all.
+    //
     // The bare-host alternative stays deliberately narrow. Unlike an announced
     // destination, it has no URI syntax to distinguish a domain from Brazilian
     // documents, invoice numbers, or clauses, so it retains the plausible-TLD
     // gate above.
     [GeneratedRegex(
-        @"(?<announced>(?:https?://|//)(?<authority>[^\s/?#<>""']*))"
+        @"(?<scheme>https?:)[/\\]*(?<authority>[^\s/?#<>""']*)"
+        + @"|(?:\A|[\s""'=(\[>])[/\\]{2,}(?<authority>[^\s/?#<>""']*)"
         + @"|\b(?<host>[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9\-]+)*\.[a-z]{2,24})(?:[/:?#]|\b)",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex LinkCandidate();
 
     /// <summary>Bare hosts inside userinfo, with the same narrow grammar as ordinary text.</summary>
     [GeneratedRegex(
         @"\b(?<host>[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9\-]+)*\.[a-z]{2,24})(?:[/:?#]|\b)",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex BareHostCandidate();
 
     /// <summary>HTML attributes whose values browsers interpret as URI-bearing data.</summary>
     [GeneratedRegex(
-        @"\b(?:href|src|action|formaction|poster|cite|background|data|longdesc|manifest|ping|srcset)\s*=\s*"
+        @"\b(?<attribute>href|src|action|formaction|poster|cite|background|data|longdesc|manifest|ping|srcset)\s*=\s*"
         + @"(?:""(?<destination>[^""]*)""|'(?<destination>[^']*)'|(?<destination>[^\s>]+))",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex UriBearingAttribute();
 
     // The DOCTYPE runs to the first ">", which is where every standard
@@ -1312,8 +1952,7 @@ public static partial class LinkDomainPolicy
     // are quoted and hold no ">" of their own.
     [GeneratedRegex(
         @"<!doctype[^>]*>",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex DocumentTypeDeclaration();
 
     // Both quoting styles in one alternation, because an attribute value is
@@ -1321,7 +1960,6 @@ public static partial class LinkDomainPolicy
     [GeneratedRegex(
         @"\bxmlns(?::[a-z0-9_.-]+)?\s*=\s*""[^""]*"""
         + @"|\bxmlns(?::[a-z0-9_.-]+)?\s*=\s*'[^']*'",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex XmlNamespaceDeclaration();
 }

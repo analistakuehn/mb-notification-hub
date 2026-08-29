@@ -24,10 +24,61 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 
 | Achado | Severidade | Estado | Assunto |
 |---|---|---|---|
+| `SEC-001` | `HIGH` | **RESOLVIDO** | A validação de URLs pode ser contornada no conteúdo renderizado |
 | `SEC-002` | `HIGH` | **RESOLVIDO** | Motivos livres podem persistir dados sensíveis na auditoria imutável |
-| `SEC-001` | `HIGH` | **REABERTO** | A validação de URLs pode ser contornada no conteúdo renderizado |
 
 ---
+## `SEC-001` · RESOLVIDO
+
+| Campo | Valor |
+|---|---|
+| severidade | `HIGH` |
+| confiança | alta |
+| arquivo | `Domain/RenderedDestinationPolicy.cs` |
+| linha | `14-61` |
+| tipo-de-evidência | teste-executado e leitura-de-código |
+| introduzido-por-diff | `false` |
+| revisores | dotnet-architect, dotnet-engineer e dotnet-specialist |
+| **estado** | **RESOLVIDO** |
+| nota de estado | **Fechado no destino de atributo em 2026-08-29, e verificado por auditoria adversária independente.** A varredura exaustiva dos 65.535 caracteres do BMP em três grafias de atributo, 196.605 entradas, não devolve um desvio; a matriz de dez referências por sete famílias de atributo saiu de 70 aprovações para 70 recusas nomeando o host; e o A/B contra a revisão anterior não tem **nenhuma** transição de recusa para aprovação. A correção fechou por princípio e não por enumeração: a autoridade deixou de ser recortada por classe de caractere, e o conjunto do que o canonizador recebe passou a ser derivado da própria gramática do candidato, sob a regra de que o detector nunca pode ser mais estrito que o canonizador que ele alimenta. **A causa raiz maior apareceu no meio do caminho e era outra:** `RegexOptions.NonBacktracking` com `matchTimeout` finito, no .NET 10.0.10, devolve `Match.Success = false` sem lançar quando há um trecho longo sem casamento antes do primeiro casamento, com virada medida entre 80 KB e 100 KB e o mesmo casamento levando 0,28 ms sem timeout, ou seja desistência e não lentidão. Como não lança, todo `catch (RegexMatchTimeoutException)` escrito para falhar fechado era contornado por baixo, e nenhum casamento lia como nenhum host, que lia como aprovado. Dez expressões estavam assim, no `master`, com a janela cega inteira dentro do teto de render de um milhão de caracteres. Os dez `matchTimeoutMilliseconds` saíram, e depois disso não há limiar cego em setenta e duas combinações de ataque e preenchimento até 2 MB. Isso também corrigiu, de graça, um falso positivo vivo: uma declaração de namespace XHTML que apareça tarde no documento, como um SVG embutido emite, era lida como link acima do limiar e recusada, medida reprovando em 150 KB e 300 KB e aprovando depois; no elemento de abertura ela sempre foi encontrada, porque a janela cega depende do trecho sem casamento antes do primeiro e não do tamanho do corpo. Quatro passadas de correção e cinco de auditoria foram necessárias, e **cada uma achou o que a anterior não tinha**: a primeira fechou as instâncias e não a classe; a segunda fechou a classe e criou duas regressões que o `master` não tinha; a terceira as fechou e expôs a cegueira por tamanho; a quarta atacou a causa raiz. **Permanecem abertos, herdados e independentes desta correção, os portadores que não passam pela preparação de destino**, registrados em `hotspots.md` do módulo: `meta refresh`, que chega a receber o host do canonizador e o descarta, `url()` do CSS, texto solto do corpo e o caminho não markup. Nota de implantação registrada no mesmo lugar: varrer versões publicadas acima de 110 KB antes do deploy, porque duas regras já documentadas passam a alcançar corpo grande pela primeira vez. **Histórico da reabertura, preservado:** reaberto em 2026-08-29 por prova executada: a alegação original continua reproduzível.** A revisão compilou o `LinkDomainPolicy.cs` de produção sem alteração num projeto isolado e contornou a allowlist com duas entradas de uma linha, em `href`, `src` e `form action`, na publicação e no render. **Primeiro desvio:** o regex de candidato exige literalmente `https://`, `http://` ou `//`, enquanto `System.Uri`, que a própria política elegeu como canonizador, resolve `https:\\evil.ru` para o host `evil.ru`; o valor nunca chega ao canonizador e `HostsIn` devolve lista vazia, de modo que o veredito é aprovar. Também passam `https:/\evil.ru`, `https:evil.ru`, `https:/evil.ru` e `\\evil.ru`. O alcance excede a allowlist: na classe que proíbe link por completo a proibição só dispara por host encontrado, então o template publica com o link, e o detector largo do SMS de autenticação tem a mesma exigência de `//`, de modo que `Seu codigo: 123456. https:\\evil.ru` passa enquanto a forma com duas barras é banida. **Segundo desvio:** a classe de autoridade do regex para em qualquer whitespace, e a decodificação de entidades já converteu `&#9;` em tabulação antes da varredura, então `<a href="https://good.com&#9;@evil&#9;.com">` é lido como host `good.com` e aprovado, enquanto a remoção de tabulação, LF e CR que todo cliente aplica antes de resolver a URL entrega `evil.com`. A segunda tabulação quebra o ponto do TLD, de modo que nem a alternativa de host nu enxerga o domínio e o portão de sufixo plausível deixa de ser barreira: isso remove a restrição de TLD do primeiro desvio e libera qualquer domínio. O CSS `url()` e o `meta refresh` falham fechado nesse vetor, porque os tokenizadores próprios recusam caractere de controle. A afirmação de que a avaliação independente confirmou o fechamento não se sustenta: as três classes de teste não têm nenhum `InlineData` com barra invertida no esquema nem com caractere de controle embutido, então nenhum dos dois desvios foi exercitado. **O que o fechamento anterior de fato entregou, e permanece válido:** a guarda está nos dois únicos caminhos que produzem conteúdo final, roda depois da interpolação, do layout e da normalização e antes do hash, nas formas full e masked; a redação do erro se sustenta em todos os caminhos de erro, não só no da política de destino; e a revisão refutou doze hipóteses de desvio que testou, entre elas espaço de largura zero, homógrafo cirílico, ponto ideográfico, percent encoding de host, de esquema e de barras, entidades HTML, IPv6 com zona, IPv4 decimal e octal, userinfo isolado, comentário HTML e CSS, e `catch` que engole erro e devolve sucesso. Refutou também backtracking catastrófico: as seis expressões são `NonBacktracking` com timeout e mediram lineares sobre 22 formas adversárias. O que resta do eixo de custo é constante de alocação, medidos 159 MB por chamada em corpo no teto de um milhão de caracteres e cerca de 1 GB quando há forma mascarada, com strings acima de 85 KB indo para o heap de objetos grandes. Números reproduzidos: build sem avisos nem erros, 122 unitários afetados, 1333 na suíte completa. A integração não foi executada, por contenção conhecida do Testcontainers, então o 39/39 não é refutado nem confirmado. **Também pendente do mesmo commit:** a recusa de destino colapsa na razão genérica de falha de render, sem razão própria e sem log, o que torna a tentativa indistinguível de template quebrado e tende a levar o operador a alargar a allowlist; nenhum teste de arquitetura impede um caminho de render novo nascer sem a guarda; a imposição de variável de destino sobre a autoria reprova versões publicadas antes da regra e bloqueia o rollback delas, o que é quebra de compatibilidade que o commit não marcou. **Nota de estado anterior, preservada:** fechado com uma política compartilhada aplicada ao conteúdo final. O preview e o render publicado agora validam depois da interpolação, do layout e da normalização, antes da resposta e do hash, incluindo as formas full e masked. A política usa `System.Uri` e `IdnHost`, trata caixa mista, IPv6, IDN, userinfo, href, src, srcset, CSS url() e meta refresh, e falha fechada para entradas ilegíveis. A autoria exige uma variável global inteira com format url ou uri para destinos dinâmicos. Os erros retornam somente host canônico seguro ou marcador fixo, sem query, token, CPF ou userinfo. A validação executada passou 122/122 testes unitários afetados, 39/39 integrações sem skips, 1333/1333 testes unitários completos e build sem avisos ou erros; a avaliação independente confirmou o fechamento. |
+
+**A validação de URLs pode ser contornada no conteúdo renderizado.**
+
+Evidência:
+
+    foreach (VariableDeclaration declaration in
+             declarations.Where(declaration => declaration.IsUrl))
+    {
+        ...
+        if (!IsAllowedUrl(template, value))
+        {
+            return ...;
+        }
+    }
+
+A allowlist cobre somente variáveis declaradas com format url ou uri. Uma
+variável string pode renderizar uma URL externa sem passar pelo laço. O
+resultado final depois da interpolação e do layout não é examinado para todos
+os canais. A expressão regular de links literais usa https sem comparação
+independente de caixa.
+
+Um diagnóstico executado confirmou que HTTPS://evil.example não casa com a
+expressão regular, embora Uri.TryCreate reconheça uma URL HTTPS absoluta com
+host evil.example.
+
+Impacto: templates podem entregar links de phishing ou exfiltração fora da
+allowlist, inclusive em classes que proíbem links.
+
+Recomendação: extrair e validar todos os destinos depois da interpolação e da
+aplicação do layout, usando semântica de URI sem distinção de caixa. Exigir
+também tipo URL para variáveis usadas como destino.
+
+Verificação: testar URL em variável string, esquema HTTPS em caixa alta ou
+mista, href, src, layout, domínio proibido e domínio autorizado. A falha não
+deve expor query string ou dado pessoal.
+
+---
+
 ## `SEC-002` · RESOLVIDO
 
 | Campo | Valor |
@@ -67,54 +118,3 @@ gravar na auditoria somente código e referência não pessoal.
 Verificação: enviar motivos contendo CPF, email e token e confirmar que nenhum
 valor bruto aparece nos detalhes, no texto canônico ou na exportação, mantendo
 um código auditável.
-
----
-
-## `SEC-001` · REABERTO
-
-| Campo | Valor |
-|---|---|
-| severidade | `HIGH` |
-| confiança | alta |
-| arquivo | `Domain/RenderedDestinationPolicy.cs` |
-| linha | `14-61` |
-| tipo-de-evidência | teste-executado e leitura-de-código |
-| introduzido-por-diff | `false` |
-| revisores | dotnet-architect, dotnet-engineer e dotnet-specialist |
-| **estado** | **REABERTO** |
-| nota de estado | **Reaberto em 2026-08-29 por prova executada: a alegação original continua reproduzível.** A revisão compilou o `LinkDomainPolicy.cs` de produção sem alteração num projeto isolado e contornou a allowlist com duas entradas de uma linha, em `href`, `src` e `form action`, na publicação e no render. **Primeiro desvio:** o regex de candidato exige literalmente `https://`, `http://` ou `//`, enquanto `System.Uri`, que a própria política elegeu como canonizador, resolve `https:\\evil.ru` para o host `evil.ru`; o valor nunca chega ao canonizador e `HostsIn` devolve lista vazia, de modo que o veredito é aprovar. Também passam `https:/\evil.ru`, `https:evil.ru`, `https:/evil.ru` e `\\evil.ru`. O alcance excede a allowlist: na classe que proíbe link por completo a proibição só dispara por host encontrado, então o template publica com o link, e o detector largo do SMS de autenticação tem a mesma exigência de `//`, de modo que `Seu codigo: 123456. https:\\evil.ru` passa enquanto a forma com duas barras é banida. **Segundo desvio:** a classe de autoridade do regex para em qualquer whitespace, e a decodificação de entidades já converteu `&#9;` em tabulação antes da varredura, então `<a href="https://good.com&#9;@evil&#9;.com">` é lido como host `good.com` e aprovado, enquanto a remoção de tabulação, LF e CR que todo cliente aplica antes de resolver a URL entrega `evil.com`. A segunda tabulação quebra o ponto do TLD, de modo que nem a alternativa de host nu enxerga o domínio e o portão de sufixo plausível deixa de ser barreira: isso remove a restrição de TLD do primeiro desvio e libera qualquer domínio. O CSS `url()` e o `meta refresh` falham fechado nesse vetor, porque os tokenizadores próprios recusam caractere de controle. A afirmação de que a avaliação independente confirmou o fechamento não se sustenta: as três classes de teste não têm nenhum `InlineData` com barra invertida no esquema nem com caractere de controle embutido, então nenhum dos dois desvios foi exercitado. **O que o fechamento anterior de fato entregou, e permanece válido:** a guarda está nos dois únicos caminhos que produzem conteúdo final, roda depois da interpolação, do layout e da normalização e antes do hash, nas formas full e masked; a redação do erro se sustenta em todos os caminhos de erro, não só no da política de destino; e a revisão refutou doze hipóteses de desvio que testou, entre elas espaço de largura zero, homógrafo cirílico, ponto ideográfico, percent encoding de host, de esquema e de barras, entidades HTML, IPv6 com zona, IPv4 decimal e octal, userinfo isolado, comentário HTML e CSS, e `catch` que engole erro e devolve sucesso. Refutou também backtracking catastrófico: as seis expressões são `NonBacktracking` com timeout e mediram lineares sobre 22 formas adversárias. O que resta do eixo de custo é constante de alocação, medidos 159 MB por chamada em corpo no teto de um milhão de caracteres e cerca de 1 GB quando há forma mascarada, com strings acima de 85 KB indo para o heap de objetos grandes. Números reproduzidos: build sem avisos nem erros, 122 unitários afetados, 1333 na suíte completa. A integração não foi executada, por contenção conhecida do Testcontainers, então o 39/39 não é refutado nem confirmado. **Também pendente do mesmo commit:** a recusa de destino colapsa na razão genérica de falha de render, sem razão própria e sem log, o que torna a tentativa indistinguível de template quebrado e tende a levar o operador a alargar a allowlist; nenhum teste de arquitetura impede um caminho de render novo nascer sem a guarda; a imposição de variável de destino sobre a autoria reprova versões publicadas antes da regra e bloqueia o rollback delas, o que é quebra de compatibilidade que o commit não marcou. **Nota de estado anterior, preservada:** fechado com uma política compartilhada aplicada ao conteúdo final. O preview e o render publicado agora validam depois da interpolação, do layout e da normalização, antes da resposta e do hash, incluindo as formas full e masked. A política usa `System.Uri` e `IdnHost`, trata caixa mista, IPv6, IDN, userinfo, href, src, srcset, CSS url() e meta refresh, e falha fechada para entradas ilegíveis. A autoria exige uma variável global inteira com format url ou uri para destinos dinâmicos. Os erros retornam somente host canônico seguro ou marcador fixo, sem query, token, CPF ou userinfo. A validação executada passou 122/122 testes unitários afetados, 39/39 integrações sem skips, 1333/1333 testes unitários completos e build sem avisos ou erros; a avaliação independente confirmou o fechamento. |
-
-**A validação de URLs pode ser contornada no conteúdo renderizado.**
-
-Evidência:
-
-    foreach (VariableDeclaration declaration in
-             declarations.Where(declaration => declaration.IsUrl))
-    {
-        ...
-        if (!IsAllowedUrl(template, value))
-        {
-            return ...;
-        }
-    }
-
-A allowlist cobre somente variáveis declaradas com format url ou uri. Uma
-variável string pode renderizar uma URL externa sem passar pelo laço. O
-resultado final depois da interpolação e do layout não é examinado para todos
-os canais. A expressão regular de links literais usa https sem comparação
-independente de caixa.
-
-Um diagnóstico executado confirmou que HTTPS://evil.example não casa com a
-expressão regular, embora Uri.TryCreate reconheça uma URL HTTPS absoluta com
-host evil.example.
-
-Impacto: templates podem entregar links de phishing ou exfiltração fora da
-allowlist, inclusive em classes que proíbem links.
-
-Recomendação: extrair e validar todos os destinos depois da interpolação e da
-aplicação do layout, usando semântica de URI sem distinção de caixa. Exigir
-também tipo URL para variáveis usadas como destino.
-
-Verificação: testar URL em variável string, esquema HTTPS em caixa alta ou
-mista, href, src, layout, domínio proibido e domínio autorizado. A falha não
-deve expor query string ou dado pessoal.

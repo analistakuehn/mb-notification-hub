@@ -18,6 +18,14 @@ public sealed class AuthenticationSmsLinkValidationTests
     [InlineData("Confirme em www.banco-example.com e informe 123456.")]
     [InlineData("Seu código é 123456. Detalhes em bit.ly/x9k2p")]
     [InlineData("Toque em banco-example.com.br/otp para liberar.")]
+    [InlineData("""Seu código é 123456. Acesse https:\\evil.example""")]
+    [InlineData("""Seu código é 123456. Acesse https:/\evil.example""")]
+    [InlineData("""Seu código é 123456. Acesse https:evil.example""")]
+    [InlineData("""Seu código é 123456. Acesse https:/evil.example""")]
+    [InlineData("""Seu código é 123456. Acesse HTTP:\\evil.example""")]
+    [InlineData("""Seu código é 123456. Acesse //evil.example""")]
+    [InlineData("""Seu código é 123456. Acesse \\evil.example""")]
+    [InlineData("""Seu código é 123456. Acesse ///evil.example""")]
     public void Every_shape_of_a_link_is_recognized(string text)
         => TemplateValidation.ContainsLinkLikeText(text).ShouldBeTrue();
 
@@ -25,6 +33,8 @@ public sealed class AuthenticationSmsLinkValidationTests
     [InlineData("Seu código de acesso é 123456. Válido por 5 minutos.")]
     [InlineData("Não compartilhe este código com ninguém, nem com o banco.")]
     [InlineData("Código 123456 para a transferência de R$ 1.234,56.")]
+    [InlineData("Protocolo https:// citado no manual de integração.")]
+    [InlineData("Seu código vale das 10:00 às 18:30 de hoje.")]
     [InlineData("")]
     [InlineData(null)]
     public void Ordinary_authentication_text_is_not_a_link(string? text)

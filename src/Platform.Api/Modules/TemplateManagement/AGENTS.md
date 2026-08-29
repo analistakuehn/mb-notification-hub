@@ -285,6 +285,138 @@
   nunca na consulta à memoização. Limitar só o tamanho não substitui os dois
   tetos: na mesma contagem de caracteres, o custo de parse varia por um fator
   de 150 conforme a forma da fonte.
+- **The destination guard reads a destination the way a client resolves it,
+  not the way an author writes it.** After a scheme, any run of slashes and
+  backslashes is a separator, the empty run included, so `https://evil.example`,
+  `https:\\evil.example`, `https:/\evil.example` and `https:evil.example` are one
+  address and are decided alike; the same run with no scheme in front of it is
+  protocol-relative, and it is read only where a value starts, because a run in
+  the middle of a value is a path a doubled separator produced.
+- **Inside a URI-bearing attribute, the authority handed to the canonizer runs
+  to the first real URL delimiter and to nothing else.** A URL parser ends an
+  authority at a slash, a backslash, a question mark, a number sign, or the end
+  of the value. It carries a quote, an angle bracket and every kind of space
+  into the userinfo and reads the host after the at sign, so a detector that
+  stops at one of those hands over a prefix and approves the wrong host. There
+  the tab, the line feed and the carriage return are removed, every other
+  character the candidate grammar cannot carry is percent-encoded, and a
+  character reference that spells the attribute's own quote is percent-encoded
+  before the document is decoded, so it stays data instead of closing the value
+  a scan reads. Do not answer the next character of this family by naming it;
+  the rule is the delimiter set, not a list. **The claim is scoped on purpose**:
+  a meta refresh destination, a CSS `url()` value, plain text and `bodyText`
+  still cut their candidate by character class, which is what they did before
+  this rule existed. Do not repeat the principle as if it held for the whole
+  file.
+- **`srcset` and `ping` hold a list, and each entry is prepared on its own.**
+  Their separators are ASCII whitespace and commas, and a separator is the
+  boundary a destination is read from, so percent-encoding one welds two entries
+  together and hides the second. Nothing wider than ASCII counts as a separator
+  there: a no-break space is not one in either grammar, so it stays inside the
+  entry and reaches the canonizer.
+- **The gate that tells an address from writing never answers with silence.** It
+  answers "address" or "writing", and a value the canonizer cannot read is an
+  address, not writing, because unreadable already has an answer of its own.
+  This is the one place the guard was ever fail-open: dropping such a candidate
+  quietly left no host behind it, so a percent-encoded dot such as
+  `//evil%2Eru`, which a host parser decodes to a real domain and System.Uri
+  refuses, was approved and disarmed the class-wide ban on links at the same
+  time.
+- **A separator that carries nothing has to earn its reading.** A scheme glued
+  straight to its authority, and an authority with no scheme, are also how
+  ordinary writing looks. Measured over Portuguese operational text, reading
+  every one of them as a destination refused `codigo HTTP:200`, `HTTPS:443`,
+  `erro HTTP:404`, `status http:500`, `http:port nao configurado`, `Https:Sim`,
+  `campo https:true`, `compartilhamento \\fileserver\notas` and `razao 2//3`.
+  The gate is a dot or a colon inside the part a parser would read as the
+  authority, or a canonical host that is a dotted address outside `0.0.0.0/8`.
+  That keeps `https:3232235777`, which is 192.168.1.1 without dots, and gives up
+  exactly one thing, named here: a dotless intranet name such as
+  `https:relatorios` stops being read as a destination.
+- **An attribute destination is delivered for five schemes and no others:
+  `http`, `https`, `mailto`, `cid` and `tel`.** A value with no scheme is
+  relative to the message itself and stays. `data:`, `blob:`, `javascript:` and
+  `sms:` are refused in `href`, `src` and `action` alike, inline base64 images
+  in `<img src>` included; a CSS `url()` keeps its own tokenizer and still
+  accepts `url(data:...)`.
+- **Having no host is not one failure, it is two opposite ones.** `data:` and
+  `blob:` carry their payload instead of naming anywhere, and the allowlist
+  cannot rule on them because there is nothing to rule on. `mailto:`, `cid:`
+  and `tel:` name a mailbox, a part of the message the reader already holds,
+  and a telephone number: no host there means no external destination, which is
+  the opposite case, and `cid:` is how mail has always carried an inline image.
+  **None of those three has an authority, so a value that opens one is refused**
+  whatever it wrote before the colon: that keeps `cid://elsewhere.example/x` and
+  `mailto://elsewhere.example/x` out without depending on a client declining to
+  read a host where the scheme defines none. The scheme is compared whole, so
+  `xcid:` and `nottel:` are different schemes and stay refused.
+- **Delivering a scheme never exempts its value.** The separators a URL parser
+  removes come out first, so the scheme is decided on the text the client
+  parses, and the rest is prepared and scanned like any other destination.
+  Measured, that reads the domain part of a Content-ID: `cid:logo@good.example`
+  is refused when `good.example` is outside the allowed domains, while
+  `cid:logo123`, a UUID, an Outlook-style `image001.png@01DA1234.5678ABCD` and a
+  Content-ID whose domain is an allowed one all pass. An author whose generator
+  stamps a foreign domain into a Content-ID adds that domain or drops the
+  suffix.
+- **The refusal names the host the value carried when it carried one**, so
+  `blob:https://elsewhere.example/1` reports that host and only a value with no
+  host at all reports the fixed marker.
+- **The authentication-SMS ban is wider than the allowlist, and stays wider by
+  decision.** It bans every spelling above plus the scheme-less ones. It is a
+  regex predicate with no canonizer, so the gate that tells an address from a
+  note about configuration is deliberately **not** applied to it: measured, it
+  refuses `codigo HTTP:200`, `campo https:true`, a Windows share path and `Nota
+  fiscal 1.234/56`, and only the last of those was already refused before that
+  gate existed. The asymmetry is the point and it is the one the detector's own
+  comment states: the two error budgets run in opposite directions, and in the
+  single class where a link is banned outright a false negative is a phishing
+  link inside the message people are trained to act on without reading twice,
+  while a false positive is one authentication code. Do not carry the gate over
+  to close the gap; close it by narrowing what an authentication SMS may say.
+- **A `NonBacktracking` expression in this module carries no `matchTimeout`,
+  and that is a correctness rule.** Measured on this runtime, the two together
+  answer "no match" instead of matching or throwing once the stretch in front
+  of the first match passes roughly a hundred thousand characters: with the
+  timeout the answer is wrong, without it the same call answers correctly in
+  under a millisecond, so nothing is being timed out. Because it never throws,
+  the `catch (RegexMatchTimeoutException)` that exists to fail closed is never
+  reached, and "no match" reads as "no host", which reads as approval. The
+  whole preparation of an attribute destination sits behind one such call, so
+  above the turn there is no removal of separators, no percent-encoding and no
+  scheme allowlist: an author switched the defence off by writing a long enough
+  body, and the render ceiling is a million characters. `NonBacktracking`
+  already guarantees linear time, which is why it is here, so the timeout buys
+  nothing and costs correctness. Keep the existing catch blocks as they are and
+  do not add a timeout back for symmetry with a neighbour.
+- **A long body does not hide a destination, and cost is not the measure of
+  that.** The same defect made the markup scan of a body carrying thousands of
+  CSS `url()` carriers stop answering, at its own turn, while the plain-text
+  reading of the same body never did. It also blinded the expression that
+  removes an XML namespace declaration, so an `xmlns` written far enough into a
+  body, which is how an inline SVG arrives, was read as a link to `www.w3.org`
+  and refused the template: measured, refused at a hundred and fifty thousand
+  characters and accepted at ninety thousand, and accepted at every size now. Do
+  not treat a fall in the cost of this scan as a win without checking that the
+  host count did not fall with it.
+- **Before deploying, sweep the published versions.** Removing that timeout is
+  the first time two rules already written here reach a large body, so a version
+  above roughly a hundred and ten thousand characters may have been publishing
+  under a guard that was not running: sweep for a refused scheme in `href`,
+  `src` or `action`, and for a composed dynamic destination. Delivering `cid:`
+  and `tel:` takes most of the first sweep away, and `data:` in `src` stays in
+  it.
+- **A published version that carries a refused scheme, or a composed dynamic
+  destination, fails revalidation and cannot be rolled back, and that is
+  accepted with no carve-out**: the rule is the correct one, and a rollback onto
+  a version the current rule refuses is a rollback onto an unsafe version.
+- **Whoever composes final rendered content calls the destination guard.** The
+  allowlist is checked while a version is authored, but authoring sees
+  fragments: the destination a reader receives exists only after interpolation,
+  after the layout frames the body and after the channel normalizer rewrites
+  it. `tests/Platform.SecurityArchTests` fails a file of this module that
+  applies the channel normalizer or a layout wrapper without calling
+  `RenderedDestinationPolicy.Validate`.
 - Never bind HTTP bodies directly to domain types.
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.

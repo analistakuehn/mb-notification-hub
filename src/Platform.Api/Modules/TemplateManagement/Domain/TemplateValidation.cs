@@ -972,29 +972,53 @@ public static partial class TemplateValidation
     private static ValidationCheck Failed(string name, string message, string? location)
         => new(name, ValidationCheckStatuses.Failed, message, location);
 
+    // No expression in this file carries a match timeout, and that is a
+    // correctness rule rather than a preference. NonBacktracking already
+    // guarantees linear time, which is the whole reason it is here, so a
+    // timeout buys nothing; and measured on this runtime the two together
+    // answer "no match" instead of matching or throwing once the stretch
+    // before the first match passes roughly a hundred thousand characters.
+    // A refusal that never throws never reaches a catch, so the guard reads
+    // "no match" as "no host" and approves, which turns failing closed into
+    // a silent approval an author can switch on by writing a long enough
+    // body. Do not add one back for symmetry with a neighbour.
+    //
     // Three shapes, in the order an attacker reaches for them: the full
     // address, the host that only announces itself with www, and the bare host
     // followed by a path, which is what every link shortener produces.
+    //
+    // The first shape accepts any run of slashes and backslashes after the
+    // scheme, the empty run included, because that is what a client accepts
+    // and what it resolves to a host. Demanding the two canonical slashes
+    // banned the spelling that carries them and let the same address through
+    // under every other one, in the single class where a link is banned
+    // outright. The trailing character excludes a slash so that the literal
+    // text of a scheme with nothing after it stays prose.
+    //
+    // The second shape is the same address with the scheme left off, which a
+    // client resolves against the message it arrived in. It answers only at a
+    // value boundary, so a doubled slash inside a path already matched, and an
+    // arithmetic ratio written in the body, stay what they are.
     //
     // NonBacktracking is load-bearing, not a preference. The third alternative
     // nests quantifiers, and a backtracking engine walks it quadratically over
     // a long run of dotted labels with no trailing slash, which is text a
     // caller can supply through a variable at render time.
     [GeneratedRegex(
-        @"https?://\S|\bwww\.[a-z0-9-]+\.[a-z]{2,}|\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+/",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        @"https?:[/\\]*[^\s/\\]"
+        + @"|(?:\A|[\s""'=(\[>])[/\\]{2,}[^\s/\\]"
+        + @"|\bwww\.[a-z0-9-]+\.[a-z]{2,}|\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+/",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex LinkLike();
 
     /// <summary>Placeholders and their inner expression; linear by construction.</summary>
-    [GeneratedRegex(@"\{\{([^{}]*)\}\}", RegexOptions.NonBacktracking, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"\{\{([^{}]*)\}\}", RegexOptions.NonBacktracking)]
     private static partial Regex Placeholder();
 
     /// <summary>Identifiers read inside one placeholder expression.</summary>
     [GeneratedRegex(
         @"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*",
-        RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.NonBacktracking)]
     private static partial Regex Identifier();
 
     /// <summary>
@@ -1007,14 +1031,12 @@ public static partial class TemplateValidation
         + @"(?:""(?<destination>[^""]*)""|'(?<destination>[^']*)'|(?<destination>[^\s>]+))"
         + @"|\]\(\s*(?:<(?<destination>[^>\r\n]*)>|(?<destination>\{\{[^{}\r\n]*\}\})"
         + @"|(?<destination>[^\s)\r\n]+))",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex DestinationValue();
 
     /// <summary>One complete read of a top-level global, with optional whitespace trimming.</summary>
     [GeneratedRegex(
         @"\A\{\{~?\s*(?<variable>[A-Za-z_][A-Za-z0-9_]*)\s*~?\}\}\z",
-        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
-        matchTimeoutMilliseconds: 1000)]
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex WholeUrlVariable();
 }

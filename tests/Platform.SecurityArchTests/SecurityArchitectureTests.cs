@@ -177,6 +177,56 @@ public sealed partial class SecurityArchitectureTests
     }
 
     /// <summary>
+    /// A link the catalog refuses cannot leave this module through a render
+    /// path that simply never asked. The allowlist is checked while a version
+    /// is authored, but authoring sees fragments: the destination a reader
+    /// receives exists only after interpolation, after the layout has framed
+    /// the body, and after the channel normalizer has rewritten it. Whoever
+    /// composes that final content owns the last chance to refuse it, and a new
+    /// path that renders, frames, and normalizes without ever consulting the
+    /// destination policy reproduces the defect this rule exists to stop:
+    /// validation that is present and does not reach the result.
+    /// <para>
+    /// A producer is recognized by the two transformations only final content
+    /// receives in this module, the channel normalizer and the layout wrapper,
+    /// and not by a call graph: the composition happens across private methods
+    /// of one file, which leaves no type or member for an assembly-level rule
+    /// to inspect. The scan therefore reaches exactly as far as the file, and
+    /// it claims presence rather than order, because text has no order of
+    /// execution to read. That the guard runs after normalization and before
+    /// the hash is pinned by the behavior tests, not here.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Every_producer_of_final_rendered_content_consults_the_destination_policy()
+    {
+        var producers = RenderedContentProducers();
+
+        // A signature that stopped matching would turn the rule into a green
+        // that scanned no render path at all.
+        producers.ShouldNotBeEmpty();
+
+        var findings = producers
+            .Where(path => !RenderedDestinationGuard().IsMatch(File.ReadAllText(path)))
+            .ToArray();
+
+        findings.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The files of the template module that compose the content a provider or
+    /// a caller receives, recognized by the transformations only that content
+    /// gets: the channel normalizer and the layout wrapper.
+    /// </summary>
+    private static string[] RenderedContentProducers()
+    {
+        var moduleRoot = Path.Combine("Modules", "TemplateManagement");
+        return [.. SourceFiles()
+            .Where(path => path.Contains(moduleRoot, StringComparison.OrdinalIgnoreCase))
+            .Where(path => FinalContentComposition().IsMatch(File.ReadAllText(path)))];
+    }
+
+    /// <summary>
     /// The two places this module builds an audit details document: a file
     /// that assigns <c>DetailsJson</c>, and the shared producer, named for
     /// what it produces so a rule finds it without following a call.
@@ -244,4 +294,10 @@ public sealed partial class SecurityArchitectureTests
 
     [GeneratedRegex(@"\b\w*[Nn]ote\w*\??\.Text\b")]
     private static partial Regex LifecycleNoteProse();
+
+    [GeneratedRegex(@"SmsContentNormalizer\s*\.\s*Normalize\s*\(|\bLayoutWrapper\b")]
+    private static partial Regex FinalContentComposition();
+
+    [GeneratedRegex(@"RenderedDestinationPolicy\s*\.\s*Validate\s*\(")]
+    private static partial Regex RenderedDestinationGuard();
 }
