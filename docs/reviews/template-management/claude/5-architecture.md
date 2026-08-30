@@ -29,7 +29,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `ARC-001` | `MEDIUM` | **RESOLVIDO** | O módulo registra duas abstrações transversais que ninguém consome |
 | `ARC-002` | `MEDIUM` | **PENDENTE** | Erro fora da codificação `DomainError` atravessando um contrato... |
 | `ARC-003` | `MEDIUM` | **PENDENTE** | O vocabulário canônico publicado não faz round trip pelo serializador... |
-| `ARC-004` | `MEDIUM` | **PENDENTE** | A superfície pública real tem quatro contratos, e o documento declara... |
+| `ARC-004` | `MEDIUM` | **RESOLVIDO** | A superfície pública real tem quatro contratos, e o documento declara... |
 | `ARC-005` | `MEDIUM` | **PENDENTE** | `sensitiveVariables` vive na identidade imutável, e o schema que a... |
 | `ARC-006` | `MEDIUM` | **PENDENTE** | O frescor não é parte do contrato de leitura publicada, é propriedade... |
 | `ARC-007` | `LOW` | **PENDENTE** | `null` carrega dois significados incompatíveis numa superfície de... |
@@ -206,7 +206,7 @@ de ser necessário.
 
 ---
 
-## `ARC-004` · PENDENTE
+## `ARC-004` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -217,8 +217,8 @@ de ser necessário.
 | tipo-de-evidência | contrato |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-architect |
-| **estado** | **PENDENTE** |
-| nota de estado | Não tratado. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | A evidência se sustentou e a ficha SUBCONTA: são **cinco** interfaces públicas em `Integration/V1`, não quatro. A quinta é `IPolicyRule<in TContext>`, e ela tem natureza diferente, o que é justamente o que decide o desenho do portão. `IPolicyRule` é **contrato invertido**: o módulo dono declara, e quem implementa são cinco regras do `Notifications`, executadas pelo `PolicyStage`. O implementador refinou isso e o refinamento fortalece a exclusão: o `Notifications` registra as **classes concretas**, e a **interface não é registrada por ninguém**, nem pelo dono nem pelo consumidor. POR ISSO A VERIFICAÇÃO QUE A FICHA PROPÕE ESTÁ ERRADA COMO ENUNCIADA: contar interfaces públicas e comparar com o documento exigiria listar `IPolicyRule` como contrato de leitura, o que seria falso, e a correção passaria a mentir de outro jeito. O predicado adotado é derivável e exclui o invertido POR CONSTRUÇÃO: o conjunto de interfaces de `Integration/V1` que o próprio módulo REGISTRA tem que ser igual ao que a seção enumera, e o lado do código é medido do **container real** (`new ServiceCollection()` mais `ConfigureServices`), não de lista literal, para que a regra não possa concordar consigo mesma. Medido: o módulo registra exatamente quatro, nas linhas 68, 69, 70 e 80, e o documento listava três; a que faltava era exatamente `IHistoricalCatalog`, registrado pelo módulo e consumido por `Compliance/.../GetNotificationEvidence`. ENTREGUE: a seção ganhou a entrada com o DTO, a frase que separa os dois catálogos (o publicado responde 'o que sairia agora', o histórico 'o que saiu naquele momento') e a regra de que a leitura histórica não é memoizada nem como ponteiro corrente, confirmada no código (o `HistoricalCatalog` recebe só o `DbContext`, usa `AsNoTracking` e não toca o carregador nem o cache). Mais o portão em `Platform.ArchTests`, com igualdade exata nos dois sentidos e tripwire de vazio ancorado no cabeçalho. UMA EDIÇÃO QUE NINGUÉM PEDIU E QUE A PRÓPRIA CORREÇÃO TORNOU NECESSÁRIA: o documento afirmava `Only published state is visible: drafts and superseded versions stay internal`, e com o contrato histórico declarado essa frase virou FALSA, porque ele devolve versão superseded. Sem reescrevê-la, a correção teria trocado uma omissão por uma **contradição**. QUATRO MUTAÇÕES, e a quarta foi acrescentada pelo implementador contra o meu roteiro, com razão: as três que eu pedi nunca exercitavam a asserção do segundo sentido, porque a mutação do cabeçalho matava aquele teste no tripwire e deixava `unregistered.ShouldBeEmpty` sem prova de que pode falhar; ele trocou o registro da interface pelo da classe concreta e obteve o vermelho que faltava. CORRIGIDO TAMBÉM UM DEFEITO INTRODUZIDO POR ESTA REVISÃO: a linha que obriga a atualizar o documento na mesma mudança que altera contratos públicos era a última do arquivo e virou meio dele, porque correções anteriores apenderam cerca de 380 linhas depois; instrução de fechamento no meio lê como se valesse só para o que vem antes. Movida para o fim, texto preservado byte a byte por igualdade exata. O implementador ainda achou e corrigiu um defeito PRÓPRIO antes de comitar: o script de movimentação usou uma API que no Windows converte toda quebra de linha para a forma do Windows, e o arquivo inteiro virou CRLF contra o `.gitattributes`, sem que `git status` nem `git diff --stat` mostrassem nada. FICA CONHECIDO E NÃO CORRIGIDO, por ser mudança de comportamento de contrato e fora deste escopo: o XML doc de `IHistoricalCatalog` promete `published or superseded`, mas `FindTemplateVersionAsync` filtra apenas por chave e número de versão, **sem status**, então **draft é devolvível pela superfície de auditoria**. O DTO concorda com o código contra a interface, documentando `published, superseded or draft`. Isso contradiz a própria frase que justifica a existência do contrato, que diz que separar os catálogos é o que impede uma superfície de auditoria de citar uma versão que ninguém usou. Foi por isso que a exceção escrita no `AGENTS.md` não enumera status: qualquer enumeração seria falsa contra um dos dois lados. Portões verificados de forma independente: build com 0 erros e 0 avisos, ArchTests **17** contra base de 15, SecurityArchTests 14, UnitTests 1657. |
 
 **A superfície pública real tem quatro contratos, e o documento declara três de forma exclusiva.**
 
