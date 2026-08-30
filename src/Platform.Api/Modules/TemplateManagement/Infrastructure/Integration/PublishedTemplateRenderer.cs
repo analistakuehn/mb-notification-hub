@@ -84,7 +84,7 @@ internal sealed class PublishedTemplateRenderer(
                 + "no exact match, no base-language content and no default-locale content."));
         }
 
-        Result urlGuard = EnforceUrlVariables(template, version, request.Variables);
+        Result urlGuard = VariablesDestinationPolicy.Validate(template, version, request.Variables);
         if (urlGuard.IsFailure)
         {
             return urlGuard.AsFailure<PublishedTemplateRender>();
@@ -99,21 +99,29 @@ internal sealed class PublishedTemplateRenderer(
 
         TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
         Result<RenderedForm> full = await RenderFormAsync(
-            template, channel.Value!, content, request.Variables, wrapper.Value, cancellationToken);
+            template,
+            channel.Value!,
+            content,
+            request.Variables,
+            wrapper.Value,
+            AuthenticationLinkBan.Enforce,
+            cancellationToken);
         if (full.IsFailure)
         {
-            return full.AsFailure<RenderedForm, PublishedTemplateRender>();
-        }
+            // The alarm stays here and not inside the policy, which has no
+            // application, no key and no version to name and does not log at
+            // all. This recognizes the refusal the way the consuming module
+            // recognizes it, by equality against the bare word.
+            if (string.Equals(full.Error, TemplateValidation.AuthenticationSmsLinkCode, StringComparison.Ordinal))
+            {
+                // Alarm, not a note: publication already refuses this shape, so
+                // a render that produces one means the link arrived through a
+                // variable value at request time. The message never leaves.
+                logger.AuthenticationSmsLinkRefused(
+                    request.Application, request.TemplateKey, version.Version);
+            }
 
-        if (CarriesAuthenticationSmsLink(template, channel.Value!, full.Value!))
-        {
-            // Alarm, not a note: publication already refuses this shape, so a
-            // render that produces one means the link arrived through a
-            // variable value at request time. The message never leaves.
-            logger.AuthenticationSmsLinkRefused(
-                request.Application, request.TemplateKey, version.Version);
-            return Result.ValidationError<PublishedTemplateRender>(
-                TemplateValidation.AuthenticationSmsLinkCode);
+            return full.AsFailure<RenderedForm, PublishedTemplateRender>();
         }
 
         RenderedForm? masked = null;
@@ -167,21 +175,19 @@ internal sealed class PublishedTemplateRenderer(
             return Result.Success(full);
         }
 
-        return await RenderFormAsync(template, channel, content, masked.Value, wrapper, cancellationToken);
+        // The full form already answered the authentication-SMS ban over this
+        // same content, and masking only replaces a value with a fixed marker:
+        // it can remove a link and never write one. A second pass would be a
+        // second scan of every rendered field for nothing.
+        return await RenderFormAsync(
+            template,
+            channel,
+            content,
+            masked.Value,
+            wrapper,
+            AuthenticationLinkBan.AlreadyEnforced,
+            cancellationToken);
     }
-
-    /// <summary>
-    /// Whether this render puts something clickable inside an authentication
-    /// SMS. One authentication code is the price of a false positive here; a
-    /// false negative is a phishing link inside the one message people are
-    /// trained to act on without thinking.
-    /// </summary>
-    private static bool CarriesAuthenticationSmsLink(Template template, Channel channel, RenderedForm form)
-        => channel == Channel.Sms
-            && TemplatePurposes.IsAuthentication(template.Purpose)
-            && (TemplateValidation.ContainsLinkLikeText(form.Body)
-                || TemplateValidation.ContainsLinkLikeText(form.Subject)
-                || TemplateValidation.ContainsLinkLikeText(form.BodyText));
 
     private async Task<Result<RenderedForm>> RenderFormAsync(
         Template template,
@@ -189,6 +195,7 @@ internal sealed class PublishedTemplateRenderer(
         TemplateContent content,
         JsonElement? variables,
         LayoutWrapper? wrapper,
+        AuthenticationLinkBan ban,
         CancellationToken cancellationToken)
     {
         // The fields of one form share the execution context, which is what a
@@ -245,40 +252,27 @@ internal sealed class PublishedTemplateRenderer(
             }
         }
 
-        // Normalization comes before the hash, and that order is the whole
-        // point: the audited hash has to describe the bytes the provider
-        // receives, so normalizing afterwards would break the equality the
-        // audit checks and leave every SMS looking tampered with.
-        var normalizedSubject = subject.Value;
-        var normalizedBody = wrappedBody;
-        var normalizedBodyText = wrappedBodyText;
-        if (channel == Channel.Sms)
-        {
-            normalizedSubject = normalizedSubject is null
-                ? null
-                : SmsContentNormalizer.Normalize(normalizedSubject);
-            normalizedBody = SmsContentNormalizer.Normalize(normalizedBody);
-            normalizedBodyText = normalizedBodyText is null
-                ? null
-                : SmsContentNormalizer.Normalize(normalizedBodyText);
-        }
-
-        Result destinationGuard = RenderedDestinationPolicy.Validate(
+        // Normalizing, banning, guarding and hashing are one decision taken in
+        // one order, and it lives in the policy so this path and the preview
+        // cannot take it differently. The refusal travels bare here: the
+        // consuming module compares the whole error text against the word.
+        Result<RenderedOutput> output = RenderedOutputPolicy.Apply(
             template,
             channel,
-            normalizedSubject,
-            normalizedBody,
-            normalizedBodyText);
-        if (destinationGuard.IsFailure)
+            new RenderedFields(subject.Value, wrappedBody, wrappedBodyText),
+            RefusalShape.Bare,
+            ban);
+        if (output.IsFailure)
         {
-            return destinationGuard.AsFailure<RenderedForm>();
+            return output.AsFailure<RenderedOutput, RenderedForm>();
         }
 
+        RenderedOutput rendered = output.Value!;
         return Result.Success(new RenderedForm(
-            normalizedSubject,
-            normalizedBody,
-            normalizedBodyText,
-            CanonicalHash.OfFields(normalizedSubject, normalizedBody, normalizedBodyText)));
+            rendered.Subject,
+            rendered.Body,
+            rendered.BodyText,
+            rendered.ContentHash));
     }
 
     /// <summary>
@@ -457,53 +451,6 @@ internal sealed class PublishedTemplateRenderer(
                 ErrorCodes.TemplateRenderFailed,
                 $"Field '{field}': {rendered.Error}"))
             : Result.Success<string?>(rendered.Value);
-    }
-
-    private static Result EnforceUrlVariables(Template template, TemplateVersion version, JsonElement? variables)
-    {
-        if (!VariablesSchema.TryParse(version.VariablesSchemaJson, out IReadOnlyList<VariableDeclaration> declarations))
-        {
-            return new Result(false, ResultErrorKind.Validation, DomainError.Format(
-                ErrorCodes.TemplateRenderFailed,
-                "The variables schema is not readable; run the validation report."));
-        }
-
-        if (variables is not { ValueKind: JsonValueKind.Object } provided)
-        {
-            return Result.Success();
-        }
-
-        foreach (VariableDeclaration declaration in declarations.Where(declaration => declaration.IsUrl))
-        {
-            if (!provided.TryGetProperty(declaration.Name, out JsonElement value))
-            {
-                continue;
-            }
-
-            if (!LinkDomainPolicy.IsAllowedUrlValue(template, value))
-            {
-                // The value never travels in the error: it may embed tokens
-                // or personal data in the query string.
-                return new Result(false, ResultErrorKind.Validation, DomainError.Format(
-                    ErrorCodes.UrlDomainNotAllowed,
-                    $"Variable '{declaration.Name}' must be an absolute http(s) URL "
-                    + "inside the template's allowed domains."));
-            }
-        }
-
-        var offending = LinkDomainPolicy.FirstDisallowedHost(variables, template);
-        if (offending is not null)
-        {
-            // Only the host travels in the error, never the value: the
-            // query string may carry a token or personal data. Same reason
-            // as the loop above.
-            return new Result(false, ResultErrorKind.Validation, DomainError.Format(
-                ErrorCodes.UrlDomainNotAllowed,
-                $"A variable value carries link host '{offending}', "
-                + "which is outside the template's allowed domains."));
-        }
-
-        return Result.Success();
     }
 
     /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>

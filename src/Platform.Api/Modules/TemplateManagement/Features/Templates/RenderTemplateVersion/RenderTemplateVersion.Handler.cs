@@ -51,6 +51,16 @@ internal static partial class RenderTemplateVersion
                     $"Template '{templateKey.Value!.Value}' does not exist."));
             }
 
+            // Nothing here reads the status of the template identity, and that
+            // is the line this preview draws. It renders drafts by definition,
+            // which is to say things dispatch would never send, so the goal is
+            // not "preview equals dispatch": it is that the preview never
+            // approves what dispatch refuses on account of the content. A
+            // deprecated or a disabled template is an identity decision, not
+            // content, and it is still being edited by whoever is preparing the
+            // next version. A disabled layout is the other case, and it is
+            // refused below: its text has to stop going out, and a body without
+            // its frame carries a hash nobody approved.
             TemplateVersion? version = await dbContext.TemplateVersions
                 .AsNoTracking()
                 .WhereTemplateKey(templateKey.Value!)
@@ -83,7 +93,7 @@ internal static partial class RenderTemplateVersion
                     + "no exact match, no base-language content and no default-locale content."));
             }
 
-            Result urlGuard = EnforceUrlVariables(template, version, request.Variables);
+            Result urlGuard = VariablesDestinationPolicy.Validate(template, version, request.Variables);
             if (urlGuard.IsFailure)
             {
                 return urlGuard.AsFailure<Response>();
@@ -168,38 +178,34 @@ internal static partial class RenderTemplateVersion
                 }
             }
 
-            var normalizedSubject = subject.Value;
-            var normalizedBody = wrappedBody;
-            var normalizedBodyText = wrappedBodyText;
-            if (content.Channel == Channel.Sms)
-            {
-                normalizedSubject = normalizedSubject is null
-                    ? null
-                    : SmsContentNormalizer.Normalize(normalizedSubject);
-                normalizedBody = SmsContentNormalizer.Normalize(normalizedBody);
-                normalizedBodyText = normalizedBodyText is null
-                    ? null
-                    : SmsContentNormalizer.Normalize(normalizedBodyText);
-            }
-
-            Result destinationGuard = RenderedDestinationPolicy.Validate(
+            // Normalizing, banning, guarding and hashing are one decision taken
+            // in one order, and the dispatch path takes exactly the same one.
+            // The refusal is formatted here because a person reads this
+            // response, while over there it travels bare so a sibling module
+            // can compare the whole error text against the word.
+            Result<RenderedOutput> output = RenderedOutputPolicy.Apply(
                 template,
                 content.Channel,
-                normalizedSubject,
-                normalizedBody,
-                normalizedBodyText);
-            if (destinationGuard.IsFailure)
+                new RenderedFields(subject.Value, wrappedBody, wrappedBodyText),
+                RefusalShape.Formatted,
+                AuthenticationLinkBan.Enforce);
+            if (output.IsFailure)
             {
-                return destinationGuard.AsFailure<Response>();
+                return output.AsFailure<RenderedOutput, Response>();
             }
 
+            // The hash the policy computed stops here. It exists so an audit can
+            // compare a stored render against a fresh one, and a preview stores
+            // nothing; this response does not even carry the version that
+            // answered, so a hash on it would be a number with no subject.
+            RenderedOutput rendered = output.Value!;
             return Result.Success(new Response(
                 content.Channel.Value,
                 requested.Value,
                 resolved.Value,
-                normalizedSubject,
-                normalizedBody,
-                normalizedBodyText));
+                rendered.Subject,
+                rendered.Body,
+                rendered.BodyText));
         }
 
         /// <summary>
@@ -319,53 +325,6 @@ internal static partial class RenderTemplateVersion
                     ErrorCodes.TemplateRenderFailed,
                     $"Field '{field}': {rendered.Error}"))
                 : Result.Success<string?>(rendered.Value);
-        }
-
-        private static Result EnforceUrlVariables(Template template, TemplateVersion version, JsonElement? variables)
-        {
-            if (!VariablesSchema.TryParse(version.VariablesSchemaJson, out IReadOnlyList<VariableDeclaration> declarations))
-            {
-                return new Result(false, ResultErrorKind.Validation, DomainError.Format(
-                    ErrorCodes.TemplateRenderFailed,
-                    "The variables schema is not readable; run the validation report."));
-            }
-
-            if (variables is not { ValueKind: JsonValueKind.Object } provided)
-            {
-                return Result.Success();
-            }
-
-            foreach (VariableDeclaration declaration in declarations.Where(declaration => declaration.IsUrl))
-            {
-                if (!provided.TryGetProperty(declaration.Name, out JsonElement value))
-                {
-                    continue;
-                }
-
-                if (!LinkDomainPolicy.IsAllowedUrlValue(template, value))
-                {
-                    // The value never travels in the error: it may embed tokens
-                    // or personal data in the query string.
-                    return new Result(false, ResultErrorKind.Validation, DomainError.Format(
-                        ErrorCodes.UrlDomainNotAllowed,
-                        $"Variable '{declaration.Name}' must be an absolute http(s) URL "
-                        + "inside the template's allowed domains."));
-                }
-            }
-
-            var offending = LinkDomainPolicy.FirstDisallowedHost(variables, template);
-            if (offending is not null)
-            {
-                // Only the host travels in the error, never the value: the
-                // query string may carry a token or personal data. Same reason
-                // as the loop above.
-                return new Result(false, ResultErrorKind.Validation, DomainError.Format(
-                    ErrorCodes.UrlDomainNotAllowed,
-                    $"A variable value carries link host '{offending}', "
-                    + "which is outside the template's allowed domains."));
-            }
-
-            return Result.Success();
         }
     }
 

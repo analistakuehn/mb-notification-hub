@@ -410,13 +410,92 @@
   destination, fails revalidation and cannot be rolled back, and that is
   accepted with no carve-out**: the rule is the correct one, and a rollback onto
   a version the current rule refuses is a rollback onto an unsafe version.
-- **Whoever composes final rendered content calls the destination guard.** The
+- **Whoever composes final rendered content applies the output policy.** The
   allowlist is checked while a version is authored, but authoring sees
   fragments: the destination a reader receives exists only after interpolation,
   after the layout frames the body and after the channel normalizer rewrites
-  it. `tests/Platform.SecurityArchTests` fails a file of this module that
-  applies the channel normalizer or a layout wrapper without calling
-  `RenderedDestinationPolicy.Validate`.
+  it. `Domain/RenderedOutputPolicy.Apply` is that point and it is the only one:
+  the preview an author reads and the published render a sibling module
+  dispatches call the same function, so the two can no longer answer
+  differently about the same text.
+- **The order inside that policy is the rule, not an arrangement of it.**
+  Normalize for the channel, ban a link inside an authentication SMS over the
+  already normalized text, guard the destination, hash what is left.
+  Normalization comes first because every step after it decides about the bytes
+  a provider actually receives, and the audited hash has to describe those
+  bytes: hashing before normalizing leaves the audit calling every SMS tampered
+  with. The ban reads the normalized form, which is the form it always read,
+  and it runs before the hash because a refused render has no output to
+  describe. `SmsContentNormalizer` moved out of `Infrastructure/Templating/`
+  into `Domain/` for this, with no change of behavior: `Domain` may not depend
+  on `Infrastructure`, and the policy is where the normalizer is now called
+  from. The single call site is itself a rule, since two of them are two
+  orderings waiting to diverge.
+- **The refusal shape is a parameter because it is a consumer contract, not a
+  preference.** `RefusalShape.Bare` returns the bare word: the Core pipeline
+  compares the whole error text against it for equality, and anything wrapped
+  around it collapses a security refusal into a plain render failure.
+  `RefusalShape.Formatted` returns the same code carrying a sentence, for the
+  preview, which a person reads. The sentence names the rule and never quotes
+  what tripped it: at that point the text is the recipient's own data, and the
+  detector answers on ordinary prose by design. The destination refusal is not
+  on this axis, because it already builds the same string for both callers.
+- **The alarm stays outside the policy.** `Domain` does not log, and the event
+  carries the application, the key, and the version, none of which the policy
+  receives. The published renderer recognizes its own refusal exactly the way
+  its consumer does, by equality against
+  `TemplateValidation.AuthenticationSmsLinkCode`, and logs then. The preview
+  raises no alarm.
+- **`AuthenticationLinkBan.AlreadyEnforced` exists for the masked form and
+  nothing else.** Masking replaces a value with a fixed marker, so it can
+  remove a link and never write one: the full form already answered the ban
+  over the same content, and a second scan of every rendered field of every
+  notification carrying a sensitive variable buys nothing. Every other caller
+  passes `Enforce`. Neither enum has a member on the zero value, so a caller
+  that leaves either decision to a default gets a value the policy refuses to
+  act on.
+- `tests/Platform.SecurityArchTests` fails a file of this module three ways: one
+  that drives the sandbox render without calling the output policy, one that
+  names the layout wrapper or the channel normalizer without calling it, and a
+  second file that normalizes channel content at all. Consulting the destination
+  policy directly does not satisfy the first two, on purpose: accepting it would
+  pass a third orchestrator that guards the destination and skips normalization,
+  the ban, and the hash. The single exemption is the policy's own file, named
+  and not matched by a pattern, and it opens no hole, because a fourth rule
+  demands all four steps of that file instead of the presence of one call. Two
+  residues are known, measured, and written into those tests: a composer that
+  neither drives the sandbox nor names the wrapper or the normalizer escapes all
+  three, and the first rule anchors on the identifier `engine`, which is a
+  parameter name, so a renamed receiver escapes it.
+- **The order is pinned by unit tests that read the policy directly**, not only
+  by the render behavior tests. Three of them pass under a policy that runs the
+  same four steps in the wrong sequence, so the ones that matter are the two
+  about precedence: the ban answers before the destination guard, and the
+  normalizer runs before the ban. A change that reorders the four steps has a
+  gate, and it is not the architecture scan, which reads presence and never
+  order.
+- **The preview draws its line at content, never at identity.** It refuses a
+  disabled layout, and it does not refuse a `deprecated` or a `disabled`
+  template, while dispatch refuses all three. The goal is not "preview equals
+  dispatch": a preview renders drafts by definition, which is to say things
+  dispatch would never send, so the goal is that the preview never approves what
+  dispatch refuses **on account of the content**. A template status is an
+  identity decision, and a disabled template is still being edited by whoever
+  prepares the next version. A disabled layout is the other case: its own text
+  has to stop going out, and a body without its frame carries a hash nobody
+  approved.
+- **The payload ceiling is one number behind two doors with two refusal shapes,
+  and the asymmetry is deliberate.** `Domain/VariablesPayloadSize.MaxBytes`
+  governs both, so nothing admitted at one door is refused for its size at
+  another. The preview refuses inside its request validator, so the answer is a
+  validation problem carrying an `errors` dictionary, beside every other
+  malformed field of the same request, which is what the author's tooling
+  reads. The published renderer refuses with
+  `ErrorCodes.VariablesPayloadTooLarge` on this module's single error axis,
+  because its caller is a sibling module reading a coded result and not a form.
+  What matters is the property both hold: each door refuses before any query and
+  before anything walks the payload. The shape follows the surface, and unifying
+  the two changes an endpoint contract.
 - Never bind HTTP bodies directly to domain types.
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.

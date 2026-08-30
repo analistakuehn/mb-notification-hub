@@ -21,6 +21,14 @@ public sealed partial class SecurityArchitectureTests
         "src/Platform.Worker",
     ];
 
+    /// <summary>
+    /// The one file the render paths delegate final content to. It is named
+    /// here rather than matched by a pattern: the rules below claim that the
+    /// work happens in a single known place, and a pattern would let a second
+    /// file answer for it.
+    /// </summary>
+    private const string OutputPolicyFileName = "RenderedOutputPolicy.cs";
+
     [Fact]
     public void Source_must_not_use_known_dangerous_apis()
     {
@@ -181,36 +189,147 @@ public sealed partial class SecurityArchitectureTests
     /// path that simply never asked. The allowlist is checked while a version
     /// is authored, but authoring sees fragments: the destination a reader
     /// receives exists only after interpolation, after the layout has framed
-    /// the body, and after the channel normalizer has rewritten it. Whoever
-    /// composes that final content owns the last chance to refuse it, and a new
-    /// path that renders, frames, and normalizes without ever consulting the
-    /// destination policy reproduces the defect this rule exists to stop:
+    /// the body, and after the channel normalizer has rewritten it. A path that
+    /// drives the sandbox to the end and hands the text back without consulting
+    /// the output policy reproduces the defect this rule exists to stop:
     /// validation that is present and does not reach the result.
     /// <para>
-    /// A producer is recognized by the two transformations only final content
-    /// receives in this module, the channel normalizer and the layout wrapper,
-    /// and not by a call graph: the composition happens across private methods
-    /// of one file, which leaves no type or member for an assembly-level rule
-    /// to inspect. The scan therefore reaches exactly as far as the file, and
-    /// it claims presence rather than order, because text has no order of
-    /// execution to read. That the guard runs after normalization and before
-    /// the hash is pinned by the behavior tests, not here.
+    /// This rule reads the receiver of the sandbox call, which is the one thing
+    /// a render cannot do without. It is the reach the sibling rule below lacks:
+    /// a new orchestrator that composes its own final text without ever naming
+    /// the wrapper type or the normalizer still has to render, and it is caught
+    /// here.
+    /// </para>
+    /// <para>
+    /// Known residue, measured and stated rather than left silent. The pattern
+    /// anchors on the identifier <c>engine</c>, which is a parameter name and
+    /// nothing stronger: a receiver renamed at its declaration escapes this
+    /// rule. A composer that neither drives the sandbox nor names the wrapper
+    /// or the normalizer escapes all three rules of this family.
     /// </para>
     /// </summary>
     [Fact]
-    public void Every_producer_of_final_rendered_content_consults_the_destination_policy()
+    public void Every_file_that_renders_through_the_sandbox_applies_the_output_policy()
+    {
+        var renderers = SandboxRenderers();
+
+        // A signature that stopped matching would turn the rule into a green
+        // that scanned no render path at all.
+        renderers.ShouldNotBeEmpty();
+
+        var findings = FilesMissingTheOutputPolicy(renderers);
+
+        findings.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The same claim read from the producing side: whoever names the layout
+    /// wrapper or the channel normalizer owns final content and consults the
+    /// output policy over it.
+    /// <para>
+    /// A producer is recognized by the two transformations only final content
+    /// receives in this module, and not by a call graph: the composition
+    /// happens across private methods of one file, which leaves no type or
+    /// member for an assembly-level rule to inspect. The scan therefore reaches
+    /// exactly as far as the file, and it claims presence rather than order,
+    /// because text has no order of execution to read. That the guard runs
+    /// after normalization and before the hash is pinned by the behavior tests,
+    /// not here.
+    /// </para>
+    /// <para>
+    /// The count is asserted because presence alone goes green over a shrinking
+    /// set: three files carry final content today, the two orchestrators and
+    /// the policy itself, and a change that empties one of them without moving
+    /// its work has to say so here.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Every_producer_of_final_rendered_content_consults_the_output_policy()
     {
         var producers = RenderedContentProducers();
 
         // A signature that stopped matching would turn the rule into a green
         // that scanned no render path at all.
-        producers.ShouldNotBeEmpty();
+        producers.Length.ShouldBeGreaterThanOrEqualTo(3);
 
-        var findings = producers
-            .Where(path => !RenderedDestinationGuard().IsMatch(File.ReadAllText(path)))
-            .ToArray();
+        var findings = FilesMissingTheOutputPolicy(producers);
 
         findings.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The files of a scanned set that never call the output policy. The single
+    /// exemption is the policy's own file, named and not matched by a pattern,
+    /// because it composes final content and cannot call itself.
+    /// <para>
+    /// The exemption opens no hole: that file does not leave this family, it
+    /// answers to a stricter member of it. <see
+    /// cref="The_output_policy_normalizes_bans_authentication_links_guards_destinations_and_hashes"/>
+    /// requires all four steps to be present in it, while these two rules only
+    /// require a call to be present. Exempting it here and demanding more of it
+    /// there is what lets the guard pattern stay a single alternative: accepting
+    /// a direct call to the destination policy as a substitute would pass a
+    /// third orchestrator that guards the destination and skips normalization,
+    /// the ban, and the hash.
+    /// </para>
+    /// </summary>
+    private static string[] FilesMissingTheOutputPolicy(IEnumerable<string> files)
+        => [.. files
+            .Where(path => Path.GetFileName(path) != OutputPolicyFileName)
+            .Where(path => !RenderedOutputGuard().IsMatch(File.ReadAllText(path)))];
+
+    /// <summary>
+    /// The channel normalizer runs in one place. Two call sites are two
+    /// orderings waiting to diverge, and the order is what the audited hash
+    /// depends on: normalization has to precede the hash, so a second site that
+    /// normalizes after hashing ships a trail describing a message nobody sent.
+    /// Pinning the cardinality is what makes the two rules above point
+    /// somewhere: they accept any file that names the policy, and this one
+    /// states that the naming leads to a single implementation.
+    /// </summary>
+    [Fact]
+    public void Exactly_one_file_normalizes_channel_content_and_it_is_the_output_policy()
+    {
+        var normalizers = ModuleSourceFiles()
+            .Where(path => ChannelNormalization().IsMatch(File.ReadAllText(path)))
+            .ToArray();
+
+        normalizers.Length.ShouldBe(1);
+        Path.GetFileName(normalizers[0]).ShouldBe(OutputPolicyFileName);
+    }
+
+    /// <summary>
+    /// The file the three rules above point at does the four things the render
+    /// path delegates to it, in one place: it normalizes for the channel, bans
+    /// a link inside an authentication SMS, guards the destination, and hashes
+    /// the text it returns. Without this, an output policy emptied of one step
+    /// keeps every other rule of this family green while the step it lost stops
+    /// running anywhere.
+    /// </summary>
+    [Fact]
+    public void The_output_policy_normalizes_bans_authentication_links_guards_destinations_and_hashes()
+    {
+        var files = ModuleSourceFiles()
+            .Where(path => Path.GetFileName(path) == OutputPolicyFileName)
+            .ToArray();
+
+        files.Length.ShouldBe(1);
+
+        var source = File.ReadAllText(files[0]);
+        (string Step, Regex Pattern)[] steps =
+        [
+            ("channel normalization", ChannelNormalization()),
+            ("authentication link ban", AuthenticationLinkBan()),
+            ("destination guard", RenderedDestinationGuard()),
+            ("canonical content hash", CanonicalContentHash()),
+        ];
+
+        var missing = steps
+            .Where(step => !step.Pattern.IsMatch(source))
+            .Select(step => step.Step)
+            .ToArray();
+
+        missing.ShouldBeEmpty();
     }
 
     /// <summary>
@@ -219,11 +338,19 @@ public sealed partial class SecurityArchitectureTests
     /// gets: the channel normalizer and the layout wrapper.
     /// </summary>
     private static string[] RenderedContentProducers()
+        => [.. ModuleSourceFiles().Where(path => FinalContentComposition().IsMatch(File.ReadAllText(path)))];
+
+    /// <summary>
+    /// The files of the template module that drive the sandbox to produce text,
+    /// recognized by the call every render makes whatever it does afterwards.
+    /// </summary>
+    private static string[] SandboxRenderers()
+        => [.. ModuleSourceFiles().Where(path => SandboxRender().IsMatch(File.ReadAllText(path)))];
+
+    private static IEnumerable<string> ModuleSourceFiles()
     {
         var moduleRoot = Path.Combine("Modules", "TemplateManagement");
-        return [.. SourceFiles()
-            .Where(path => path.Contains(moduleRoot, StringComparison.OrdinalIgnoreCase))
-            .Where(path => FinalContentComposition().IsMatch(File.ReadAllText(path)))];
+        return SourceFiles().Where(path => path.Contains(moduleRoot, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -232,13 +359,9 @@ public sealed partial class SecurityArchitectureTests
     /// what it produces so a rule finds it without following a call.
     /// </summary>
     private static string[] AuditDetailsProducers()
-    {
-        var moduleRoot = Path.Combine("Modules", "TemplateManagement");
-        return [.. SourceFiles()
-            .Where(path => path.Contains(moduleRoot, StringComparison.OrdinalIgnoreCase))
+        => [.. ModuleSourceFiles()
             .Where(path => path.EndsWith("AuditDetails.cs", StringComparison.Ordinal)
                 || File.ReadAllText(path).Contains("DetailsJson", StringComparison.Ordinal))];
-    }
 
     private static string[] Findings(IEnumerable<string> files, Regex pattern)
         => [.. files
@@ -295,9 +418,24 @@ public sealed partial class SecurityArchitectureTests
     [GeneratedRegex(@"\b\w*[Nn]ote\w*\??\.Text\b")]
     private static partial Regex LifecycleNoteProse();
 
+    [GeneratedRegex(@"\bengine\s*\.\s*Render(?:Content)?Async\s*\(")]
+    private static partial Regex SandboxRender();
+
     [GeneratedRegex(@"SmsContentNormalizer\s*\.\s*Normalize\s*\(|\bLayoutWrapper\b")]
     private static partial Regex FinalContentComposition();
 
+    [GeneratedRegex(@"\bRenderedOutputPolicy\s*\.\s*Apply\s*\(")]
+    private static partial Regex RenderedOutputGuard();
+
+    [GeneratedRegex(@"SmsContentNormalizer\s*\.\s*Normalize\s*\(")]
+    private static partial Regex ChannelNormalization();
+
     [GeneratedRegex(@"RenderedDestinationPolicy\s*\.\s*Validate\s*\(")]
     private static partial Regex RenderedDestinationGuard();
+
+    [GeneratedRegex(@"TemplateValidation\s*\.\s*ContainsLinkLikeText\s*\(")]
+    private static partial Regex AuthenticationLinkBan();
+
+    [GeneratedRegex(@"CanonicalHash\s*\.\s*OfFields\s*\(")]
+    private static partial Regex CanonicalContentHash();
 }

@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
+namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 
 /// <summary>
 /// Puts rendered SMS text into the single form this hub is willing to hand a

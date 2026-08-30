@@ -1,5 +1,5 @@
 using System.Text;
-using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
+using NotificationHub.Api.Modules.TemplateManagement.Domain;
 
 namespace NotificationHub.UnitTests.TemplateManagement;
 

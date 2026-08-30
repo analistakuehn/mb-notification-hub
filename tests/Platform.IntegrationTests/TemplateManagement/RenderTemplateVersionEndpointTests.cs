@@ -587,6 +587,104 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
     }
 
     [RequiresDockerFact]
+    public async Task An_authentication_sms_preview_refuses_a_link_arriving_through_a_variable()
+    {
+        // The shortener is inside the template's allowed domains, so nothing
+        // the allowlist owns can refuse this render. What refuses it is the
+        // class-wide ban: an authentication SMS carries no link whatever the
+        // catalog would otherwise accept, and here the link never touched the
+        // source, it arrived as the value of a plain string variable at preview
+        // time.
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        (var key, var version) = await AuthenticationSmsDraftAsync(client, "authentication");
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "sms",
+                locale = "pt-BR",
+                variables = new { code = "998877", aviso = "bit.ly/x9k2p" },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("authentication-sms-link");
+
+        // The refusal names the rule and never quotes the value that tripped
+        // it: at this point the text is recipient data, and the detector fires
+        // on ordinary prose by design.
+        problem.GetProperty("detail").GetString()!.ShouldNotContain("bit.ly");
+    }
+
+    [RequiresDockerFact]
+    public async Task The_same_preview_for_a_purpose_that_is_not_authentication_renders()
+    {
+        // Falsification: what refuses the render above is the purpose, not the
+        // channel, the variable, the allowlist or the preview endpoint. Same
+        // content, same payload, same allowed domain, one word changed.
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+        (var key, var version) = await AuthenticationSmsDraftAsync(client, "order-updates");
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new
+            {
+                channel = "sms",
+                locale = "pt-BR",
+                variables = new { code = "998877", aviso = "bit.ly/x9k2p" },
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        JsonElement body = await TemplateApi.ReadJsonAsync(response);
+        body.GetProperty("body").GetString().ShouldBe("Código 998877. bit.ly/x9k2p");
+    }
+
+    /// <summary>
+    /// An SMS draft whose link can only arrive through a variable value. The
+    /// schema declares both variables as plain strings: with <c>format: url</c>
+    /// the static allowlist check would answer first and the render would never
+    /// reach the ban under test.
+    /// </summary>
+    private static async Task<(string Key, int Version)> AuthenticationSmsDraftAsync(
+        HttpClient author,
+        string purpose)
+    {
+        var key = TemplateApi.NewKey("authprev");
+        HttpResponseMessage created = await author.PostAsJsonAsync("/v1/templates", new
+        {
+            key,
+            application = "araia-cambio",
+            @class = "transactional",
+            ownerTeam = "growth-squad",
+            purpose,
+            legalBasis = "execucao-de-contrato",
+            defaultLocale = "pt-BR",
+            linkDomainsAllowed = ShortenerAllowed,
+        });
+        created.EnsureSuccessStatusCode();
+
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
+        etag = await TemplateApi.PutContentAsync(
+            author, key, version, "sms/pt-BR", new { body = "Código {{ code }}. {{ aviso }}" }, etag);
+        await TemplateApi.PutSchemaAsync(author, key, version, new
+        {
+            type = "object",
+            properties = new
+            {
+                code = new { type = "string" },
+                aviso = new { type = "string" },
+            },
+            required = RequiredCode,
+        }, etag);
+        return (key, version);
+    }
+
+    private static readonly string[] RequiredCode = ["code"];
+
+    private static readonly string[] ShortenerAllowed = ["bit.ly"];
+
+    [RequiresDockerFact]
     public async Task A_missing_variable_returns_400_render_failed()
     {
         HttpClient client = fixture.CreateAuthorClient("author-1");
