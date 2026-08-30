@@ -148,12 +148,21 @@ public sealed class SensitiveVariableValidationTests
     [Fact]
     public void A_field_dense_in_url_schemes_validates_without_aborting()
     {
-        var body = string.Concat(Enumerable.Repeat("http://", 60_000));
+        // The length is derived from the source ceiling and never written as a
+        // literal. The aggregate refuses anything above that ceiling, so the
+        // densest field this scan can ever meet is the one built here, and a
+        // ceiling that moves re-aims the probe at the new maximum with no edit
+        // in this file. A literal would either sit under the ceiling, probing
+        // less than production allows, or above it, and then the arrangement
+        // itself would be what fails.
+        const string Scheme = "http://";
+        var body = string.Concat(Enumerable.Repeat(Scheme, TemplateSourceSize.MaxChars / Scheme.Length));
 
         var watch = Stopwatch.StartNew();
         ValidationCheck check = Run(sensitive: ["cpf"], body: body);
         watch.Stop();
 
+        body.Length.ShouldBeGreaterThan(TemplateSourceSize.MaxChars - Scheme.Length);
         check.Status.ShouldBe(ValidationCheckStatuses.Passed);
         watch.Elapsed.ShouldBeLessThan(HangGuard);
     }

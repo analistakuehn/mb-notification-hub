@@ -1,3 +1,4 @@
+using System.Globalization;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
@@ -11,6 +12,14 @@ public sealed class TemplateVersionTests
     private static readonly Channel Email = Channel.Create("email").Value!;
     private static readonly Channel Sms = Channel.Create("sms").Value!;
     private static readonly Locale PtBr = Locale.Create("pt-BR").Value!;
+
+    /// <summary>
+    /// A source the ceiling refuses, chosen at 200000 characters and not at one
+    /// past the ceiling on purpose: it sits well under the 512000 the aggregate
+    /// carried before the ceiling became one number, so the assertion cannot be
+    /// satisfied by that older limit.
+    /// </summary>
+    private static readonly string OverTheCeiling = new('a', 200_000);
 
     [Fact]
     public void A_new_draft_is_empty_and_records_its_author()
@@ -164,6 +173,38 @@ public sealed class TemplateVersionTests
 
         result.IsFailure.ShouldBeTrue();
         result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+        draft.Contents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Content_longer_than_the_source_ceiling_is_refused()
+    {
+        var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+
+        Result result = draft.SetContent(
+            new ContentEdit(Email, PtBr, "Assunto", OverTheCeiling, null),
+            "editor-1");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+        DomainError.Describe(result.Error, result.ErrorKind).Detail
+            .ShouldContain(TemplateSourceSize.MaxChars.ToString(CultureInfo.InvariantCulture));
+        draft.Contents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Text_content_longer_than_the_source_ceiling_is_refused()
+    {
+        var draft = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
+
+        Result result = draft.SetContent(
+            new ContentEdit(Email, PtBr, "Assunto", "<p>corpo</p>", OverTheCeiling),
+            "editor-1");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+        DomainError.Describe(result.Error, result.ErrorKind).Detail
+            .ShouldContain(TemplateSourceSize.MaxChars.ToString(CultureInfo.InvariantCulture));
         draft.Contents.ShouldBeEmpty();
     }
 

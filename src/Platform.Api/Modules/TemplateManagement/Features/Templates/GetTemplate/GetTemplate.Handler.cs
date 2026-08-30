@@ -60,9 +60,9 @@ internal static partial class GetTemplate
             // Projected in the database, on purpose. The summary reads five
             // scalar columns, while the entity carries its owned content
             // collection, which EF loads with the owner and whose body alone
-            // reaches MaxBodyLength per (channel, locale) entry. Materializing
-            // versions to list their numbers pulled the entire authored content
-            // of every version the identity ever had.
+            // reaches the source ceiling per (channel, locale) entry.
+            // Materializing versions to list their numbers pulled the entire
+            // authored content of every version the identity ever had.
             //
             // Descending on purpose, and not an ascending cut: numbering is
             // monotonic and a rollback clones into a higher number, so the draft

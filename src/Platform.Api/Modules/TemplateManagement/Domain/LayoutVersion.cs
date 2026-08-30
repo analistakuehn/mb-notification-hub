@@ -13,8 +13,6 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 /// </summary>
 public sealed class LayoutVersion
 {
-    public const int MaxBodyLength = 512_000;
-
     private readonly string _layoutKey;
     private readonly List<LayoutContent> _contents = [];
     private readonly List<string> _editors = [];
@@ -239,14 +237,14 @@ public sealed class LayoutVersion
             return guard;
         }
 
-        if (string.IsNullOrWhiteSpace(edit.Body) || edit.Body.Length > MaxBodyLength)
+        if (string.IsNullOrWhiteSpace(edit.Body) || edit.Body.Length > TemplateSourceSize.MaxChars)
         {
-            return ValidationFailure($"Content body is required and must have at most {MaxBodyLength} characters.");
+            return ValidationFailure($"Content body is required and must have at most {TemplateSourceSize.MaxChars} characters.");
         }
 
-        if (edit.BodyText is { Length: > MaxBodyLength })
+        if (edit.BodyText is { Length: > TemplateSourceSize.MaxChars })
         {
-            return ValidationFailure($"Content text body must have at most {MaxBodyLength} characters.");
+            return ValidationFailure($"Content text body must have at most {TemplateSourceSize.MaxChars} characters.");
         }
 
         LayoutContent? existing = _contents.FirstOrDefault(content =>

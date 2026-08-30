@@ -632,6 +632,87 @@
   payload with the same walk, and a second copy of it is a second place for the
   same defect to survive the fix applied to the first. The numbers stay with
   their owners; only the walk is shared.
+- **One number governs the whole template source axis, and it lives in
+  `Domain/TemplateSourceSize`.** The body and the text body of a template
+  version, the body and the text body of a layout version, the two authoring
+  validators and the ceiling the engine refuses a source by all read that one
+  constant. No aggregate carries a body limit of its own any more: the two
+  `MaxBodyLength` constants that held 512000 were removed and the compiler
+  proved no reader was left behind. A subject keeps a ceiling of its own
+  because 998 comes from the mail header line and from the column that stores
+  it, never from what a subject costs to parse; a variables schema keeps one
+  for the opposite reason, since it never reaches the engine at all.
+- **The regression over published versions is zero because the number that
+  governs does not move, and for no other reason.** It is tempting to say that
+  rehydration and cloning skip `SetContent` and stop there. That fact is true
+  and it is not what carries the conclusion: a rollback reruns the validation
+  with the analyzer, so a published version is regated on that path. What makes
+  the change safe is that the ceiling the analyzer applies was already 131072
+  and stayed 131072.
+- **131072 is a measurement anchor and not a derivation, and 208411 was refused
+  on purpose.** Three independent readings put the number where it is. The
+  richest legitimate source ever probed is 128 KB of marketing HTML carrying
+  200 interpolations and 2781 tokens. At that same character count plain text
+  parses in 0.6 ms while a single chain of member accesses parses in 92 ms,
+  which says the cost of a source follows its shape and never its length, so
+  length is the wrong knob to spend on parse cost. And 131072 is the size this
+  module was sized around when those readings were taken. The larger candidate,
+  208411, is the remainder of a division between five constants of the parse
+  memoization, one of which the memoization itself declares will move on the
+  next engine upgrade, and the hypothesis that produces it, two parsed nodes per
+  source character, is unreal by a factor of 25.6 against the 0.078 nodes per
+  character the densest admitted shape delivers. A safety ceiling whose
+  renumbering is already announced is not a ceiling. Do not re-derive this
+  number from the memoization constants.
+- **The tie to the memoization budget is asserted at compile time, and deleting
+  the declaration is how it gets lost.** `ScribanParseCache.SourceCeiling.cs`
+  declares the slack between the budget and the source ceiling as an unsigned
+  constant, so a ceiling the memoization cannot promise to hold does not build.
+  It is the exact substitute for what the configuration range used to do and it
+  is strictly better, because it fails on a build instead of on a deploy. Two
+  things follow. The compiler names neither constant when it fires: raising the
+  ceiling to 300000 reports `error CS0031: Constant value '-91589' cannot be
+  converted to a 'uint'` and says nothing else, so the comment beside the
+  declaration is load-bearing and answering that error by removing the
+  declaration removes the guard without a trace. And the declaration sits in a
+  file of its own because the part of the memoization that holds the budget
+  imports the engine, whose `Template` is a different type from the domain
+  `Template`, and the two namespaces cannot meet in one file.
+- **The configured ceiling is bounded below as well as above, and the lower
+  bound is measured.** A subject is source the engine analyzes, so a
+  configuration under the longest subject a version may carry recreates on the
+  subject axis the dead band this change closed on the body axis: measured with
+  the ceiling at 500 and a subject of 700 characters, the write is accepted and
+  the analysis refuses with `The template has 700 characters and exceeds the
+  500 character limit`, a message that still calls the subject a template. The
+  range therefore runs from the subject ceiling to the source ceiling, and the
+  default is the source ceiling itself. Two configurations that started the
+  host before this change no longer do: 200000 and 500.
+- **Accepted limit: the authoring validators do not read the configured
+  ceiling.** Making them read it was considered and refused, and the
+  consequence of the refusal is written here rather than discovered later. If
+  an operator tightens `MaxTemplateSizeChars` below the source ceiling, an
+  author submitting a body between the two receives `200` on the write and the
+  refusal at `validate`, with the tightened number, which is the correct one to
+  report. The premise the refusal rests on is that the shipped default is the
+  source ceiling, so nothing splits the two axes until someone types a number.
+  Two tests pin exactly that: one asserts the default equals the constant, and
+  one sweeps the settings files both hosts ship for a key that tightens it. The
+  day either turns red, this refusal is what gets reopened.
+- **Out of scope here, with the reason recorded so it is not rediscovered as
+  new.** Lowering the source ceiling shrinks the worst case of the raw catalog
+  sweep by a factor of 3.9 and does not close it, because the catalog does not
+  short-circuit by declared design; the measured saving per call is 67.7 ms of
+  CPU, 27.84 MB and 3371 response items. The sensitive-variable check runs once
+  per occurrence rather than once per variable, so its report grows with the
+  body: 4538 checks were counted over a body of 512000 characters, and the new
+  ceiling lowers that count in proportion without changing the shape of the
+  defect. And three `catch (RegexMatchTimeoutException)` blocks, in
+  `Domain/TemplateValidation.cs` at lines 98, 465 and 510, cannot be reached,
+  because the expressions they guard are `NonBacktracking` and carry no
+  timeout. That is worse than dead code: the comment on the first one states
+  that it fails closed and stays on the `Result` axis, and that route never
+  runs, so the file documents a guarantee nothing provides.
 - Never bind HTTP bodies directly to domain types.
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.

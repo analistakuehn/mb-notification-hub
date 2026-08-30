@@ -1268,6 +1268,20 @@ Mecanismo: o estado vive na tabela `KILL_SWITCH(scope, key, state, actor, second
 - **Redis**: AUTH, TLS em trânsito, sem `FLUSHALL` para a role da aplicação, `maxmemory-policy` que nunca despeja chaves de rate limit antes de cache.
 - **API**: cabeçalhos de segurança, `Content-Type` estrito, limite de tamanho de corpo (256 KB), timeouts de requisição, desserialização com `System.Text.Json` sem tipos polimórficos abertos.
 
+**Errata de 2026-08-30 sobre o limite de corpo.** O limite de 256 KB está
+declarado acima e **não está implementado**. Não existe `MaxRequestBodySize`
+global nem seção `Kestrel` em nenhum `appsettings`, então vale o padrão do
+Kestrel, 30 MB; o único limite de corpo do repositório é por endpoint, no
+webhook de provedor. E impor 256 KB como está escrito **recusaria conteúdo
+legítimo**: medido com o encoder padrão, que escapa todo caractere não ASCII
+para `\uXXXX`, um corpo pt-BR de 131.072 caracteres serializa em 786.443 bytes
+de JSON, seis por unidade, o que já é três vezes o limite declarado. Um `PUT`
+de conteúdo ainda carrega corpo e variante texto sob o mesmo teto de fonte, e o
+assunto além deles. Portanto o número do transporte, quando for imposto, precisa
+**derivar** do teto de fonte e do pior caso de codificação, algo perto de 1,6
+MB, e nunca de um 256 KB redondo. Enquanto ele não existe, quem de fato limita a
+entrada é o teto de fonte do domínio (ADR-0013, errata de 2026-08-30).
+
 ### 10.6 Ciclo de desenvolvimento seguro
 
 | Quando | O quê |

@@ -24,7 +24,7 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templati
 /// caller declared the source immutable. Everything else is parsed and dropped.
 /// </para>
 /// </remarks>
-internal sealed class ScribanParseCache : IDisposable
+internal sealed partial class ScribanParseCache : IDisposable
 {
     /// <summary>
     /// Managed bytes the memoization is allowed to hold. It is a share of the

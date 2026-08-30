@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
@@ -145,6 +146,23 @@ public sealed class PutTemplateVersionContentEndpointTests(TemplateManagementApi
         JsonElement body = await TemplateApi.ReadJsonAsync(second);
         string?[] editors = [.. body.GetProperty("editors").EnumerateArray().Select(editor => editor.GetString())];
         editors.ShouldBe(["editor-a", "editor-b"]);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_body_longer_than_the_source_ceiling_returns_400_naming_the_ceiling()
+    {
+        HttpClient client = fixture.CreateAuthorClient("editor-1");
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/content/email/pt-BR";
+        var oversized = new { subject = "Seu pedido", body = new string('a', 200_000) };
+
+        HttpResponseMessage response = await client.SendAsync(TemplateApi.PutJson(url, oversized, etag));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("errors").GetProperty("Body")[0].GetString()!
+            .ShouldContain(TemplateSourceSize.MaxChars.ToString(CultureInfo.InvariantCulture));
     }
 
     private async Task<string> SeedPublishedVersionAsync(string key)

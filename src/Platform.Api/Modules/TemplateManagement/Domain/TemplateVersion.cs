@@ -13,8 +13,26 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 /// </summary>
 public sealed class TemplateVersion
 {
+    /// <summary>
+    /// Characters a content subject may carry. The number comes from the mail
+    /// header line limit and from the column that stores it, and never from
+    /// what a subject costs to parse, so it is a ceiling of its own and not a
+    /// share of the source ceiling.
+    /// <para>
+    /// A subject is still source the engine analyzes, so the two are tied by
+    /// one invariant, asserted by a test: a subject this constant admits has
+    /// to fit inside the source ceiling, or a configuration between the two
+    /// would accept a subject on the write and refuse it on the analysis.
+    /// </para>
+    /// </summary>
     public const int MaxSubjectLength = 998;
-    public const int MaxBodyLength = 512_000;
+
+    /// <summary>
+    /// Characters a variables schema may carry. It is deliberately outside the
+    /// source ceiling: a schema describes the variables, is read by the schema
+    /// validator, and never reaches the template engine, so nothing about the
+    /// cost of parsing a template says anything about it.
+    /// </summary>
     public const int MaxSchemaLength = 64_000;
 
     private readonly string _templateKey;
@@ -266,9 +284,9 @@ public sealed class TemplateVersion
             return guard;
         }
 
-        if (string.IsNullOrWhiteSpace(edit.Body) || edit.Body.Length > MaxBodyLength)
+        if (string.IsNullOrWhiteSpace(edit.Body) || edit.Body.Length > TemplateSourceSize.MaxChars)
         {
-            return ValidationFailure($"Content body is required and must have at most {MaxBodyLength} characters.");
+            return ValidationFailure($"Content body is required and must have at most {TemplateSourceSize.MaxChars} characters.");
         }
 
         if (edit.Subject is { Length: > MaxSubjectLength })
@@ -276,9 +294,9 @@ public sealed class TemplateVersion
             return ValidationFailure($"Content subject must have at most {MaxSubjectLength} characters.");
         }
 
-        if (edit.BodyText is { Length: > MaxBodyLength })
+        if (edit.BodyText is { Length: > TemplateSourceSize.MaxChars })
         {
-            return ValidationFailure($"Content text body must have at most {MaxBodyLength} characters.");
+            return ValidationFailure($"Content text body must have at most {TemplateSourceSize.MaxChars} characters.");
         }
 
         TemplateContent? existing = _contents.FirstOrDefault(content =>

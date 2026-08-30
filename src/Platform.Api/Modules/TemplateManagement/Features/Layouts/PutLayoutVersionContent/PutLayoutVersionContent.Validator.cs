@@ -9,8 +9,8 @@ internal static partial class PutLayoutVersionContent
     {
         public Validator()
         {
-            RuleFor(request => request.Body).NotEmpty().MaximumLength(LayoutVersion.MaxBodyLength);
-            RuleFor(request => request.BodyText).MaximumLength(LayoutVersion.MaxBodyLength);
+            RuleFor(request => request.Body).NotEmpty().MaximumLength(TemplateSourceSize.MaxChars);
+            RuleFor(request => request.BodyText).MaximumLength(TemplateSourceSize.MaxChars);
         }
     }
 }
