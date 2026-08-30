@@ -938,17 +938,23 @@ irreversível é zero.
 
 Antes de aceitar esse zero, as consultas foram submetidas a sondas semeadas que
 tinham que casar e sondas que não podiam casar, dentro de uma transação
-revertida. As consultas originais reprovaram em três pontos, e os três estão
-corrigidos abaixo:
+revertida. As consultas originais reprovaram em quatro pontos, e os quatro
+estão corrigidos abaixo. Os três primeiros vieram das sondas; o quarto só
+apareceu quando a implementação foi ler a API do motor, e nenhuma sonda o
+teria achado, porque uma sonda confirma o que a lista procura e nunca revela o
+que a lista esqueceu:
 
 | Furo | O que escapava | Por que importa |
 |---|---|---|
 | Só aspas simples | `math.format "N1" "pt-BR"` | É a forma canônica do Scriban, e era o próprio exemplo que derrubou a premissa da ficha |
 | Subtag de região obrigatória | `'pt'`, `'en'` sem região | Tag só de idioma é cultura válida e resolve normalmente |
+| Lista de filtros errada | `date.parse`, `date.parse_to_string`, `object.format` | Medidos na API do Scriban 7.2.6 durante a implementação. A lista antiga procurava `string.to_string`, que **não existe** neste motor, e ignorava três filtros reais; `date.parse_to_string` sozinho carrega **dois** argumentos de cultura |
 | Filtro `status = 'published'` | toda versão `superseded` | O índice único `ux_template_version_single_published` deixa **uma** versão publicada por template; a história restaurável inteira mora em `superseded`, e `RollbackTemplate` clona a fonte dela exigindo hash idêntico |
 
-O terceiro furo era o maior: contava no máximo uma versão por template e ignorava
-todo o resto.
+O terceiro furo era o de maior alcance: contava no máximo uma versão por
+template e ignorava todo o resto. O quarto era o mais perigoso, porque um
+filtro ausente da lista devolve zero com a mesma cara de um filtro ausente do
+catálogo.
 
 As consultas corrigidas **superestimam** de propósito. Um formato de data todo
 em letras com 2 ou 3 caracteres (`'dd'`, `'MMM'`) lê como tag de idioma e conta
@@ -973,7 +979,7 @@ FROM (
        AND tc.version = tv.version
      WHERE tv.status IN ('published', 'superseded')
        AND concat_ws(' ', tc.subject, tc.body, tc.body_text)
-           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*['"][A-Za-z]{2,3}(-[A-Za-z]{2,4}){0,2}['"]$re$
+           ~ $re$(date\.parse(_to_string)?|date\.to_string|math\.format|object\.format)[^}]*['"][A-Za-z]{2,3}(-[A-Za-z]{2,4}){0,2}['"]$re$
     UNION
     SELECT lv.layout_key, lv.version
       FROM templatemanagement.layout_version lv
@@ -982,7 +988,7 @@ FROM (
        AND lc.version = lv.version
      WHERE lv.status IN ('published', 'superseded')
        AND concat_ws(' ', lc.body, lc.body_text)
-           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*['"][A-Za-z]{2,3}(-[A-Za-z]{2,4}){0,2}['"]$re$
+           ~ $re$(date\.parse(_to_string)?|date\.to_string|math\.format|object\.format)[^}]*['"][A-Za-z]{2,3}(-[A-Za-z]{2,4}){0,2}['"]$re$
 ) AS achados;
 ```
 
