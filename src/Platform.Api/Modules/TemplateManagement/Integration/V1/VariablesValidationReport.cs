@@ -24,7 +24,18 @@ public sealed record VariablesValidationCheck(string Name, string Status, string
 /// the validation succeeds even when checks fail, and a failed check is data
 /// for the consumer's own rejection decision.
 /// </summary>
-public sealed record VariablesValidationReport(IReadOnlyList<VariablesValidationCheck> Checks)
+/// <remarks>
+/// This is a reference type without value equality on purpose. A report is the
+/// outcome of one run, and comparing two of them would compare the check-list
+/// instance the validator happened to build, which is a fact about that
+/// validator and not about the payload it read. A consumer that wants to know
+/// whether two payloads validate alike compares the checks it reads, never the
+/// reports it holds.
+/// </remarks>
+public sealed class VariablesValidationReport(IReadOnlyList<VariablesValidationCheck> checks)
 {
+    /// <summary>The verifications of this run, in the order the validation produced them.</summary>
+    public IReadOnlyList<VariablesValidationCheck> Checks { get; } = checks;
+
     public bool Passed => Checks.All(check => check.Status != VariablesValidationStatuses.Failed);
 }

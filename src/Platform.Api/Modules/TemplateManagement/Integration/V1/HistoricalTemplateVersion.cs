@@ -8,13 +8,24 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 /// only ones an approval vouches for.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The legal basis, the purpose, the owning team, the class and the sensitive
 /// variables belong to the template identity, which this module creates once and
 /// never edits; they are therefore the same values the version shipped under.
 /// The content hash, the status, the pinned layout and the publication instant
 /// belong to the version itself.
+/// </para>
+/// <para>
+/// This is a reference type without value equality on purpose. The version is
+/// identified by <see cref="Version"/> under its template together with
+/// <see cref="ContentHash"/>, and that is what an approval vouches for.
+/// Comparing these members would answer about the sensitive-variable list
+/// instance a caller happened to build, which is a fact about that caller and
+/// not about what shipped; it would also compare a lifecycle status that moves
+/// after publication against a content hash that never does. Ask the hash.
+/// </para>
 /// </remarks>
-public sealed record HistoricalTemplateVersion
+public sealed class HistoricalTemplateVersion
 {
     public required string Application { get; init; }
 

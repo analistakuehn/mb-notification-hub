@@ -1119,3 +1119,92 @@ ordem em que o compilador os recebeu. Declarada dentro do motor, a tabela estava
 nula na hora de construir a superfície e o tipo inteiro falhava ao inicializar,
 com a suíte reprovando noventa e um testes de uma vez. Um tipo próprio inicializa
 no primeiro uso, seja qual for o caminho que chegue lá primeiro.
+
+## Igualdade dos contratos publicados: o que foi convertido e por quê
+
+**A decisão, para que o próximo leitor não a reabra.** A régua não é "carrega
+coleção" nem "é do módulo". É **"este tipo quebra a promessa?"**. Cinco
+declarações de `Integration/V1` viraram `sealed class`, todas autônomas, e três
+continuam `record` porque não devem nada.
+
+| Convertido para `sealed class` | Arquivo |
+|---|---|
+| `ClassPolicyDefinition` | `Integration/V1/ClassPolicyDefinition.cs` |
+| `PublishedClassPolicy` | `Integration/V1/PublishedClassPolicy.cs` |
+| `VariablesValidationReport` | `Integration/V1/VariablesValidationReport.cs` |
+| `PublishedTemplate` | `Integration/V1/PublishedTemplate.cs` |
+| `HistoricalTemplateVersion` | `Integration/V1/HistoricalTemplateVersion.cs` |
+
+`DeliveryPlanStep`, `QuietHoursWindow` e `HistoricalLayoutVersion` **ficam
+`record`**, e não por esquecimento: medidos, os três comparam por conteúdo hoje.
+
+**O mecanismo não é o que a leitura da declaração sugere.** A igualdade
+sintetizada fecha sobre `EqualityComparer<TipoDeclarado>.Default`, e para membro
+de interface, de array, ou de struct que carrega referência, isso é despacho
+virtual sobre a instância que o produtor injetou. Duas `List<T>` dão `False`;
+duas coleções que sobrescrevem `Equals` dão `True`; dois boxes do mesmo
+`ImmutableArray` dão `True`. Ou seja: **a igualdade do contrato publicado é
+escolhida em tempo de execução pelo produtor, não pelo contrato.** Isso é
+instabilidade, não incorreção, e é o argumento que sustenta a conversão.
+
+**Alternativas mortas por medição. Não reabra.**
+
+| Alternativa | Por que morreu |
+|---|---|
+| `readonly record struct Channel` | `Result<T>` é `readonly record struct` com `T` sem restrição, então uma falha de `Create` materializaria `Value == null` passando em `is not null` nos portões de consentimento e de supressão |
+| `Equals` à mão nos contratos | Publicaria uma segunda identidade **mais fraca** que o hash, e `IReadOnlyList<T>` é vista sobre a coleção do chamador, então o hash estrutural some do próprio dicionário quando o chamador muta a lista |
+| Tipo novo de coleção no `SharedKernel` | Custo de vocabulário novo sem fechar a pergunta |
+| "Trocar `Channel` resolve" | Falso por construção: a quebra está nos membros de coleção, não no `Channel` |
+
+**A guarda é comportamental, não sintática**, e vive em
+`tests/Platform.ArchTests/PublishedContractEqualityTests.cs` porque atravessa os
+cinco módulos que publicam contrato. Para cada `record` público em
+`*.Integration.V1` ela constrói dois valores de conteúdo igual por membro em
+instâncias distintas e pergunta a `EqualityComparer<T>.Default`. O conjunto dos
+que quebram é comparado por **igualdade exata** com um inventário nomeado, então
+consertar um tipo sem tirar a linha reprova tanto quanto acrescentar uma quebra
+sem pôr a linha. **O portão barra o esquecimento, não a decisão**: quem
+acrescentar um contrato quebrado junto com a entrada dele no inventário passa, e
+isso está certo.
+
+Duas limitações estão declaradas no próprio teste, porque nenhuma é alcançável
+por uma regra indexada por tipo. A primeira: **quebra dependente do valor**.
+`DispatchRequest.Message` compara por conteúdo quando carrega `EmailMessage` e
+por referência quando carrega `PushMessage`; a guarda escolhe o primeiro subtipo
+concreto por nome ordinal e relata aquele veredito. A segunda: **contrato fora
+do segmento de namespace**, fechada por um teste próprio que reprova se algum
+tipo público com membro público nascer em `Modules.{X}.Integration` fora de
+`.V1`.
+
+**O censo é piso, não total.** Medido antes da conversão: **20** contratos
+publicados quebravam, sendo 12 nos outros quatro módulos. Depois: **15**, exatamente
+os 20 menos os cinco convertidos, e nenhuma quebra nova nasceu da conversão. O
+número é piso porque a quebra dependente de valor fica fora de qualquer contagem
+indexada por tipo.
+
+**`NO-CONSENSUS` sobre o alcance amplo.** Os 12 restantes nos outros quatro
+módulos continuam sem decisão, e faltam dois desempates que **não existem hoje**:
+as lentes de revisão daqueles módulos, que não correram, e uma execução da suíte
+de integração sobre o caminho `CachedRecipientSnapshot`, onde `RecipientSnapshot`
+viaja serializado e cifrado no Redis. O conjunto recomendado é **subconjunto
+próprio** do amplo, então nada do que se fez agora se desfaz depois.
+
+**Dois contratos deste módulo quebram e não estavam na decisão.**
+`PublishedTemplateLookup.Published` carrega `PublishedTemplate` e é folha de
+hierarquia fechada de `record`, então converter arrastaria a raiz e a irmã
+`Rejected`, que cumpre hoje; a razão registrada é a hierarquia.
+`PublishedRenderRequest` quebra por `JsonElement? Variables`, é declaração
+autônoma e **nada prende a conversão**: essa é uma lacuna da decisão, não uma
+restrição, e está registrada como tal no inventário da guarda. Pende de decisão
+humana.
+
+**O `ARC-003` continua `PENDENTE` e isto não é progresso sobre ele.** O dano
+dele é real, presente e maior que a ficha registra. Medido nesta leitura:
+`ContactConsent.Domain.ContactChannels` codifica **três** canais em vez de
+quatro, sem push; `StoredAttemptContent.ToRenderedMessage` decide por um `switch`
+de três braços sem whatsapp; e `PushChannel = "push"` está repetido em
+`ChannelSelectionRule`, `RouteStage` e `AttemptDispatchWriter`. Pior:
+`AdmittedDeliveryPlan.Read` devolve `null` quando `Channel.Create` recusa uma
+palavra, e `FallbackRequestHandler` lê esse `null` como "sem plano armazenado" e
+cai no plano publicado agora, **trocando o plano de entrega de uma notificação em
+voo**. Não feche nem sugira fechar.

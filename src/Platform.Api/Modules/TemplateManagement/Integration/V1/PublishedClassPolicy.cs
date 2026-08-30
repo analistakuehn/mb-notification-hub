@@ -5,7 +5,12 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 /// notification must record: the policy version that ruled it and the content
 /// hash its approval vouches for.
 /// </summary>
-public sealed record PublishedClassPolicy
+/// <remarks>
+/// A reference type for the same reason the definition it carries is one:
+/// <see cref="ContentHash"/> is what says two policies are the same, and it
+/// says so about the stored document rather than about these members.
+/// </remarks>
+public sealed class PublishedClassPolicy
 {
     public required string Application { get; init; }
 

@@ -20,7 +20,16 @@ public sealed record QuietHoursWindow(TimeOnly From, TimeOnly To);
 /// delivery plan, the default TTL, the dedupe window, the optional quiet-hours
 /// window, and the optional consent purpose to consult.
 /// </summary>
-public sealed record ClassPolicyDefinition
+/// <remarks>
+/// This is a reference type without value equality on purpose. Identity of a
+/// definition is the published content hash, never a comparison of these
+/// members: the hash covers the canonical form of the whole stored document,
+/// including the fields a newer vocabulary adds and this tolerant view does
+/// not model, so two definitions that project identically here can still
+/// carry different documents. Comparing instances answers a weaker question
+/// than the hash answers, so ask the hash.
+/// </remarks>
+public sealed class ClassPolicyDefinition
 {
     public required int SchemaVersion { get; init; }
 

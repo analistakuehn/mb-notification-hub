@@ -86,7 +86,17 @@ public static class TemplatePurposes
 /// sibling module needs to validate, route and audit a notification request
 /// without touching this module's internals.
 /// </summary>
-public sealed record PublishedTemplate
+/// <remarks>
+/// This is a reference type without value equality on purpose. What says two
+/// of these describe the same published version is <see cref="ContentHash"/>,
+/// computed over the stored content rather than over the decision metadata
+/// projected here, so two versions whose members match one by one can still
+/// ship different content. Comparing instances would also answer about
+/// whichever list instance a producer happened to hand over for the two
+/// collection members, which is a fact about that producer and not about the
+/// version. Ask the hash.
+/// </remarks>
+public sealed class PublishedTemplate
 {
     public required string Application { get; init; }
 
