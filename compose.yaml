@@ -67,7 +67,6 @@ services:
       Modules__TemplateManagement__Persistence__Ef__ConnectionString: Host=postgres;Port=5432;Database=notificationhub;Username=postgres;Password=postgres
       Modules__Notifications__Redis__ConnectionString: redis:6379
       Modules__ContactConsent__Redis__ConnectionString: redis:6379
-      Modules__TemplateManagement__Cache__Redis__ConnectionString: redis:6379
     volumes:
       *user-secrets-volume
     ports:

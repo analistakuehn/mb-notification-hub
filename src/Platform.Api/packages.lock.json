@@ -116,15 +116,6 @@
           "Microsoft.EntityFrameworkCore": "10.0.10"
         }
       },
-      "Microsoft.Extensions.Caching.StackExchangeRedis": {
-        "type": "Direct",
-        "requested": "[10.0.10, )",
-        "resolved": "10.0.10",
-        "contentHash": "E+3pfEY68WQh1ZVFTGDNK0JCoayzL3aIDgVHHM85HIbQO7MiABG14A7+ajHH2P/y3a4W2Rla5p2nzut3+mzoyQ==",
-        "dependencies": {
-          "StackExchange.Redis": "2.7.27"
-        }
-      },
       "Microsoft.Extensions.Http.Resilience": {
         "type": "Direct",
         "requested": "[10.8.0, )",

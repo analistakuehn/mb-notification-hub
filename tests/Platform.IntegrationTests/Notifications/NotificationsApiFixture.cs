@@ -51,8 +51,6 @@ public sealed class NotificationsApiFixture : WebApplicationFactory<Program>, IA
             {
                 ["Modules:Audit:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
-                ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = _redis.GetConnectionString(),
-                ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
                 ["Modules:Notifications:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,

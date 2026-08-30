@@ -1226,3 +1226,63 @@ de três braços sem whatsapp; e `PushChannel = "push"` está repetido em
 palavra, e `FallbackRequestHandler` lê esse `null` como "sem plano armazenado" e
 cai no plano publicado agora, **trocando o plano de entrega de uma notificação em
 voo**. Não feche nem sugira fechar.
+
+## Cache: o que este módulo registra e o que ele deliberadamente não registra
+
+**A decisão, para que o próximo leitor não a reabra.** O cache publicado deste
+módulo é o **de memória**, em `Infrastructure/Integration/PublishedReadCache.cs`.
+O módulo **não registra Redis** e não registra abstração transversal nenhuma no
+container.
+
+**O que foi removido, e por quê.** O módulo registrava `IConnectionMultiplexer`
+como singleton e chamava `AddStackExchangeRedisCache`, que registra
+`IDistributedCache`. Medido: **nenhum tipo do repositório resolvia qualquer uma
+das duas**. As únicas ocorrências de `IConnectionMultiplexer` fora daquele
+arquivo eram três comentários de documentação nos módulos irmãos dizendo que
+deliberadamente **não** resolvem o do container, e `IDistributedCache` não
+aparecia em `src/` nem em `tests/`. Três consequências justificaram a remoção,
+e não apenas o código morto:
+
+1. **Acoplamento de boot.** A opção era `[Required]` com
+   `.ValidateDataAnnotations().ValidateOnStart()`, então a API recusava subir sem
+   cadeia de conexão para algo que nada consumia. As fixtures de integração
+   injetavam a cadeia só para o host conseguir subir, e isso saiu junto.
+2. **Fronteira.** Era o único módulo registrando no container duas abstrações
+   transversais que não pertencem ao contexto dele, e o teste de arquitetura por
+   namespace não enxerga esse acoplamento, porque ele acontece na coleção de
+   serviços e não em referência de tipo.
+3. **Armadilha de disponibilidade.** A conexão não forçava
+   `AbortOnConnectFail = false`, que é exatamente o cuidado que os três irmãos
+   documentam. No dia em que alguém resolvesse aquele singleton, um Redis
+   inacessível viraria exceção de resolução em vez de falha no ponto de uso.
+
+**Prova de boot, medida e não argumentada.** Com a seção de configuração
+removida dos dois `appsettings`, o host subiu: `Now listening on` e
+`Application started`. As falhas de Postgres no log são ambiente (a cadeia de
+desenvolvimento não declara senha e o contêiner exige) e acontecem em serviços de
+fundo **depois** do start, nunca na validação de opções, que roda antes.
+
+**A regra para o futuro.** Se memoização distribuída for desejada, ela entra por
+decisão aceita e com **wrapper próprio do módulo**, no padrão que
+`ContactConsent`, `Dispatch` e `Notifications` já documentam: multiplexer
+preguiçoso, `AbortOnConnectFail` forçado a `false`, e falha aparecendo na
+primeira operação. **Nunca por registro de abstração global no container.**
+
+**Por que não há portão para isso, e a medição que decidiu.** Um portão do tipo
+"nenhum módulo registra abstração vinda de pacote externo" **não é viável como
+regra mecânica**. Medido: `TimeProvider.System` é registrado por vários módulos
+(`AuditModule`, `PartitionManagerSetup`, `ChainVerificationSetup`, e o próprio
+`TemplateManagementModule`) e é abstração de framework legítima; some-se
+`IValidator` por varredura de assembly, `AddDbContext`, health checks e rate
+limiters. A distinção entre "abstração de framework que um módulo pode
+registrar" e "infraestrutura transversal de terceiro que ele deve envolver" é
+semântica e não mecânica, então o portão exigiria lista de exceção grande e sem
+princípio, que é pior que portão nenhum. O que segura esta linha é a regra
+escrita acima mais revisão humana, e isso está dito aqui em vez de ficar
+implícito.
+
+**Pacote.** `Microsoft.Extensions.Caching.StackExchangeRedis` saiu de
+`Directory.Packages.props` e do `.csproj`, porque só ele fornecia
+`AddStackExchangeRedisCache`. **`StackExchange.Redis` fica**, porque os três
+irmãos o usam direto. O serviço `redis` do `compose.yaml` fica pelo mesmo
+motivo; saiu só a variável de ambiente deste módulo.

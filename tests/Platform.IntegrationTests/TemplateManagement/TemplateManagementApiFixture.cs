@@ -34,8 +34,6 @@ public sealed class TemplateManagementApiFixture : WebApplicationFactory<Program
             {
                 ["Modules:Audit:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
-                ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = "localhost:6379",
-                ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
                 ["Authentication:Schemes:Bearer:ValidIssuer"] = Issuer,
                 ["Authentication:Schemes:Bearer:ValidAudiences:0"] = Audience,
                 ["Authentication:Schemes:Bearer:SigningKeys:0:Issuer"] = Issuer,

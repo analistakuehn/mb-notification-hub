@@ -47,8 +47,6 @@ public sealed class DevSigningKeyGuardTests
                     ["Authentication:Schemes:Bearer:SigningKeys:0:Issuer"] = DevIssuer,
                     ["Authentication:Schemes:Bearer:SigningKeys:0:Value"] =
                         "ZGV2LW9ubHkgc2lnbmluZyBrZXkgLSBuZXZlciB1c2Ugb3V0c2lkZSBsb2NhbGhvc3Q=",
-                    ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = "localhost:6379",
-                    ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
                     ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] =
                         "Host=localhost;Database=integration_tests;Username=test",
                 }));

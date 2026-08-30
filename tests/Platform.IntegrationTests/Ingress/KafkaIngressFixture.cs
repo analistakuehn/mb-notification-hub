@@ -70,8 +70,6 @@ public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsync
             {
                 ["Modules:Audit:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
-                ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = _redis.GetConnectionString(),
-                ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = RedisKeyPrefix,
                 ["Modules:Notifications:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,

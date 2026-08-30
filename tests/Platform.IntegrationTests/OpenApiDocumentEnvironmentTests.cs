@@ -78,8 +78,6 @@ public sealed class OpenApiDocumentEnvironmentTests
                     ["Platform:Cryptography:Envelope:KeyId"] = "openapi-environment-test",
                     ["Platform:Cryptography:Envelope:MasterKey"] =
                         "Y2hhdmUtbWVzdHJhIGRlIHRlc3RlIGRlIGFtYmllbnRlIHBhcmEgbyBvcGVuYXBp",
-                    ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = "localhost:6379",
-                    ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
                     ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] =
                         "Host=localhost;Database=integration_tests;Username=test",
                 }));

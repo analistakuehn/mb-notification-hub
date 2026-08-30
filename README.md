@@ -177,14 +177,3 @@ Handlers may use `TemplateManagementDbContext` directly for simple aggregate-sco
 work. Introduce a concrete repository only when it hides real query or
 persistence complexity. Read paths use `AsNoTracking` plus DTO projection;
 mutable aggregate roots use optimistic concurrency.
-
-### Redis cache
-
-Configure under `Modules:TemplateManagement:Cache:Redis`. Keep credentials in user
-secrets or the production secret provider. The scaffold registers:
-
-- `IConnectionMultiplexer` (singleton) for raw Redis access
-- `IDistributedCache` backed by Redis for ASP.NET Core caching APIs
-
-Inject either one in slice repositories. When the `hybrid-cache` feature is
-also selected, `HybridCache` automatically uses Redis as the L2 store.

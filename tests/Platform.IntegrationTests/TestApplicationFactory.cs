@@ -17,8 +17,6 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
             ["Modules:Audit:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=integration_tests;Username=test",
-            ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = "localhost:6379",
-            ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
             ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=integration_tests;Username=test",
             });
         });

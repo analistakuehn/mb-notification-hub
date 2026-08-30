@@ -71,7 +71,6 @@
   </ItemGroup>
 
   <ItemGroup Label="Araia Cache">
-    <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.16" />
   </ItemGroup>
 

@@ -83,8 +83,6 @@ public sealed class AuditPartitionHealthCheckTests : IAsyncLifetime
                     ["Modules:Audit:Persistence:Ef:ConnectionString"] = connectionString,
                     ["Modules:Notifications:Persistence:Ef:ConnectionString"] = connectionString,
                     ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = connectionString,
-                    ["Modules:TemplateManagement:Cache:Redis:ConnectionString"] = "localhost:6379",
-                    ["Modules:TemplateManagement:Cache:Redis:InstanceName"] = "integration-tests:",
 
                     // The manager would recreate the dropped partition and the
                     // check must not race it.
