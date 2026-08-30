@@ -273,28 +273,57 @@ curta própria.
   payload e paginação, pertence à ferramenta `tools/Platform.GoLiveChecks`; ela
   comprova a ausência de atribuições operacionais sem expor o token em log ou
   recibo.
-- **A administração do kill switch está sem observabilidade nas três camadas, e
-  isto é dívida registrada, não desenho.** O desenho do sistema nomeia o kill
-  switch manual como compensação do fail open do rate limit: é o controle que
-  resta de pé quando o outro cede. Hoje a fatia não tem
-  `KillSwitchAdministration.Handler.Logger.cs` nem `ILogger` injetado, enquanto
-  a parada automática irmã emite evento em `Critical` com mensagem que termina
-  mandando o operador ao caminho manual; o endpoint não aplica
-  `.WithRequestLogging()`, e é uma das duas rotas do host fora do filtro; e o
-  host não tem log de acesso, porque `Program.cs` não usa `UseHttpLogging`,
-  `W3CLogging` nem equivalente. O traço de quem parou ou religou um escopo é
-  zero, e não traço sem ator.
-- Junte-se a isso que os dois `catch` do handler traduzem
-  `DbUpdateConcurrencyException` e violação de unicidade em
-  `Result.Success(... Conflict: true)` depois do rollback. Um conflito no
-  controle compensatório volta ao chamador como sucesso, sem log, sem trilha e
-  sem linha de requisição.
-- Sequenciamento para fechar isto: primeiro o logger de fatia, depois o filtro
-  no endpoint, depois a decisão explícita sobre os dois `catch`. Só então valem
-  os portões que dependem deles, o de evento de log em `catch` que envolve
-  escrita de trilha e o de cobertura do filtro em todo endpoint mapeado. Escritos
-  antes, os dois nascem com esta fatia como violação e forçariam uma isenção
-  nomeada.
+- **A administração do kill switch registra quem parou e quem religou.** O
+  desenho do sistema nomeia o kill switch manual como compensação do fail open
+  do rate limit, e é por isso que a fatia deixa linha por comando que chega ao
+  handler, com o escopo, a chave e o ator, em
+  `KillSwitchAdministration.Handler.Logger.cs`. Os níveis são decisão:
+  `Warning` na parada e `Warning` na religada, porque as duas mudam o que sai
+  do hub e nenhuma delas é rotina, mas nenhuma é surpresa como a parada
+  automática irmã, que fica em `Critical` justamente por não ter pessoa no
+  circuito; `Information` no comando que não muda nada, que sem essa linha não
+  deixaria vestígio algum, já que sem transição também não há trilha; e `Error`
+  nos dois conflitos, porque ali a parada que alguém pediu não aconteceu. Os
+  conflitos têm eventos separados de propósito: a colisão de unicidade só é
+  alcançável no caminho de criação, então ela diz que dois pedidos criaram a
+  mesma chave ao mesmo tempo, enquanto a de concorrência diz que alguém mudou
+  uma chave que já existia.
+- O endpoint aplica `.WithRequestLogging()`, e é ele quem cobre as recusas
+  acima do handler, que são justamente as que nunca chegam à fatia que registra:
+  token sem `oid` nem `sub`, escopo ou chave que não analisam, corpo sem
+  `active`. O host continua sem log de acesso próprio, porque `Program.cs` não
+  usa `UseHttpLogging`, `W3CLogging` nem equivalente, e é isso que torna o
+  filtro por rota a única testemunha dessas recusas.
+- **O contrato dos dois `catch` fica como está, e o motivo está escrito no
+  código.** Eles traduzem `DbUpdateConcurrencyException` e violação de
+  unicidade em `Result.Success(... Conflict: true)` depois do rollback, e a
+  borda decodifica isso em 409 com `kill-switch-concurrency-conflict`. Um
+  conflito de concorrência não é falha de domínio: ninguém pediu o que o hub
+  recusa, outro ator chegou primeiro na mesma chave, e a resposta é reler o
+  estado e tentar de novo. O módulo carrega um eixo único de erro e o decodifica
+  na borda, e dobrar o conflito no eixo de falha faria o transporte soletrar a
+  mesma diferença uma segunda vez. O que faltava aqui nunca foi o contrato, era
+  a linha.
+- **A rota de callback do provedor é a isenção nomeada do portão do filtro de
+  requisição**, e o motivo está escrito no portão. Ela tem
+  `ReceiveProviderWebhook.Handler.Logger.cs`, que emite uma linha por callback
+  com a chave do provedor e as contagens de recebidos, armazenados e já
+  conhecidos, mais linha própria por recusa alcançável; a rota não é invisível,
+  e o que ela emite diz mais do que o filtro genérico diria. Contra isso pesa o
+  custo: é a única rota cujo corpo vem de fora e cuja latência quem escreveu o
+  corpo mede e sobre a qual decide retentar. A isenção é limitada a uma rota por
+  uma contagem asserida no próprio portão, então um segundo endpoint no mesmo
+  arquivo não herda o nome.
+- **O portão de log em `catch` que envolve escrita de trilha continua aberto, e
+  a medição diz por quê.** São 15 arquivos de `Features/` que escrevem trilha e
+  têm `catch`, com 22 blocos `catch` entre eles. Por arquivo, os 15 têm chamada
+  de logger desde que o kill switch ganhou a sua; por bloco, 6 têm e 16 não, e
+  os 16 estão em 13 handlers de TemplateManagement que devolvem
+  `Result.BusinessRuleViolation` de dentro do `catch` sem registrar linha
+  alguma. A granularidade por arquivo nasce verde mas não observa a remoção de
+  uma das duas chamadas do kill switch, porque a outra a mantém verde; a
+  granularidade por bloco observa, e nasce com 16 violações. Escolher entre
+  fechar os 13 handlers e estreitar o alcance do portão é decisão de escopo.
 
 ## Eventos de resultado de saída
 

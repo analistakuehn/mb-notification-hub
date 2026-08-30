@@ -29,6 +29,27 @@ public sealed partial class SecurityArchitectureTests
     /// </summary>
     private const string OutputPolicyFileName = "RenderedOutputPolicy.cs";
 
+    /// <summary>
+    /// The one route that answers for itself instead of through the shared
+    /// request filter, named here and not matched by a pattern.
+    /// <para>
+    /// The exemption is granted on evidence, not on convenience: the slice
+    /// carries its own logger and emits one line per callback, with the
+    /// provider key and the counts of events received, stored and already
+    /// known, plus its own line for every refusal it can reach. The route is
+    /// therefore not invisible, and what it emits says more than the generic
+    /// filter would. Against that stands the cost: this is the one route whose
+    /// body is written by somebody outside and whose latency that same
+    /// somebody measures and retries on, and the filter would add a start and
+    /// a complete line to every callback on the hottest path in the host.
+    /// </para>
+    /// <para>
+    /// The exemption is bounded to one route by the count asserted below, so a
+    /// second endpoint cannot be added to that file and inherit the name.
+    /// </para>
+    /// </summary>
+    private const string RequestLoggingExemptFileName = "ReceiveProviderWebhook.Endpoint.cs";
+
     [Fact]
     public void Source_must_not_use_known_dangerous_apis()
     {
@@ -50,6 +71,47 @@ public sealed partial class SecurityArchitectureTests
                 .Where(statement => !statement.Contains("RequireAuthorization", StringComparison.Ordinal)
                     || !statement.Contains("RequireRateLimiting", StringComparison.Ordinal))
                 .Select(_ => path))
+            .ToArray();
+
+        findings.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Every mapped route declares the request-logging filter, on every verb.
+    /// <para>
+    /// The rule above it reads only the four state-changing verbs, because
+    /// authorization and rate limiting answer for effects. Observability does
+    /// not divide that way: this host writes no access log of its own, no
+    /// <c>UseHttpLogging</c> and no W3C log, so a route outside this filter
+    /// leaves nothing at all behind, and a read route is where a caller
+    /// enumerates. Reading every verb here is what keeps the blind spot from
+    /// surviving one file over from where it was found.
+    /// </para>
+    /// <para>
+    /// The filter is claimed at the registration and not by following a call,
+    /// for the same reason the rule above it works that way: the statement is
+    /// where a route declares what wraps it, and it is the only place a reader
+    /// or a reviewer looks.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Every_mapped_endpoint_declares_the_request_logging_filter()
+    {
+        (string Path, string Statement)[] statements = MappedEndpointStatements();
+
+        // A walk that stopped finding routes would turn the rule into a green
+        // that scanned nothing. The floor is the measured population, so a
+        // route that disappears has to be acknowledged here.
+        statements.Length.ShouldBeGreaterThanOrEqualTo(45);
+
+        // The exemption covers one route, and this is what keeps it that way.
+        statements.Count(item => Path.GetFileName(item.Path) == RequestLoggingExemptFileName)
+            .ShouldBe(1);
+
+        var findings = statements
+            .Where(item => Path.GetFileName(item.Path) != RequestLoggingExemptFileName)
+            .Where(item => !item.Statement.Contains("WithRequestLogging", StringComparison.Ordinal))
+            .Select(item => item.Path)
             .ToArray();
 
         findings.ShouldBeEmpty();
@@ -372,6 +434,17 @@ public sealed partial class SecurityArchitectureTests
         => [.. ModuleSourceFiles()
             .Where(path => path.EndsWith("AuditDetails.cs", StringComparison.Ordinal)
                 || File.ReadAllText(path).Contains("DetailsJson", StringComparison.Ordinal))];
+
+    /// <summary>
+    /// Every route registration in the two hosts, paired with the file that
+    /// declares it. A registration is one statement, which is how a route
+    /// declares its filters, its policies and its handler in one expression.
+    /// </summary>
+    private static (string Path, string Statement)[] MappedEndpointStatements()
+        => [.. SourceFiles()
+            .SelectMany(path => Regex.Split(File.ReadAllText(path), @";\s*")
+                .Where(statement => EndpointRegistration().IsMatch(statement))
+                .Select(statement => (Path: path, Statement: statement)))];
 
     private static string[] Findings(IEnumerable<string> files, Regex pattern)
         => [.. files

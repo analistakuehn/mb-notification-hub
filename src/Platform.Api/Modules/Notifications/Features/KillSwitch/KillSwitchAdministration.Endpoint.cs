@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using NotificationHub.Api.Infrastructure.EndpointFilters;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.RateLimiting;
@@ -21,7 +22,15 @@ internal static partial class KillSwitchAdministration
     internal static void MapEndpoint(RouteGroupBuilder group)
         => group.MapPut("/{scope}/{key}", HandleHttpAsync)
             .RequireAuthorization(NotificationsAuthorizationSetup.KillSwitchAdminPolicyName)
-            .RequireRateLimiting(NotificationsRateLimitingSetup.KillSwitchAdminPolicyName);
+            .RequireRateLimiting(NotificationsRateLimitingSetup.KillSwitchAdminPolicyName)
+
+            // The host keeps no access log, so without this filter the refusals
+            // above the handler leave nothing behind at all: a caller whose
+            // token carries no oid or sub, or whose address does not parse,
+            // never reaches the slice that logs. On the control that
+            // compensates the rate limit failing open, an attempt to reach it
+            // is worth as much as a transition.
+            .WithRequestLogging();
 
     private static async Task<IResult> HandleHttpAsync(
         string scope,
