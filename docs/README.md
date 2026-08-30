@@ -26,6 +26,7 @@ Documento-mãe: *Notification Hub, design de sistema*.
 | [0014](ADR-0014-confirmacao-de-entrega-e-gatilhos-de-fallback.md) | Confirmação de entrega e convivência dos gatilhos de fallback | Proposta | 0008, 0011 |
 | [0015](ADR-0015-regra-de-supressao-no-estagio-policy.md) | Regra de supressão no estágio Policy | Proposta | 0011, 0012 |
 | [0016](ADR-0016-corpo-do-callback-armazenado-uma-vez.md) | Corpo do callback armazenado uma vez e referenciado pela evidência | Aceita | 0006, 0014 |
+| [0017](ADR-0017-formatacao-de-saida-invariante-e-imposta.md) | Formatação de saída invariante e imposta | Aceita | 0005, 0013 |
 
 ## Convenções
 

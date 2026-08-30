@@ -38,6 +38,11 @@ internal sealed class TemplateVersionAnalyzer(ScribanTemplateEngine engine)
     private ContentFieldAnalysis Analyze(string field, string source)
     {
         TemplateSourceAnalysis analysis = engine.Analyze(source, field);
-        return new ContentFieldAnalysis(field, analysis.ParseSucceeded, analysis.ParseError, analysis.UsedVariables);
+        return new ContentFieldAnalysis(
+            field,
+            analysis.ParseSucceeded,
+            analysis.ParseError,
+            analysis.UsedVariables,
+            analysis.CultureArguments);
     }
 }

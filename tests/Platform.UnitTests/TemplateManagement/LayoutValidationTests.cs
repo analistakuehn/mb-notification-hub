@@ -142,5 +142,5 @@ public sealed class LayoutValidationTests
         => new(
             channel ?? Email,
             PtBr,
-            [new ContentFieldAnalysis("body", parseSucceeded, parseError, usedVariables ?? [])]);
+            [new ContentFieldAnalysis("body", parseSucceeded, parseError, usedVariables ?? [], [])]);
 }

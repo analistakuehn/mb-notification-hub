@@ -222,8 +222,8 @@ public sealed class SensitiveVariableValidationTests
                 Channel.Create("email").Value!,
                 Locale.Create("pt-BR").Value!,
                 [
-                    new ContentFieldAnalysis("subject", true, null, []),
-                    new ContentFieldAnalysis("body", true, null, ["cpf", "cliente"]),
+                    new ContentFieldAnalysis("subject", true, null, [], []),
+                    new ContentFieldAnalysis("body", true, null, ["cpf", "cliente"], []),
                 ]),
         ]);
 

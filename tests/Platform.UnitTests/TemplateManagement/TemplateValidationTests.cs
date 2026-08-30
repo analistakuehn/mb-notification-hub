@@ -50,6 +50,7 @@ public sealed class TemplateValidationTests
             ValidationCheckNames.SensitiveVariables,
             ValidationCheckNames.ChannelLimits,
             ValidationCheckNames.DefaultLocale,
+            ValidationCheckNames.OutputCulture,
         ]);
         report.Checks.ShouldAllBe(check => check.Status == ValidationCheckStatuses.Passed);
     }
@@ -64,7 +65,7 @@ public sealed class TemplateValidationTests
             new ContentAnalysis(
                 Channel.Create("sms").Value!,
                 Locale.Create("pt").Value!,
-                [new ContentFieldAnalysis("body", false, "body(1,15) : error : unexpected end", [])]),
+                [new ContentFieldAnalysis("body", false, "body(1,15) : error : unexpected end", [], [])]),
         ]);
 
         ValidationCheck check = report.Checks.Single(candidate => candidate.Name == ValidationCheckNames.Compilation);
@@ -689,6 +690,6 @@ public sealed class TemplateValidationTests
             Channel.Create(channel).Value!,
             Locale.Create(locale).Value!,
             fields
-                .Select(field => new ContentFieldAnalysis(field.Field, true, null, field.Used))
+                .Select(field => new ContentFieldAnalysis(field.Field, true, null, field.Used, []))
                 .ToList());
 }

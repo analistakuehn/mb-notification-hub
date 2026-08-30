@@ -10,10 +10,19 @@ using Scriban.Syntax;
 namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
 
 /// <summary>Result of parsing one template source inside the sandbox.</summary>
+/// <param name="ParseSucceeded">Whether the engine could build a template from the source.</param>
+/// <param name="ParseError">What the engine said when it could not.</param>
+/// <param name="UsedVariables">The global variables the source reads.</param>
+/// <param name="CultureArguments">
+/// The formatting members the source hands a culture to, which the render
+/// refuses. Empty whenever the parse failed, because a source that did not
+/// parse has no calls to read.
+/// </param>
 internal sealed record TemplateSourceAnalysis(
     bool ParseSucceeded,
     string? ParseError,
-    IReadOnlyList<string> UsedVariables);
+    IReadOnlyList<string> UsedVariables,
+    IReadOnlyList<string> CultureArguments);
 
 /// <summary>
 /// Where the source of one render comes from, which is what decides whether its
@@ -93,6 +102,14 @@ internal enum TemplateRefusal
     OutputLimit,
 
     /// <summary>
+    /// The source hands a culture to a formatting member. Output formatting is
+    /// invariant here and the culture argument is refused rather than dropped:
+    /// rendering it with the culture discarded would answer an author who asked
+    /// for one thing with another, in text nobody compares afterwards.
+    /// </summary>
+    CultureArgument,
+
+    /// <summary>
     /// The render failed inside the engine for a reason this module cannot
     /// separate: the loop limit, the recursion limit, and an authoring mistake
     /// caught at render time (an undeclared variable, a member on nothing, an
@@ -136,7 +153,7 @@ internal readonly record struct TemplateRenderOutcome(Result<string> Result, Tem
 /// before the parser ever sees it, per <see cref="ScribanSourceComplexity"/>.
 /// </para>
 /// </summary>
-internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options, ScribanParseCache parseCache)
+internal sealed partial class ScribanTemplateEngine(IOptions<TemplatingOptions> options, ScribanParseCache parseCache)
 {
     /// <summary>Replaces a caller-supplied value that surfaced in an engine message.</summary>
     private const string RedactedValue = "***";
@@ -172,25 +189,29 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
 
         if (source.Length > options.Value.MaxTemplateSizeChars)
         {
-            return new TemplateSourceAnalysis(false, SizeLimitMessage(source.Length), []);
+            return new TemplateSourceAnalysis(false, SizeLimitMessage(source.Length), [], []);
         }
 
         SourceComplexityLimit exceeded = Exceeded(source);
         if (exceeded is not SourceComplexityLimit.None)
         {
-            return new TemplateSourceAnalysis(false, ComplexityLimitMessage(exceeded), []);
+            return new TemplateSourceAnalysis(false, ComplexityLimitMessage(exceeded), [], []);
         }
 
         var template = Template.Parse(source, sourcePath);
         if (template.HasErrors)
         {
             var messages = string.Join(" ", template.Messages.Select(message => message.ToString()));
-            return new TemplateSourceAnalysis(false, messages, []);
+            return new TemplateSourceAnalysis(false, messages, [], []);
         }
 
         var collector = new GlobalVariableCollector();
         collector.Collect(template.Page);
-        return new TemplateSourceAnalysis(true, null, collector.UsedVariables());
+        return new TemplateSourceAnalysis(
+            true,
+            null,
+            collector.UsedVariables(),
+            CultureArgumentsIn(template.Page));
     }
 
     /// <summary>
@@ -405,6 +426,16 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         // event with a 400 and hide it from every operational signal.
         catch (ScriptRuntimeException exception) when (exception.InnerException is not OutOfMemoryException)
         {
+            // First, because it is the one cause here that is decided by the
+            // source alone: a template that forces a culture is refused on
+            // every host, at every hour, whatever else the render was doing
+            // when it happened. Reading it after the deadline would make the
+            // mode depend on how busy the process was.
+            if (exception.InnerException is CultureArgumentRefusedException refused)
+            {
+                return Refused(TemplateRefusal.CultureArgument, CultureArgumentMessage(refused.Path));
+            }
+
             // The ceiling is a definite cause and outranks the deadline, which
             // an oversized render tends to cross on its way out anyway.
             if (output.LimitExceeded)
@@ -578,6 +609,10 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         // No template loads another template inside this sandbox.
         builtin.Remove("include");
         builtin.Remove("include_join");
+
+        // Formatting is invariant here, and the only door left open to a
+        // template author is the culture argument of a formatting member.
+        BanCultureArguments(builtin);
 
         // Last, because a sealed object refuses the removals above.
         Seal(builtin);

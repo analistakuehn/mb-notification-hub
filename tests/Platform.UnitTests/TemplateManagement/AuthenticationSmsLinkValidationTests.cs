@@ -273,6 +273,6 @@ public sealed class AuthenticationSmsLinkValidationTests
             Channel.Create(channel).Value!,
             Locale.Create(locale).Value!,
             fields
-                .Select(field => new ContentFieldAnalysis(field.Field, true, null, field.Used))
+                .Select(field => new ContentFieldAnalysis(field.Field, true, null, field.Used, []))
                 .ToList());
 }

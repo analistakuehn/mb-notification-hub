@@ -11,6 +11,25 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!--
+      A culture name this runtime does not know stops being fabricated and
+      starts throwing. Without it, a well-formed tag nobody defined, such as
+      'qq-QQ', resolves to a culture with LCID 4096 that follows the operating
+      system locale on Windows and the ICU root on Linux; measured here, the
+      same number formatted under that tag came out as the host's own locale
+      and never as the invariant culture. Silent host-dependent output is the
+      one failure this module cannot see, so it is turned into an exception.
+
+      InvariantGlobalization would look like the same switch and is not: under
+      it, accent composition becomes a silent no-op and the normalization the
+      output policy runs first starts reporting success over text it never
+      normalized. That trades a visible defect for an invisible one, and the
+      tests that fail under it are kept failing on purpose, because they are
+      the only free oracle this repository has for the ICU dependency of the
+      output path.
+    -->
+    <PredefinedCulturesOnly>true</PredefinedCulturesOnly>
   </PropertyGroup>
 
 </Project>

@@ -134,6 +134,27 @@ publicadas que contêm essa gravação é leitura de banco por ambiente, ela nã
 tinha sido feita quando esta errata foi escrita, e um resultado maior que zero
 não é lista de trabalho, é incidente.
 
+### Errata de 2026-08-30: o censo foi feito, e a formatação de saída ganhou ADR própria
+
+A errata acima registra que o censo das versões publicadas com gravação em membro
+de builtin era leitura de banco por ambiente e não tinha sido feita. Ela foi
+feita em 2026-08-30, contra o banco de desenvolvimento, e devolveu **zero**: não
+há linha viva em nenhuma tabela do módulo e não há ambiente publicado, então
+ninguém vazou antes do selo e o raio da implantação é zero. As duas consultas
+estavam furadas quando foram escritas, e as versões corrigidas ficaram no
+`AGENTS.md` do módulo junto com o que cada furo deixava escapar.
+
+O mesmo censo destravou a outra metade do achado, que não é sobre estado
+compartilhado e sim sobre a cultura sob a qual o texto sai. Ela virou a
+**ADR-0017**, que bane o argumento de cultura dos membros de formatação, liga
+`PredefinedCulturesOnly` e fixa a imagem base por digest. Um detalhe que a
+medição da ADR-0017 acrescentou ao inventário acima, sem contradizê-lo: as 125
+funções continuam sendo 125 membros de função, e o que aparece a mais quando se
+conta pelo que é invocável é o próprio grupo `date`, que além de agrupar membros
+também pode ser chamado como função. Isso não move o selo, que percorre grupos e
+membros, e também não abre porta de cultura: medido, `date` chamado direto aceita
+no máximo dois parâmetros e recusa o terceiro.
+
 ### Consequências
 
 **Positivas**

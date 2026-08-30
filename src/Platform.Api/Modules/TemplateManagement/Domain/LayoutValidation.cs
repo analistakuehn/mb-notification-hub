@@ -25,6 +25,7 @@ public static class LayoutValidation
         AddContentPlaceholderChecks(checks, version, analyses);
         AddLinkHostChecks(checks, version);
         AddChannelLimitChecks(checks, version);
+        AddOutputCultureChecks(checks, analyses);
         return new ValidationReport(checks);
     }
 
@@ -48,6 +49,40 @@ public static class LayoutValidation
         if (checks.Count == before)
         {
             checks.Add(Passed(ValidationCheckNames.Compilation, "All content compiled inside the sandbox limits."));
+        }
+    }
+
+    /// <summary>
+    /// Refuses layout content that picks its own culture, on the same terms and
+    /// with the same sentence the template catalog uses. A layout renders on
+    /// the same engine and is refused by the same ban, so a layout left out
+    /// here would reach publication clean and break every template that pins
+    /// it.
+    /// </summary>
+    private static void AddOutputCultureChecks(
+        List<ValidationCheck> checks,
+        IReadOnlyList<ContentAnalysis> analyses)
+    {
+        var before = checks.Count;
+        foreach (ContentAnalysis analysis in analyses)
+        {
+            foreach (ContentFieldAnalysis field in analysis.Fields)
+            {
+                foreach (var member in field.CultureArguments)
+                {
+                    checks.Add(Failed(
+                        ValidationCheckNames.OutputCulture,
+                        TemplateValidation.CultureArgumentMessage(member),
+                        At(analysis.Channel, analysis.Locale, field.Field)));
+                }
+            }
+        }
+
+        if (checks.Count == before)
+        {
+            checks.Add(Passed(
+                ValidationCheckNames.OutputCulture,
+                "No content picks a culture of its own for formatting."));
         }
     }
 

@@ -26,15 +26,27 @@ public static class ValidationCheckNames
     public const string ChannelLimits = "channel-limits";
     public const string DefaultLocale = "default-locale";
     public const string LayoutReference = "layout-reference";
+    public const string OutputCulture = "output-culture";
     public const string ContentPlaceholder = "content-placeholder";
 }
 
 /// <summary>Sandbox analysis of one field of a content entry.</summary>
+/// <param name="Field">Which field of the content entry this is.</param>
+/// <param name="ParseSucceeded">Whether the sandbox could build a template from it.</param>
+/// <param name="ParseError">What the sandbox said when it could not.</param>
+/// <param name="UsedVariables">The variables the field reads.</param>
+/// <param name="CultureArguments">
+/// The formatting members the field hands a culture to. The render refuses
+/// every one of them, so a version carrying one cannot produce a message;
+/// naming them here is what turns that into something the publisher reads
+/// before the version goes live rather than after.
+/// </param>
 public sealed record ContentFieldAnalysis(
     string Field,
     bool ParseSucceeded,
     string? ParseError,
-    IReadOnlyList<string> UsedVariables);
+    IReadOnlyList<string> UsedVariables,
+    IReadOnlyList<string> CultureArguments);
 
 /// <summary>Sandbox analysis of one (channel, locale) content entry.</summary>
 public sealed record ContentAnalysis(
@@ -76,6 +88,18 @@ public static partial class TemplateValidation
     /// refuse.
     /// </summary>
     public const string AuthenticationSmsLinkCode = "authentication-sms-link";
+
+    /// <summary>
+    /// The refusal one culture argument earns, worded once and read at
+    /// publication and at render alike. The sandbox refuses the same content it
+    /// describes, so an author who meets this at publication and an author who
+    /// meets it at render are told the same thing in the same words; two
+    /// spellings of it would drift, and the one an author sees would depend on
+    /// which door they arrived through.
+    /// </summary>
+    public static string CultureArgumentMessage(string member)
+        => $"The content passes a culture to '{member}'. Formatting is invariant here, "
+            + "so the culture argument is refused: remove it.";
 
     /// <summary>
     /// Whether a piece of text offers something to click. Wider than the link
@@ -139,6 +163,7 @@ public static partial class TemplateValidation
         AddChannelLimitChecks(checks, version, layoutReference);
         AddDefaultLocaleChecks(checks, template, version);
         AddLayoutReferenceChecks(checks, version, layoutReference);
+        AddOutputCultureChecks(checks, analyses);
         return new ValidationReport(checks);
     }
 
@@ -162,6 +187,40 @@ public static partial class TemplateValidation
         if (checks.Count == before)
         {
             checks.Add(Passed(ValidationCheckNames.Compilation, "All content compiled inside the sandbox limits."));
+        }
+    }
+
+    /// <summary>
+    /// Refuses content that picks its own culture. Formatting is invariant in
+    /// this system, so a culture argument does not change the text a message
+    /// carries, it stops the message from being produced at all: the same
+    /// content is refused by the render. Failing it here costs a publication;
+    /// letting it through costs a notification that nobody can send.
+    /// </summary>
+    private static void AddOutputCultureChecks(
+        List<ValidationCheck> checks,
+        IReadOnlyList<ContentAnalysis> analyses)
+    {
+        var before = checks.Count;
+        foreach (ContentAnalysis analysis in analyses)
+        {
+            foreach (ContentFieldAnalysis field in analysis.Fields)
+            {
+                foreach (var member in field.CultureArguments)
+                {
+                    checks.Add(Failed(
+                        ValidationCheckNames.OutputCulture,
+                        CultureArgumentMessage(member),
+                        At(analysis.Channel, analysis.Locale, field.Field)));
+                }
+            }
+        }
+
+        if (checks.Count == before)
+        {
+            checks.Add(Passed(
+                ValidationCheckNames.OutputCulture,
+                "No content picks a culture of its own for formatting."));
         }
     }
 

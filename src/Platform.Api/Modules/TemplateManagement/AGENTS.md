@@ -896,15 +896,16 @@ silencioso, mas ela não é invisível: a segunda consulta da seção abaixo é 
 diz, por ambiente, se existe alguma dessas versões antes de a implantação
 acontecer.
 
-## Formatação de saída: o que está decidido e o que está bloqueado
+## Formatação de saída: o que está decidido e o que foi medido
 
 **A decisão, para que o próximo leitor não a reabra.** A formatação de saída
 passa a ser **invariante e imposta**, com três peças que só valem juntas: banir o
 argumento de cultura nos filtros de formatação, fixar as culturas predefinidas
 do runtime, e fixar a imagem base por digest para que a versão da ICU pare de se
-mover por baixo. Nada disso foi implementado, e nada disso deve ser implementado
-por pedaços: uma peça sozinha muda o texto que sai sem fechar a propriedade que
-as três juntas fecham.
+mover por baixo. As três entraram juntas, no mesmo commit, junto com o check de
+publicação que avisa o autor antes de a mensagem sair. O registro durável delas
+é a **ADR-0017**; o que fica abaixo é o que um leitor deste módulo precisa saber
+sem sair daqui.
 
 **`InvariantGlobalization` está proibido como caminho.** Ele parece resolver o
 mesmo problema por um interruptor e não resolve: sob globalização invariante a
@@ -929,14 +930,38 @@ comum, detalhe que decide se uma remedição reproduz ou não. Quem argumentar a
 partir de "o hash é o mesmo em qualquer host" está argumentando a partir de algo
 que a medição já derrubou.
 
-**O bloqueio.** O resto da correção depende de duas leituras no banco, uma por
-ambiente, que quem escreve isto não pode fazer. As duas consultas estão prontas
-abaixo. Elas leem a grafia literal na fonte publicada, então o número que
-devolvem é piso e nunca total: cultura ou nome de membro que cheguem por
-variável escapam do padrão.
+**O bloqueio foi levantado em 2026-08-30, e as duas consultas estavam furadas.**
+O censo rodou contra o banco de desenvolvimento (`compose.yaml`, `postgres:17-alpine`).
+As duas devolveram **0**, e não é incidente: não há uma linha viva em nenhuma
+tabela de nenhum dos sete esquemas, e não há ambiente publicado. O raio do passo
+irreversível é zero.
 
-Quantas versões publicadas passam argumento de cultura a um filtro de
-formatação, que é o que decide o custo de banir esse argumento:
+Antes de aceitar esse zero, as consultas foram submetidas a sondas semeadas que
+tinham que casar e sondas que não podiam casar, dentro de uma transação
+revertida. As consultas originais reprovaram em três pontos, e os três estão
+corrigidos abaixo:
+
+| Furo | O que escapava | Por que importa |
+|---|---|---|
+| Só aspas simples | `math.format "N1" "pt-BR"` | É a forma canônica do Scriban, e era o próprio exemplo que derrubou a premissa da ficha |
+| Subtag de região obrigatória | `'pt'`, `'en'` sem região | Tag só de idioma é cultura válida e resolve normalmente |
+| Filtro `status = 'published'` | toda versão `superseded` | O índice único `ux_template_version_single_published` deixa **uma** versão publicada por template; a história restaurável inteira mora em `superseded`, e `RollbackTemplate` clona a fonte dela exigindo hash idêntico |
+
+O terceiro furo era o maior: contava no máximo uma versão por template e ignorava
+todo o resto.
+
+As consultas corrigidas **superestimam** de propósito. Um formato de data todo
+em letras com 2 ou 3 caracteres (`'dd'`, `'MMM'`) lê como tag de idioma e conta
+como falso positivo; `'yyyy'`, `'N1'` e `'C2'` não contam. Essa é a troca
+deliberada: o número deixa de ser piso e passa a ser **teto**, e teto é a direção
+certa de erro para um censo de custo, porque **um teto zero prova ausência,
+enquanto um piso zero não prova nada**. Um falso positivo custa uma leitura
+manual; um falso negativo custa um template quebrado na implantação. O que
+continua escapando dos dois: cultura ou nome de membro que cheguem por variável
+em vez de literal.
+
+Quantas versões passam argumento de cultura a um filtro de formatação, que é o
+que decide o custo de banir esse argumento:
 
 ```sql
 SELECT count(*) AS versoes_com_argumento_de_cultura
@@ -946,27 +971,30 @@ FROM (
       JOIN templatemanagement.template_content tc
         ON tc.template_key = tv.template_key
        AND tc.version = tv.version
-     WHERE tv.status = 'published'
+     WHERE tv.status IN ('published', 'superseded')
        AND concat_ws(' ', tc.subject, tc.body, tc.body_text)
-           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*'[A-Za-z]{2,3}(-[A-Za-z]{2,4}){1,2}'$re$
+           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*['"][A-Za-z]{2,3}(-[A-Za-z]{2,4}){0,2}['"]$re$
     UNION
     SELECT lv.layout_key, lv.version
       FROM templatemanagement.layout_version lv
       JOIN templatemanagement.layout_content lc
         ON lc.layout_key = lv.layout_key
        AND lc.version = lv.version
-     WHERE lv.status = 'published'
+     WHERE lv.status IN ('published', 'superseded')
        AND concat_ws(' ', lc.body, lc.body_text)
-           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*'[A-Za-z]{2,3}(-[A-Za-z]{2,4}){1,2}'$re$
+           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*['"][A-Za-z]{2,3}(-[A-Za-z]{2,4}){0,2}['"]$re$
 ) AS achados;
 ```
 
-Quantas versões publicadas contêm atribuição a membro de builtin. **Se este
-número for maior que zero, isso deixa de ser correção e passa a ser incidente**,
-e a resposta é resposta a incidente: cada versão achada gravou dado de
-destinatário num objeto que todo render do processo lê, e o alcance do que
-vazou é a janela entre a publicação dela e a reinicialização do processo, para
-todas as aplicações servidas por aquele processo:
+Quantas versões contêm atribuição a membro de builtin. **Se este número for
+maior que zero, isso deixa de ser correção e passa a ser incidente**, e a
+resposta é resposta a incidente: cada versão achada gravou dado de destinatário
+num objeto que todo render do processo lia, e o alcance do que vazou é a janela
+entre a publicação dela e a reinicialização do processo, para todas as
+aplicações servidas por aquele processo. O selo de `e2e5fee` fecha o vazamento
+daqui para a frente, então esta consulta é forense e não preventiva: ela pergunta
+se alguém já vazou antes do selo, e por isso `superseded` importa mais aqui do
+que na outra.
 
 ```sql
 SELECT count(*) AS versoes_com_atribuicao_a_builtin
@@ -976,20 +1004,82 @@ FROM (
       JOIN templatemanagement.template_content tc
         ON tc.template_key = tv.template_key
        AND tc.version = tv.version
-     WHERE tv.status = 'published'
+     WHERE tv.status IN ('published', 'superseded')
        AND concat_ws(' ', tc.subject, tc.body, tc.body_text)
-           ~ $re$(array|date|html|math|object|regex|string|timespan)\.[a-z_0-9]+[[:space:]]*=[^=]$re$
+           ~ $re$(array|date|html|math|object|regex|string|timespan)[[:space:]]*(\.[A-Za-z_0-9]+|\[[^]]*\])[[:space:]]*=[^=]$re$
     UNION
     SELECT lv.layout_key, lv.version
       FROM templatemanagement.layout_version lv
       JOIN templatemanagement.layout_content lc
         ON lc.layout_key = lv.layout_key
        AND lc.version = lv.version
-     WHERE lv.status = 'published'
+     WHERE lv.status IN ('published', 'superseded')
        AND concat_ws(' ', lc.body, lc.body_text)
-           ~ $re$(array|date|html|math|object|regex|string|timespan)\.[a-z_0-9]+[[:space:]]*=[^=]$re$
+           ~ $re$(array|date|html|math|object|regex|string|timespan)[[:space:]]*(\.[A-Za-z_0-9]+|\[[^]]*\])[[:space:]]*=[^=]$re$
 ) AS achados;
 ```
 
 Trocar `count(*)` pela lista de `chave` e `versao` é o que dá o alvo do trabalho
 seguinte, nos dois casos.
+
+**O que ficou no código, e o que a medição corrigiu do texto acima.** As duas
+consultas nomeiam três filtros, e o texto da decisão fala em quatro. Nenhum dos
+dois números estava certo, e o conjunto real foi lido do próprio motor,
+percorrendo o objeto de builtins inteiro pela informação de parâmetro que o
+Scriban 7.2.6 publica. São **cinco membros e seis argumentos**:
+
+| Membro | Argumento | Posição |
+|---|---|---|
+| `date.parse` | `culture` | 2 |
+| `date.parse_to_string` | `output_culture` | 2 |
+| `date.parse_to_string` | `input_culture` | 4 |
+| `date.to_string` | `culture` | 2 |
+| `math.format` | `culture` | 2 |
+| `object.format` | `culture` | 2 |
+
+`string.to_string` **não existe** neste motor: as consultas procuravam um filtro
+que nunca esteve lá, e por isso o zero que elas devolveram vale menos do que
+parece para esse nome e não menos para os outros dois. `date.parse`,
+`date.parse_to_string` e `object.format` não eram procurados por ninguém. E
+`date.parse_to_string` carrega **dois** argumentos de cultura, um de leitura e um
+de escrita; banir só o de saída deixaria o de entrada aberto.
+
+**O banimento é de execução, e o check de publicação é de sintaxe.** O que fecha
+a porta é um embrulho em volta de cada membro acima, dentro de
+`BuildSandboxBuiltin`, antes do selo. Ele vê os argumentos depois que o motor os
+ligou, e é por isso que ele é completo: medido, a barra, a chamada posicional, a
+chamada com parênteses, o argumento nomeado, a cultura por variável, o indexador
+`math["format"]` e o apelido `grupo = math` chegam todos como um vetor posicional
+único com a cultura na posição declarada. A recusa sai sob o modo
+`TemplateRefusal.CultureArgument` e nunca sob o modo residual.
+
+O check `output-culture` lê a árvore sintática e é mais fraco de propósito: ele
+resolve `grupo.membro` e o indexador com literal, e **não** enxerga o grupo que
+chegou por variável. Esse ponto cego está afirmado em teste, junto com a recusa
+do render sobre a mesma fonte, para que ele fique visível em vez de descrito.
+Quem alargar o check deve ver aquele caso virar; quem estreitar o banimento deve
+ver um template sair com cultura dentro.
+
+**O render é guarda de execução e responde sobre a expressão que executou.** Uma
+fonte com variável não declarada e cultura junto reprova primeiro pela variável,
+porque o argumento é avaliado antes da chamada, e a cultura nunca é alcançada. O
+check de publicação lê a fonte e relata as duas. É essa a distância que ele
+cobre, e sem ele só o template cujo payload de preview estivesse completo seria
+avisado.
+
+**Gatilho de reabertura.** O conjunto de cinco membros é afirmado por
+`ScribanCultureBanTests`, contra a superfície que o motor publica. Uma versão que
+traga um sexto membro com cultura, ou um terceiro argumento num destes, deixa
+essa porta aberta e todo o resto do arquivo continua verde, porque cada caso
+nomeia membro que o banimento já cobre. Quem fica vermelho é a sentinela. No dia
+em que isso acontecer, estenda `CultureBearingBuiltins`, nunca mova a sentinela
+para o que foi medido depois.
+
+**A tabela está em `CultureBearingBuiltins`, e não dentro do motor, por um
+motivo que não deixa rastro na fonte.** O motor constrói a superfície do sandbox
+num inicializador de campo estático declarado no outro arquivo parcial da mesma
+classe, e a ordem entre inicializadores estáticos de dois arquivos parciais é a
+ordem em que o compilador os recebeu. Declarada dentro do motor, a tabela estava
+nula na hora de construir a superfície e o tipo inteiro falhava ao inicializar,
+com a suíte reprovando noventa e um testes de uma vez. Um tipo próprio inicializa
+no primeiro uso, seja qual for o caminho que chegue lá primeiro.
