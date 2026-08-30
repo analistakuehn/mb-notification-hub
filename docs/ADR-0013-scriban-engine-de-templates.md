@@ -56,6 +56,84 @@ O teto de assunto continua constante própria e não entra no teto de fonte: 998
 
 **Limite aceito, registrado aqui e não descoberto depois.** Os validadores de autoria não leem a configuração, e fazê-los ler foi considerado e recusado. A consequência é que um operador que aperte `MaxTemplateSizeChars` abaixo do teto de fonte faz o autor receber `200` na escrita de um corpo entre os dois números e a recusa no `validate`, com o número apertado, que é o correto de reportar. A premissa da recusa é que o padrão entregue seja o próprio teto de fonte, e ela é fixada por teste, junto com uma varredura dos arquivos de configuração que os dois hosts entregam. No dia em que qualquer um dos dois ficar vermelho, o que se reabre é a recusa.
 
+### Errata de 2026-08-30: o sandbox tem estado compartilhado entre renders, e ele passa a ser selado
+
+A decisão acima descreve o sandbox por aquilo que entra em cada render, "o
+render recebe somente um `ScriptObject` populado com dados", e não diz nada
+sobre o que **sobra** de um render para o próximo. Essa omissão não era neutra:
+existia estado compartilhado por todo o processo, e ele era gravável a partir do
+texto de um template publicado. Esta errata registra o defeito e fecha a
+omissão. A decisão de adotar o Scriban não muda.
+
+**O que estava aberto.** A superfície de builtins que o sandbox expõe é
+construída uma vez, guardada em campo estático e passada a todo contexto de
+execução. O construtor do motor a empurra para o fundo da pilha de globais, e o
+reset que roda ao fim de cada render a preserva por desenho. As funções dessa
+superfície já eram protegidas pelo próprio motor, que recusa `{{ math.abs = 0 }}`
+por membro somente leitura. Os membros de dados e os membros novos não eram
+protegidos por ninguém. Medido, com a saída literal:
+
+```text
+plantar object.vazado : ''                 (saída vazia, invisível)
+ler     object.vazado : '111.222.333-44'
+data antes            : '30 Aug 2026'
+set date.format       : ''
+data depois           : '2026/08/30'
+```
+
+Em texto: um template publicado de uma aplicação grava um valor do destinatário
+num objeto estático do processo, e um template de **outra** aplicação o lê. E
+sobrescrever o formato de data padrão move toda data implícita de todo render
+seguinte do processo, até reiniciar.
+
+**Por que a revisão humana não tinha sinal.** A coleta de variáveis usadas só
+registra gravação quando o alvo é variável simples, e o alvo aqui é expressão de
+membro. O que resta é o nome do grupo, `object`, que a mesma coleta remove por
+ser builtin. O relatório de publicação de uma versão dessas sai limpo.
+
+**O remédio, e a superfície que ele cobre.** `IsReadOnly` na raiz e em cada grupo
+aninhado, aplicado como último passo da construção da superfície, depois das
+remoções de membro que ela já faz, porque uma superfície selada recusaria as
+próprias remoções. A superfície foi inventariada contra o Scriban 7.2.6 e o selo a
+cobre inteira nesta versão: profundidade 2, oito grupos (`array`, `date`,
+`html`, `math`, `object`, `regex`, `string`, `timespan`), cinco membros de dados
+(`blank`, `empty`, `date.default_format`, `date.format`, `timespan.zero`) e 125
+funções. Não existe terceiro nível. Com o selo, as duas gravações acima passam a
+ser recusadas e a data depois volta a ser `30 Aug 2026`.
+
+**Selar a raiz é redundante hoje, e fica.** Medido: com os oito grupos selados e
+a raiz aberta, nenhum dos dois vazamentos reaparece, porque o motor já recusa por
+conta própria a escrita que resolve na raiz e porque todo render empurra globais
+próprios acima dela. Quem fecha o defeito são os oito selos de grupo, e isso foi
+provado removendo o selo de um grupo por vez. A raiz continua selada por dois
+motivos: a superfície passa a carregar uma regra só em vez de duas, e uma versão
+do motor que pare de sombrear a raiz reabriria o buraco sem sinal nenhum.
+
+**Custo de regressão medido em zero.** Nove construções legítimas foram
+comparadas antes e depois contra o mesmo binário de produção e a saída é idêntica
+byte a byte: `string.upcase`, `math.format` sem cultura, laço `for`,
+`date.to_string` com padrão e sem cultura, encadeamento `array.sort` com
+`array.join`, atribuição a variável local, `capture`, `func`, e variável local
+não vazando de um render para o outro. Um corpus mais largo, de 70 expressões
+cobrindo os oito grupos e os filtros com argumento de cultura, também não move
+nenhum caractere.
+
+**A pendência de versão do pacote ganha um segundo gatilho.** A decisão acima
+registra que esta ADR não fixa a versão do pacote Scriban. O selo percorre um
+nível abaixo da raiz, que é toda a superfície deste motor, então uma versão que
+aninhe um terceiro nível, ou que traga um nono grupo, deixaria o que ela trouxe
+gravável e compartilhado, e todo teste de vazamento continuaria verde por nomear
+membro que o selo já alcança. O inventário acima passa a ser afirmado por teste,
+que é o que fica vermelho nesse dia.
+
+**Consequência de implantação, registrada e não descoberta depois.** Uma versão
+publicada que hoje escreva num membro de builtin renderiza com sucesso e vaza;
+com o selo ela passa a falhar o render. A troca é correta, porque recusa é
+melhor que vazamento silencioso, e não é invisível: o censo das versões
+publicadas que contêm essa gravação é leitura de banco por ambiente, ela não
+tinha sido feita quando esta errata foi escrita, e um resultado maior que zero
+não é lista de trabalho, é incidente.
+
 ### Consequências
 
 **Positivas**

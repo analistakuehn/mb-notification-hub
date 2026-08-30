@@ -579,7 +579,51 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
         builtin.Remove("include");
         builtin.Remove("include_join");
 
+        // Last, because a sealed object refuses the removals above.
+        Seal(builtin);
+
         return builtin;
+    }
+
+    /// <summary>
+    /// Closes the shared surface to writes, at the root and at every group
+    /// under it.
+    /// </summary>
+    /// <remarks>
+    /// There is one of these objects per process, and the engine pushes it to
+    /// the bottom of the global stack of every context and preserves it across
+    /// the reset that runs between two renders. Anything written into it
+    /// therefore outlives the render, the caller and the engine instance: a
+    /// published template of one application would store a recipient's value
+    /// there and a template of another application would read it, and
+    /// overwriting the default date pattern would move every implicit date of
+    /// every later render in the process.
+    /// <para>
+    /// The engine already refuses to replace a builtin function, and it
+    /// already refuses a write that resolves to the root, because every render
+    /// pushes globals of its own above it. What was left open, and what this
+    /// closes, is member assignment inside a group: the target of that
+    /// assignment is a member expression, which the module's own static check
+    /// does not report, so the publication report of such a template comes back
+    /// clean.
+    /// </para>
+    /// <para>
+    /// Sealing the root is redundant against the pinned engine and is kept so
+    /// that the surface carries one rule rather than two, and so that a release
+    /// which stops shadowing the root does not reopen the hole silently.
+    /// </para>
+    /// </remarks>
+    private static void Seal(ScriptObject builtin)
+    {
+        foreach (var member in builtin.GetMembers())
+        {
+            if (builtin[member] is ScriptObject group)
+            {
+                group.IsReadOnly = true;
+            }
+        }
+
+        builtin.IsReadOnly = true;
     }
 
     private static void RemoveMember(ScriptObject builtin, string group, string member)

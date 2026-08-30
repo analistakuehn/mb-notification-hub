@@ -797,6 +797,20 @@
   timeout. That is worse than dead code: the comment on the first one states
   that it fails closed and stays on the `Result` axis, and that route never
   runs, so the file documents a guarantee nothing provides.
+- **O objeto de builtins do sandbox é um só por processo, e ele é sempre
+  selado.** O motor empurra esse objeto para o fundo da pilha de globais de
+  todo contexto e o preserva no reset que roda entre dois renders, então o que
+  for gravado ali sobrevive ao render, ao chamador e à instância do motor. Sem
+  o selo, um template publicado de uma aplicação grava um valor do destinatário
+  em um membro novo de `object` e o template de outra aplicação o lê, e
+  sobrescrever `date.format` move toda data implícita de todo render seguinte
+  do processo até reiniciar. O selo é `IsReadOnly` na raiz e em cada grupo
+  aninhado, aplicado como último passo de `BuildSandboxBuiltin`, depois das
+  remoções de membro, que um objeto selado recusaria. O relatório de
+  publicação não dá sinal disso, e não é por descuido: o alvo da atribuição é
+  expressão de membro, a coleta de variáveis usadas só registra atribuição a
+  variável simples, e o nome que sobra é o do grupo de builtin, que a mesma
+  coleta remove da lista. A versão passa limpa na validação e vaza no render.
 - Never bind HTTP bodies directly to domain types.
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.
@@ -841,3 +855,141 @@ sobre `while` e sobre iteração interna. O que casava `recursive depth limit`
 ficava verde sobre um erro de parse, porque o gatilho é a pilha restante e não a
 profundidade. Os dois foram reescritos para afirmar o que o módulo consegue
 distinguir.
+
+## Sandbox de templates: estado compartilhado entre renders
+
+O objeto de builtins que o sandbox expõe é construído uma vez, guardado em campo
+estático e passado a todo `TemplateContext`. O construtor do motor o empurra
+para o fundo da pilha de globais, e o `Reset()` que roda ao fim de cada render o
+preserva por desenho. Ele é selado por isso, e o selo cobre a superfície inteira
+medida contra o Scriban 7.2.6:
+
+- **Profundidade 2**, a raiz e um nível de grupos abaixo dela. Não existe
+  terceiro nível.
+- **Oito grupos**: `array`, `date`, `html`, `math`, `object`, `regex`, `string`
+  e `timespan`.
+- **Cinco membros de dados**: `blank`, `empty`, `date.default_format`,
+  `date.format` e `timespan.zero`. Os outros 125 membros são funções, e função
+  o motor já recusava sozinho por membro somente leitura. Membro de dados e
+  membro novo não eram recusados por ninguém.
+
+Selar a raiz é redundante contra o motor fixado, e foi medido assim: com os oito
+grupos selados e a raiz aberta, nada muda em nenhum dos dois vazamentos. O motor
+já recusa por conta própria a escrita que resolve na raiz, e todo render empurra
+globais próprios acima dela. A raiz continua selada porque a superfície carrega
+uma regra só em vez de duas, e porque uma versão do motor que pare de sombrear a
+raiz reabriria o buraco sem sinal nenhum.
+
+**Gatilho de reabertura.** O selo percorre um nível abaixo da raiz, que é toda a
+superfície que este motor tem. Uma versão que aninhe um terceiro nível, ou que
+traga um nono grupo, deixa o que ela trouxe gravável e compartilhado, e todo
+teste de vazamento continua verde, porque cada um deles nomeia membro que o selo
+já alcança. Quem fica vermelho é o teste que afirma o inventário acima, em
+`ScribanSharedBuiltinTests`. No dia em que ele ficar vermelho, o que se faz é
+reconferir a superfície e estender o selo, nunca mover o inventário para o que
+foi medido depois.
+
+**Consequência de implantação do selo.** Uma versão publicada que hoje escreva
+num membro de builtin renderiza com sucesso e vaza; com o selo ela passa a
+falhar o render. A troca é correta, porque recusa é melhor que vazamento
+silencioso, mas ela não é invisível: a segunda consulta da seção abaixo é o que
+diz, por ambiente, se existe alguma dessas versões antes de a implantação
+acontecer.
+
+## Formatação de saída: o que está decidido e o que está bloqueado
+
+**A decisão, para que o próximo leitor não a reabra.** A formatação de saída
+passa a ser **invariante e imposta**, com três peças que só valem juntas: banir o
+argumento de cultura nos filtros de formatação, fixar as culturas predefinidas
+do runtime, e fixar a imagem base por digest para que a versão da ICU pare de se
+mover por baixo. Nada disso foi implementado, e nada disso deve ser implementado
+por pedaços: uma peça sozinha muda o texto que sai sem fechar a propriedade que
+as três juntas fecham.
+
+**`InvariantGlobalization` está proibido como caminho.** Ele parece resolver o
+mesmo problema por um interruptor e não resolve: sob globalização invariante a
+composição de acentos vira no-op silencioso, a consulta de normalização passa a
+mentir, e o primeiro passo da política de saída passa a operar sobre um texto
+que ele acredita ter normalizado. É troca de um defeito visível por um
+invisível. Junto com isso: os quatro testes que falham sob globalização
+invariante **ficam como estão**. Eles são o único oráculo que o repositório tem,
+de graça, para a dependência de ICU do caminho de saída, e deixá-los verdes
+apagaria esse sinal.
+
+**A premissa de hash determinístico entre hosts já é falsa, e foi medida nas duas
+pontas.** No mesmo commit, `en-ZA` formata `1234567.5` de dois jeitos:
+
+| Host | ICU | Saída | SHA-256 do UTF-8 |
+|---|---|---|---|
+| Windows 11 | `icu.dll` 72.1.0.4 | `1 234 567,50` | `cf3a9964…` |
+| Ubuntu 24.04 | `libicu74` 74.2-1ubuntu3.1 | `1,234,567.50` | `29870715…` |
+
+O separador de milhar do lado Windows é espaço inquebrável (U+00A0) e não espaço
+comum, detalhe que decide se uma remedição reproduz ou não. Quem argumentar a
+partir de "o hash é o mesmo em qualquer host" está argumentando a partir de algo
+que a medição já derrubou.
+
+**O bloqueio.** O resto da correção depende de duas leituras no banco, uma por
+ambiente, que quem escreve isto não pode fazer. As duas consultas estão prontas
+abaixo. Elas leem a grafia literal na fonte publicada, então o número que
+devolvem é piso e nunca total: cultura ou nome de membro que cheguem por
+variável escapam do padrão.
+
+Quantas versões publicadas passam argumento de cultura a um filtro de
+formatação, que é o que decide o custo de banir esse argumento:
+
+```sql
+SELECT count(*) AS versoes_com_argumento_de_cultura
+FROM (
+    SELECT tv.template_key AS chave, tv.version AS versao
+      FROM templatemanagement.template_version tv
+      JOIN templatemanagement.template_content tc
+        ON tc.template_key = tv.template_key
+       AND tc.version = tv.version
+     WHERE tv.status = 'published'
+       AND concat_ws(' ', tc.subject, tc.body, tc.body_text)
+           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*'[A-Za-z]{2,3}(-[A-Za-z]{2,4}){1,2}'$re$
+    UNION
+    SELECT lv.layout_key, lv.version
+      FROM templatemanagement.layout_version lv
+      JOIN templatemanagement.layout_content lc
+        ON lc.layout_key = lv.layout_key
+       AND lc.version = lv.version
+     WHERE lv.status = 'published'
+       AND concat_ws(' ', lc.body, lc.body_text)
+           ~ $re$(date\.to_string|math\.format|string\.to_string)[^}]*'[A-Za-z]{2,3}(-[A-Za-z]{2,4}){1,2}'$re$
+) AS achados;
+```
+
+Quantas versões publicadas contêm atribuição a membro de builtin. **Se este
+número for maior que zero, isso deixa de ser correção e passa a ser incidente**,
+e a resposta é resposta a incidente: cada versão achada gravou dado de
+destinatário num objeto que todo render do processo lê, e o alcance do que
+vazou é a janela entre a publicação dela e a reinicialização do processo, para
+todas as aplicações servidas por aquele processo:
+
+```sql
+SELECT count(*) AS versoes_com_atribuicao_a_builtin
+FROM (
+    SELECT tv.template_key AS chave, tv.version AS versao
+      FROM templatemanagement.template_version tv
+      JOIN templatemanagement.template_content tc
+        ON tc.template_key = tv.template_key
+       AND tc.version = tv.version
+     WHERE tv.status = 'published'
+       AND concat_ws(' ', tc.subject, tc.body, tc.body_text)
+           ~ $re$(array|date|html|math|object|regex|string|timespan)\.[a-z_0-9]+[[:space:]]*=[^=]$re$
+    UNION
+    SELECT lv.layout_key, lv.version
+      FROM templatemanagement.layout_version lv
+      JOIN templatemanagement.layout_content lc
+        ON lc.layout_key = lv.layout_key
+       AND lc.version = lv.version
+     WHERE lv.status = 'published'
+       AND concat_ws(' ', lc.body, lc.body_text)
+           ~ $re$(array|date|html|math|object|regex|string|timespan)\.[a-z_0-9]+[[:space:]]*=[^=]$re$
+) AS achados;
+```
+
+Trocar `count(*)` pela lista de `chave` e `versao` é o que dá o alvo do trabalho
+seguinte, nos dois casos.
