@@ -314,16 +314,41 @@ curta própria.
   corpo mede e sobre a qual decide retentar. A isenção é limitada a uma rota por
   uma contagem asserida no próprio portão, então um segundo endpoint no mesmo
   arquivo não herda o nome.
-- **O portão de log em `catch` que envolve escrita de trilha continua aberto, e
-  a medição diz por quê.** São 15 arquivos de `Features/` que escrevem trilha e
-  têm `catch`, com 22 blocos `catch` entre eles. Por arquivo, os 15 têm chamada
-  de logger desde que o kill switch ganhou a sua; por bloco, 6 têm e 16 não, e
-  os 16 estão em 13 handlers de TemplateManagement que devolvem
-  `Result.BusinessRuleViolation` de dentro do `catch` sem registrar linha
-  alguma. A granularidade por arquivo nasce verde mas não observa a remoção de
-  uma das duas chamadas do kill switch, porque a outra a mantém verde; a
-  granularidade por bloco observa, e nasce com 16 violações. Escolher entre
-  fechar os 13 handlers e estreitar o alcance do portão é decisão de escopo.
+- **O portão de log em `catch` existe, e é mais estreito do que a mesa redonda
+  especificou.** Ele exige uma coisa só: todo bloco `catch` sob
+  `Modules/*/Features/` que devolve `Result.Success` declara uma chamada de
+  logger. O predicado da mesa, todo `catch` que envolve escrita de trilha loga,
+  foi medido e recusado: ele acusa 16 blocos que não são defeito, os dos 13
+  handlers de TemplateManagement que devolvem `Result.BusinessRuleViolation` de
+  dentro do `catch`, e uma recusa que devolve falha chega ao chamador
+  anunciando a si mesma pelo eixo, em toda chamada. Um portão que chama 16 não
+  defeitos de violação ensina o leitor a ignorá-lo. Um `catch` que devolve
+  sucesso é o caso oposto: ele apaga o incidente do eixo de erro, e nada rio
+  abaixo tem o que ler. Essa é a única forma cuja testemunha não pode vir de
+  outro lugar, e é a única que o portão obriga. Ele mora em
+  `tests/Platform.SecurityArchTests/SwallowedFailureWitnessTests.cs`, pelo mesmo
+  critério do portão do filtro de requisição: a violação é incidente sem
+  testemunha, não convenção de forma.
+- **Os números medidos, para o próximo leitor não refazer a conta.** Sob
+  `Modules/*/Features/` há 283 arquivos `.cs` e 42 blocos `catch` em 28 deles. O
+  predicado casa com exatamente 2, os dois do kill switch, e os dois já logam:
+  o portão nasce verde e sem isenção alguma. Uma armadilha de contagem fica
+  registrada junto: `grep` pela palavra `catch` devolve 43 ocorrências em 29
+  arquivos, porque uma delas é a palavra inglesa dentro de um comentário de
+  documentação em
+  `Compliance/Features/Disclosure/GetNotificationEvidence/GetNotificationEvidence.Response.cs`.
+  A varredura do portão é estrutural e ignora comentário, literal e o padrão de
+  propriedade do filtro `when`, que abre chave antes do corpo.
+- **O piso asseverado é o total varrido, nunca o de casamentos.** Com dois
+  casamentos, um extrator quebrado acha zero e ficaria verde, então o portão
+  afirma os 42 blocos extraídos e tem um teste irmão que roda o extrator contra
+  uma amostra hostil. O que ele não alcança está escrito nele: o casamento para
+  na fronteira do bloco, então um `catch` que devolve um auxiliar que constrói o
+  sucesso uma função adiante escapa, e os 4 que hoje devolvem por auxiliar
+  constroem violação de regra de negócio; a testemunha é reconhecida por chamada
+  em receptor cujo nome termina em logger, que é identificador e nada mais
+  forte; e o alcance para nas fatias de `Features/`, sem tocar infraestrutura de
+  módulo, plataforma ou o host worker.
 
 ## Eventos de resultado de saída
 
