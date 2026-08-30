@@ -13,6 +13,13 @@ namespace NotificationHub.IntegrationTests.TemplateManagement;
 [Collection(TemplateManagementApiCollectionDefinition.Name)]
 public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixture fixture)
 {
+    /// <summary>
+    /// Raw text on purpose. Spelled as a C# escape the compiler would fold it
+    /// into one code unit and the payload under test would never carry the six
+    /// characters that make it unreadable.
+    /// </summary>
+    private const string LoneSurrogateEscape = @"\ud800";
+
     private static readonly string[] RequiredOrderId = ["orderId"];
     private static readonly string[] RequiredCode = ["code"];
 
@@ -526,6 +533,48 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         // rule the allowlist refusal follows, for the same reason.
         error.Detail.ShouldContain("262144");
         error.Detail.ShouldNotContain("xxx");
+    }
+
+    /// <summary>
+    /// Defence in depth on the same entry point. Every caller that reaches
+    /// this contract validates the payload first, so a payload that cannot be
+    /// transcoded should never arrive here; if one does, this is the last
+    /// place that can still answer instead of failing, because every step past
+    /// it walks the payload. The template key is one that was never created on
+    /// purpose: a not-found here would be proof that the payload was carried
+    /// past the gate.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_variables_payload_whose_escape_names_no_character_is_refused_and_never_throws()
+    {
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IPublishedTemplateRenderer renderer =
+            scope.ServiceProvider.GetRequiredService<IPublishedTemplateRenderer>();
+
+        // The premise, asserted rather than assumed: the payload is legal JSON
+        // text and binds without complaint. A payload that never parsed would
+        // let the rest of the test pass while proving nothing.
+        JsonElement variables = Variables($$"""{"orderId":"{{LoneSurrogateEscape}}"}""");
+        variables.ValueKind.ShouldBe(JsonValueKind.Object);
+
+        Result<PublishedTemplateRender> rendered = await renderer.RenderAsync(new PublishedRenderRequest
+        {
+            Application = "araia-cambio",
+            TemplateKey = "template.that.was.never.created",
+            Channel = "email",
+            Locale = "pt-BR",
+            Variables = variables,
+            IncludeMaskedForm = true,
+        }, CancellationToken.None);
+
+        rendered.IsFailure.ShouldBeTrue();
+        DomainErrorInfo error = DomainError.Describe(rendered.Error, rendered.ErrorKind);
+
+        // The code is its own, not the ceiling's: a caller told to shorten a
+        // payload that names no character has been handed the wrong thing to
+        // fix, and a consumer routing on the code would route it wrong.
+        error.Code.ShouldBe(ErrorCodes.VariablesPayloadUnreadable);
+        error.Detail.ShouldNotContain("262144");
     }
 
     [RequiresDockerFact]

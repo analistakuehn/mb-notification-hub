@@ -15,6 +15,13 @@ namespace NotificationHub.IntegrationTests.Notifications;
 [Collection(NotificationsApiCollectionDefinition.Name)]
 public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fixture)
 {
+    /// <summary>
+    /// Raw text on purpose. Spelled as a C# escape the compiler would fold it
+    /// into one code unit and the request under test would never carry the six
+    /// characters that make the payload unreadable.
+    /// </summary>
+    private const string LoneSurrogateEscape = @"\ud800";
+
     /// <summary>Every canonical channel, which is the longest hint the ceiling admits.</summary>
     private static readonly string[] EveryChannel = ["push", "sms", "email", "whatsapp"];
 
@@ -322,6 +329,78 @@ public sealed class RequestNotificationEndpointTests(NotificationsApiFixture fix
         // publishes for variables.
         errors.GetProperty("Metadata")[0].GetString()
             .ShouldBe("Metadata must serialize to at most 32768 bytes of JSON.");
+
+        (await fixture.QueryNotificationsDbAsync(db => db.Notifications
+            .AsNoTracking()
+            .CountAsync(notification => notification.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+        (await fixture.QueryNotificationsDbAsync(db => db.IdempotencyRegistrations
+            .AsNoTracking()
+            .CountAsync(registration => registration.IdempotencyKey == idempotencyKey)))
+            .ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The other half of the same door, for both payload fields. A payload
+    /// whose escape names no character parses without complaint and only
+    /// fails where something transcodes it, which is every step past the
+    /// validator, so the ingestion answered it by failing instead of refusing
+    /// it. The template key is one that was never published on purpose:
+    /// without the refusal the answer would be the catalog's 422, which is
+    /// proof that the payload reached the gate.
+    /// </summary>
+    [RequiresDockerTheory]
+    [InlineData("variables", "Variables")]
+    [InlineData("metadata", "Metadata")]
+    public async Task A_payload_whose_escape_names_no_character_is_refused_and_never_fails(
+        string field,
+        string errorKey)
+    {
+        HttpClient producer = fixture.CreateProducerClient(
+            $"producer-unreadable-{field}", NotificationsApi.SendTransactional);
+        var idempotencyKey = $"unreadable-{field}-{Guid.NewGuid():N}";
+
+        // The body is raw text on purpose. Serializing an object would rewrite
+        // the escape into a replacement character before it left the test, and
+        // the request under test would never carry the fault.
+        var body = $$"""
+            {
+              "application": "{{NotificationsApi.Application}}",
+              "recipientId": "cus_01J5X9",
+              "class": "transactional",
+              "templateKey": "template.that.was.never.published",
+              "locale": "pt-BR",
+              "ttlSeconds": 300,
+              "variables": { "orderId": "ord-1" },
+              "{{field}}": { "probe": "{{LoneSurrogateEscape}}" }
+            }
+            """;
+
+        // The premise, asserted rather than assumed: the escape is still six
+        // characters on the wire.
+        body.Contains(LoneSurrogateEscape, StringComparison.Ordinal)
+            .ShouldBeTrue("O corpo enviado deve carregar o escape cru.");
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/notifications")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+
+        HttpResponseMessage response = await producer.SendAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await NotificationsApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("payload-invalid");
+
+        JsonElement errors = problem.GetProperty("errors");
+        errors.EnumerateObject().Select(entry => entry.Name).ShouldBe([errorKey]);
+
+        // The refusal names the shape of the fault and never its size: a
+        // producer told to shorten a payload that names no character has been
+        // handed the wrong thing to fix.
+        errors.GetProperty(errorKey)[0].GetString()
+            .ShouldBe($"{errorKey} must be JSON text that can be read: an escape in it names no character.");
 
         (await fixture.QueryNotificationsDbAsync(db => db.Notifications
             .AsNoTracking()

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
@@ -7,6 +8,13 @@ namespace NotificationHub.IntegrationTests.TemplateManagement;
 [Collection(TemplateManagementApiCollectionDefinition.Name)]
 public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixture fixture)
 {
+    /// <summary>
+    /// Raw text on purpose. Spelled as a C# escape the compiler would fold it
+    /// into one code unit and the request under test would never carry the six
+    /// characters that make the payload unreadable.
+    /// </summary>
+    private const string LoneSurrogateEscape = @"\ud800";
+
     [RequiresDockerFact]
     public async Task Rendering_an_email_draft_returns_the_substituted_fields()
     {
@@ -56,6 +64,50 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
             });
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>
+    /// The other half of the same door. A payload whose escape names no
+    /// character parses without complaint and only fails where something
+    /// transcodes it, which is every step past this point, so the endpoint
+    /// answered it by failing instead of refusing it.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_variables_payload_whose_escape_names_no_character_is_refused_and_never_fails()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-1");
+
+        // The body is raw text on purpose. Serializing an object would rewrite
+        // the escape into a replacement character before it left the test, and
+        // the request under test would never carry the fault.
+        var body = """
+            {
+              "channel": "email",
+              "locale": "pt-BR",
+              "variables": { "orderId": "\ud800" }
+            }
+            """;
+
+        // The premise, asserted rather than assumed: the escape is still six
+        // characters on the wire.
+        body.Contains(LoneSurrogateEscape, StringComparison.Ordinal)
+            .ShouldBeTrue("O corpo enviado deve carregar o escape cru.");
+
+        // No template setup on purpose: validation must refuse the payload
+        // before the handler touches the catalog or the engine.
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/v1/templates/{TemplateApi.NewKey()}/versions/1/render")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+
+        HttpResponseMessage response = await client.SendAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("errors").GetProperty("Variables")[0].GetString()
+            .ShouldBe("Variables must be JSON text that can be read: an escape in it names no character.");
     }
 
     [RequiresDockerFact]

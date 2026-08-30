@@ -1,43 +1,25 @@
 using System.Text.Json;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.UnitTests.Notifications;
 
 public sealed class MetadataPayloadSizeTests
 {
-    [Fact]
-    public void The_same_metadata_measures_the_same_however_its_writer_spelled_it()
-    {
-        // The three spellings are one payload: indented, compact, and with the
-        // accented characters escaped. Indentation and escaping are the
-        // producer's choice, so a measure that read the arriving text would
-        // refuse one request and admit the same one written differently.
-        var indented = Measure("""
-            {
-                "origem" : "São Paulo"
-            }
-            """);
-        var compact = Measure("""{"origem":"São Paulo"}""");
-        var escaped = Measure("""{"origem":"S\u00e3o Paulo"}""");
-
-        compact.ShouldBe(indented);
-        escaped.ShouldBe(indented);
-    }
-
-    [Fact]
-    public void The_measure_counts_utf8_bytes_and_not_characters()
-    {
-        // 'ã' is one character and two bytes: a measure over characters would
-        // let accented context through at well above the ceiling.
-        Measure("""{"a":"ã"}""").ShouldBe(Measure("""{"a":"a"}""") + 1);
-    }
+    /// <summary>
+    /// Raw text on purpose. Spelled as a C# escape the compiler would fold it
+    /// into one code unit and the payload under test would never carry the six
+    /// characters that make it unreadable.
+    /// </summary>
+    private const string LoneSurrogateEscape = @"\ud800";
 
     [Theory]
     [InlineData(null)]
     [InlineData("null")]
-    public void Absent_metadata_and_a_json_null_are_never_above_the_ceiling(string? json)
-        => MetadataPayloadSize.ExceedsMaxBytes(json is null ? null : Parse(json)).ShouldBeFalse();
+    public void Absent_metadata_and_a_json_null_are_always_admitted(string? json)
+        => MetadataPayloadSize.Assess(json is null ? null : Parse(json))
+            .ShouldBe(MetadataPayloadVerdict.Admitted);
 
     [Fact]
     public void The_ceiling_admits_the_payload_that_reaches_it_and_refuses_the_next_byte()
@@ -45,9 +27,9 @@ public sealed class MetadataPayloadSizeTests
         JsonElement atTheCeiling = PayloadOfExactly(MetadataPayloadSize.MaxBytes);
         JsonElement oneByteOver = PayloadOfExactly(MetadataPayloadSize.MaxBytes + 1);
 
-        MetadataPayloadSize.CompactByteCount(atTheCeiling).ShouldBe(MetadataPayloadSize.MaxBytes);
-        MetadataPayloadSize.ExceedsMaxBytes(atTheCeiling).ShouldBeFalse();
-        MetadataPayloadSize.ExceedsMaxBytes(oneByteOver).ShouldBeTrue();
+        CompactJsonSize.Measure(atTheCeiling).ByteCount.ShouldBe(MetadataPayloadSize.MaxBytes);
+        MetadataPayloadSize.Assess(atTheCeiling).ShouldBe(MetadataPayloadVerdict.Admitted);
+        MetadataPayloadSize.Assess(oneByteOver).ShouldBe(MetadataPayloadVerdict.AboveCeiling);
     }
 
     [Fact]
@@ -58,7 +40,7 @@ public sealed class MetadataPayloadSizeTests
         // order of the members, so the count is exact and not an estimate.
         JsonElement payload = Parse("""{"zulu":1,"alfa":{"yankee":2,"bravo":3}}""");
 
-        MetadataPayloadSize.CompactByteCount(payload)
+        CompactJsonSize.Measure(payload).ByteCount
             .ShouldBe(CanonicalJson.CanonicalBytes(payload).LongLength);
     }
 
@@ -69,10 +51,10 @@ public sealed class MetadataPayloadSizeTests
         // every level; a measure that stopped at the first would bound nothing.
         var blob = new string('x', MetadataPayloadSize.MaxBytes);
 
-        MetadataPayloadSize.ExceedsMaxBytes(Parse(JsonSerializer.Serialize(new
+        MetadataPayloadSize.Assess(Parse(JsonSerializer.Serialize(new
         {
             trace = new { spans = new[] { new { note = blob } } },
-        }))).ShouldBeTrue();
+        }))).ShouldBe(MetadataPayloadVerdict.AboveCeiling);
     }
 
     [Fact]
@@ -85,7 +67,34 @@ public sealed class MetadataPayloadSizeTests
         MetadataPayloadSize.MaxBytes.ShouldBeLessThan(VariablesPayloadLimit.MaxBytes);
     }
 
-    private static long Measure(string json) => MetadataPayloadSize.CompactByteCount(Parse(json));
+    [Fact]
+    public void Metadata_whose_escape_names_no_character_is_refused_as_unreadable_and_never_thrown()
+    {
+        // The premise, asserted rather than assumed: the payload is legal JSON
+        // text and the reader accepts it. That is the whole shape of the
+        // fault. Without this assertion a payload that never parsed would let
+        // the rest of the test pass while proving nothing.
+        using var document = JsonDocument.Parse($$"""{"origin":"{{LoneSurrogateEscape}}"}""");
+        JsonElement payload = document.RootElement.Clone();
+        payload.ValueKind.ShouldBe(JsonValueKind.Object);
+
+        MetadataPayloadVerdict verdict = Should.NotThrow(
+            () => MetadataPayloadSize.Assess(payload));
+
+        verdict.ShouldBe(MetadataPayloadVerdict.Unreadable);
+    }
+
+    [Fact]
+    public void Ordinary_metadata_stays_admitted_and_oversized_metadata_is_still_refused_for_its_size()
+    {
+        // The falsifying pair. Without it the unreadable verdict above would
+        // also be returned by a rule that refused everything, and the ceiling
+        // would have quietly become the reason for every refusal.
+        MetadataPayloadSize.Assess(Parse("""{"origin":"mobile"}"""))
+            .ShouldBe(MetadataPayloadVerdict.Admitted);
+        MetadataPayloadSize.Assess(PayloadOfExactly(MetadataPayloadSize.MaxBytes + 1))
+            .ShouldBe(MetadataPayloadVerdict.AboveCeiling);
+    }
 
     private static JsonElement Parse(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 

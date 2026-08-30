@@ -1,42 +1,24 @@
 using System.Text.Json;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.UnitTests.TemplateManagement;
 
 public sealed class VariablesPayloadSizeTests
 {
-    [Fact]
-    public void The_same_payload_measures_the_same_however_its_writer_spelled_it()
-    {
-        // The three spellings are the same payload: indented, compact, and
-        // with the accented characters escaped. Whichever door it arrives
-        // through, the ceiling has to answer the same, or the ingestion admits
-        // what the render then refuses.
-        var indented = Measure("""
-            {
-                "cidade" : "São Paulo"
-            }
-            """);
-        var compact = Measure("""{"cidade":"São Paulo"}""");
-        var escaped = Measure("""{"cidade":"S\u00e3o Paulo"}""");
-
-        compact.ShouldBe(indented);
-        escaped.ShouldBe(indented);
-    }
-
-    [Fact]
-    public void The_measure_counts_utf8_bytes_and_not_characters()
-    {
-        // 'ã' is one character and two bytes: a measure over characters would
-        // let a payload of accented text through at well above the ceiling.
-        Measure("""{"a":"ã"}""").ShouldBe(Measure("""{"a":"a"}""") + 1);
-    }
+    /// <summary>
+    /// Raw text on purpose. Spelled as a C# escape the compiler would fold it
+    /// into one code unit and the payload under test would never carry the six
+    /// characters that make it unreadable.
+    /// </summary>
+    private const string LoneSurrogateEscape = @"\ud800";
 
     [Theory]
     [InlineData(null)]
     [InlineData("null")]
-    public void An_absent_payload_and_a_json_null_are_never_above_the_ceiling(string? json)
-        => VariablesPayloadSize.ExceedsMaxBytes(json is null ? null : Parse(json)).ShouldBeFalse();
+    public void An_absent_payload_and_a_json_null_are_always_admitted(string? json)
+        => VariablesPayloadSize.Assess(json is null ? null : Parse(json))
+            .ShouldBe(VariablesPayloadVerdict.Admitted);
 
     [Fact]
     public void The_ceiling_admits_the_payload_that_reaches_it_and_refuses_the_next_byte()
@@ -44,9 +26,9 @@ public sealed class VariablesPayloadSizeTests
         JsonElement atTheCeiling = PayloadOfExactly(VariablesPayloadSize.MaxBytes);
         JsonElement oneByteOver = PayloadOfExactly(VariablesPayloadSize.MaxBytes + 1);
 
-        VariablesPayloadSize.CompactByteCount(atTheCeiling).ShouldBe(VariablesPayloadSize.MaxBytes);
-        VariablesPayloadSize.ExceedsMaxBytes(atTheCeiling).ShouldBeFalse();
-        VariablesPayloadSize.ExceedsMaxBytes(oneByteOver).ShouldBeTrue();
+        CompactJsonSize.Measure(atTheCeiling).ByteCount.ShouldBe(VariablesPayloadSize.MaxBytes);
+        VariablesPayloadSize.Assess(atTheCeiling).ShouldBe(VariablesPayloadVerdict.Admitted);
+        VariablesPayloadSize.Assess(oneByteOver).ShouldBe(VariablesPayloadVerdict.AboveCeiling);
     }
 
     [Fact]
@@ -57,13 +39,40 @@ public sealed class VariablesPayloadSizeTests
         // would bound the wrong thing.
         var blob = new string('x', VariablesPayloadSize.MaxBytes);
 
-        VariablesPayloadSize.ExceedsMaxBytes(Parse(JsonSerializer.Serialize(new
+        VariablesPayloadSize.Assess(Parse(JsonSerializer.Serialize(new
         {
             order = new { items = new[] { new { note = blob } } },
-        }))).ShouldBeTrue();
+        }))).ShouldBe(VariablesPayloadVerdict.AboveCeiling);
     }
 
-    private static long Measure(string json) => VariablesPayloadSize.CompactByteCount(Parse(json));
+    [Fact]
+    public void A_payload_whose_escape_names_no_character_is_refused_as_unreadable_and_never_thrown()
+    {
+        // The premise, asserted rather than assumed: the payload is legal JSON
+        // text and the reader accepts it. That is the whole shape of the
+        // fault. Without this assertion a payload that never parsed would let
+        // the rest of the test pass while proving nothing.
+        using var document = JsonDocument.Parse($$"""{"orderId":"{{LoneSurrogateEscape}}"}""");
+        JsonElement payload = document.RootElement.Clone();
+        payload.ValueKind.ShouldBe(JsonValueKind.Object);
+
+        VariablesPayloadVerdict verdict = Should.NotThrow(
+            () => VariablesPayloadSize.Assess(payload));
+
+        verdict.ShouldBe(VariablesPayloadVerdict.Unreadable);
+    }
+
+    [Fact]
+    public void An_ordinary_payload_stays_admitted_and_an_oversized_one_is_still_refused_for_its_size()
+    {
+        // The falsifying pair. Without it the unreadable verdict above would
+        // also be returned by a rule that refused everything, and the ceiling
+        // would have quietly become the reason for every refusal.
+        VariablesPayloadSize.Assess(Parse("""{"orderId":"ord-1"}"""))
+            .ShouldBe(VariablesPayloadVerdict.Admitted);
+        VariablesPayloadSize.Assess(PayloadOfExactly(VariablesPayloadSize.MaxBytes + 1))
+            .ShouldBe(VariablesPayloadVerdict.AboveCeiling);
+    }
 
     private static JsonElement Parse(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 

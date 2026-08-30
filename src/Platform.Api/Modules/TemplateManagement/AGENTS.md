@@ -496,6 +496,33 @@
   What matters is the property both hold: each door refuses before any query and
   before anything walks the payload. The shape follows the surface, and unifying
   the two changes an endpoint contract.
+- **That ceiling answers three ways, not two, and the third is refused closed.**
+  A payload can parse and still not transcode: an escape may name a surrogate
+  the payload never pairs, which is legal JSON text, so the reader accepts it
+  and it binds to a `JsonElement` without complaint. Only the rewrite to UTF-8
+  discovers that the escape names no character, and that rewrite is what
+  measuring the payload does, what reading any string value out of it does, and
+  what masking it does. Measured, a payload like that used to take every door
+  of this system out through a runtime exception rather than an answer.
+  `Domain/VariablesPayloadSize` therefore reports admitted, unreadable, or over
+  the ceiling, from one traversal, and an unreadable payload is refused with a
+  reason of its own rather than borrowed from the size, which would name the
+  wrong cause. `Integration/V1/VariablesPayloadLimit` publishes the same three
+  answers, because a consumer that could only ask about size would carry the
+  other refusal to a place that cannot make it.
+- **Nothing in this module reads what a surrogate is.** The runtime already
+  owns that rule, and it owns it at the exact point that transcodes; a scanner
+  of our own would be a second reading of it, free to disagree with the one
+  that decides. The single place that answers is `SharedKernel/CompactJsonSize`,
+  which measures and reports readability from the same walk so no caller can
+  hold one answer and act as if it had both. Its catch names the one exception
+  type the transcoding raises and no wider one: catching everything would
+  swallow a defect in the walk and report it as an unreadable payload, which is
+  how a measure stops being able to fail. The mechanism lives there rather than
+  here because the sibling module imposes a different ceiling on a different
+  payload with the same walk, and a second copy of it is a second place for the
+  same defect to survive the fix applied to the first. The numbers stay with
+  their owners; only the walk is shared.
 - Never bind HTTP bodies directly to domain types.
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.

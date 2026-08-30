@@ -47,12 +47,27 @@ internal sealed class PublishedTemplateRenderer(
         // walks the payload once more, so a payload nobody bounded makes each
         // of them cost whatever the caller decided to send. Cheap checks first
         // means the refusal costs one pass and no query.
-        if (VariablesPayloadSize.ExceedsMaxBytes(request.Variables))
+        //
+        // The unreadable answer is defence in depth rather than the door that
+        // has to hold: every caller that reaches here validates the payload
+        // first. It is here because this is the one entry point that could be
+        // handed a payload nobody validated, a stored one included, and every
+        // step past this line walks it and would throw where nothing is left
+        // to turn the throw back into an answer.
+        switch (VariablesPayloadSize.Assess(request.Variables))
         {
-            return Result.ValidationError<PublishedTemplateRender>(DomainError.Format(
-                ErrorCodes.VariablesPayloadTooLarge,
-                "The variables payload must serialize to at most "
-                + $"{VariablesPayloadSize.MaxBytes} bytes of JSON."));
+            case VariablesPayloadVerdict.Unreadable:
+                return Result.ValidationError<PublishedTemplateRender>(DomainError.Format(
+                    ErrorCodes.VariablesPayloadUnreadable,
+                    "The variables payload must be JSON text that can be read: "
+                    + "an escape in it names no character."));
+            case VariablesPayloadVerdict.AboveCeiling:
+                return Result.ValidationError<PublishedTemplateRender>(DomainError.Format(
+                    ErrorCodes.VariablesPayloadTooLarge,
+                    "The variables payload must serialize to at most "
+                    + $"{VariablesPayloadSize.MaxBytes} bytes of JSON."));
+            default:
+                break;
         }
 
         Result<PublishedTemplateContext> context = await contextLoader.LoadAsync(

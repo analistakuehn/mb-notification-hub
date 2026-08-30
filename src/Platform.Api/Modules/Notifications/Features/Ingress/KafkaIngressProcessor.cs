@@ -309,6 +309,24 @@ internal static class IngressRequestBinder
             return null;
         }
 
+        // Ahead of every field, because reading one is what transcodes it and
+        // the transcoding throws on an escape that names no character. Thrown
+        // here the failure is deterministic but reaches the transport as an
+        // ordinary one, which retries it and then stops the partition; the
+        // refusal a malformed body already takes is what belongs here.
+        //
+        // The refusal covers the whole body rather than the fields read below:
+        // a lookup unescapes candidate keys to compare them, so which read
+        // reaches an unreadable escape first depends on the names sought and
+        // on their length, and a guard shaped by that reopens the moment a
+        // field is added or renamed. The payload fields are refused here too,
+        // and the shared validator still refuses them on its own, which is
+        // what closes the same fault on the synchronous route.
+        if (!CompactJsonSize.Measure(data).IsReadable)
+        {
+            return null;
+        }
+
         var idempotencyKey = ReadString(data, "idempotencyKey");
         if (string.IsNullOrWhiteSpace(idempotencyKey)
             || idempotencyKey.Length > MaxIdempotencyKeyLength)

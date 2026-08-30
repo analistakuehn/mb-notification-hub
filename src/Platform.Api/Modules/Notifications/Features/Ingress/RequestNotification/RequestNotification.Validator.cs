@@ -17,6 +17,19 @@ internal static partial class RequestNotification
 
     internal sealed class Validator : AbstractValidator<Command>
     {
+        /// <summary>
+        /// Why a payload was refused, when the reason is not its size. The
+        /// wording names the shape of the fault and nothing the producer sent,
+        /// the same rule the ceiling's refusal follows: quoting the offending
+        /// text back would put a value nothing could read into a response and
+        /// into a dead-letter record.
+        /// </summary>
+        private const string UnreadableVariablesMessage =
+            "Variables must be JSON text that can be read: an escape in it names no character.";
+
+        private const string UnreadableMetadataMessage =
+            "Metadata must be JSON text that can be read: an escape in it names no character.";
+
         public Validator()
         {
             RuleFor(command => command.Application).NotEmpty().MaximumLength(100);
@@ -30,30 +43,60 @@ internal static partial class RequestNotification
             RuleFor(command => command.CorrelationId).MaximumLength(200);
             RuleFor(command => command.Variables)
                 .Must(BeAnObjectOrAbsent)
-                .WithMessage("Variables must be a JSON object.")
-
-                // The catalog publishes the ceiling because it owns what the
-                // payload costs: the allowlist scan walks every string value
-                // of it at this gate and again at render, and the sandbox
-                // turns it into script objects. Shape validation is the only
-                // point that can refuse it before both, so the ingestion reads
-                // the number instead of choosing one.
-                .Must(variables => !VariablesPayloadLimit.Exceeds(variables))
-                .WithMessage(
-                    $"Variables must serialize to at most {VariablesPayloadLimit.MaxBytes} bytes of JSON.");
+                .WithMessage("Variables must be a JSON object.");
             RuleFor(command => command.Metadata)
                 .Must(BeAnObjectOrAbsent)
-                .WithMessage("Metadata must be a JSON object.")
+                .WithMessage("Metadata must be a JSON object.");
 
-                // This module owns this ceiling because it owns the cost the
-                // ceiling bounds: the idempotency payload hash canonicalizes
-                // metadata recursively, on every accepted request and again on
-                // every replay resolved against a stored registration. Nothing
-                // downstream reads the field, so the catalog's number would be
-                // the wrong one to borrow.
-                .Must(metadata => !MetadataPayloadSize.ExceedsMaxBytes(metadata))
-                .WithMessage(
-                    $"Metadata must serialize to at most {MetadataPayloadSize.MaxBytes} bytes of JSON.");
+            // The catalog publishes the variables rule because it owns what
+            // the payload costs: the allowlist scan walks every string value
+            // of it at this gate and again at render, and the sandbox turns it
+            // into script objects. This module owns the metadata rule because
+            // it owns the cost that one bounds: the idempotency payload hash
+            // canonicalizes metadata recursively, on every accepted request
+            // and again on every replay resolved against a stored
+            // registration. Shape validation is the only point ahead of all of
+            // them, so both are imposed here or nowhere.
+            //
+            // Each field is decided by one call, because one traversal
+            // discovers both of its refusals. Asking only about the size is
+            // what left this door open: a payload the transcoding cannot read
+            // throws inside the question, and on the bus that throw is what
+            // stops a partition instead of dead-lettering one record.
+            RuleFor(command => command.Variables)
+                .Custom((variables, context) =>
+                {
+                    switch (VariablesPayloadLimit.Assess(variables))
+                    {
+                        case VariablesPayloadAdmission.Unreadable:
+                            context.AddFailure(UnreadableVariablesMessage);
+                            break;
+                        case VariablesPayloadAdmission.AboveCeiling:
+                            context.AddFailure(
+                                "Variables must serialize to at most "
+                                + $"{VariablesPayloadLimit.MaxBytes} bytes of JSON.");
+                            break;
+                        default:
+                            break;
+                    }
+                });
+            RuleFor(command => command.Metadata)
+                .Custom((metadata, context) =>
+                {
+                    switch (MetadataPayloadSize.Assess(metadata))
+                    {
+                        case MetadataPayloadVerdict.Unreadable:
+                            context.AddFailure(UnreadableMetadataMessage);
+                            break;
+                        case MetadataPayloadVerdict.AboveCeiling:
+                            context.AddFailure(
+                                "Metadata must serialize to at most "
+                                + $"{MetadataPayloadSize.MaxBytes} bytes of JSON.");
+                            break;
+                        default:
+                            break;
+                    }
+                });
             RuleFor(command => command.ChannelsHint)
 
                 // A hint longer than the canonical channel set cannot say

@@ -1,26 +1,47 @@
-using System.Buffers;
-using System.Text.Encodings.Web;
 using System.Text.Json;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 
+/// <summary>What the ceiling answers about one variables payload.</summary>
+/// <remarks>
+/// No member takes the zero value, so a caller that leaves the answer to a
+/// default gets a value nothing acts on instead of silently getting the one
+/// answer that admits the payload.
+/// </remarks>
+public enum VariablesPayloadVerdict
+{
+    /// <summary>Readable, and within the ceiling.</summary>
+    Admitted = 1,
+
+    /// <summary>
+    /// The payload parses but does not transcode: an escape in it names no
+    /// character. Nothing downstream can read it, so no number about it means
+    /// anything, and it is refused for what it is rather than for its size.
+    /// </summary>
+    Unreadable = 2,
+
+    /// <summary>Readable, and above the ceiling.</summary>
+    AboveCeiling = 3,
+}
+
 /// <summary>
-/// The ceiling on a variables payload and the single way its size is measured.
-/// Every door that hands a payload to the allowlist scan and to the sandbox
-/// reads this rule, because a ceiling enforced at one door bounds nothing: the
-/// same payload reaches the same walk and the same render through the others,
-/// limited only by the transport's own body limit.
+/// The ceiling on a variables payload, and the single door at which a payload
+/// is both measured and read. Every door that hands a payload to the allowlist
+/// scan and to the sandbox reads this rule, because a ceiling enforced at one
+/// door bounds nothing: the same payload reaches the same walk and the same
+/// render through the others, limited only by the transport's own body limit.
 /// <para>
-/// The measure is the compact UTF-8 form with the escaping policy pinned, not
-/// the text as it arrived, and both halves of that are correctness rather than
-/// taste. Indentation and <c>\uXXXX</c> escaping are the writer's choice, so
-/// measuring the arriving text answers differently for the same payload at
-/// ingestion, where it arrives as the producer wrote it, and at render, where
-/// it arrives from the canonical bytes that were stored; two answers over one
-/// payload is what accepts a request at the door and then fails it in the
-/// pipeline, with no producer able to see why. And the payload is never
-/// materialized to be measured: a guard against an oversized payload that
-/// begins by allocating twice that payload in UTF-16 is the wrong way round.
+/// The two refusals travel together and are produced by one call, because they
+/// are discovered by one traversal and separating them is what let half the
+/// rule close. A payload that cannot be transcoded throws where it is walked,
+/// and a size check written as a question about bytes alone answers that
+/// payload by taking the caller down with it.
+/// </para>
+/// <para>
+/// How the measure is defined, and why it is not the text as it arrived, lives
+/// with the measure itself in <see cref="CompactJsonSize"/>. This type owns
+/// only the number.
 /// </para>
 /// </summary>
 public static class VariablesPayloadSize
@@ -38,57 +59,26 @@ public static class VariablesPayloadSize
     public const int MaxBytes = 262_144;
 
     /// <summary>
-    /// Whether the payload is above the ceiling. An absent payload, and a JSON
-    /// null, never are: neither carries a value for the scan to walk.
+    /// Assesses the payload in one traversal. An absent payload, and a JSON
+    /// null, are always admitted: neither carries a value for the scan to walk
+    /// and neither has anything to transcode.
     /// </summary>
-    public static bool ExceedsMaxBytes(JsonElement? variables)
-        => variables is { } payload
-            && payload.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
-            && CompactByteCount(payload) > MaxBytes;
-
-    /// <summary>Bytes the payload occupies in the compact UTF-8 form this measure is defined over.</summary>
-    public static long CompactByteCount(JsonElement payload)
+    public static VariablesPayloadVerdict Assess(JsonElement? variables)
     {
-        var discarded = new DiscardedBytes();
-        using var writer = new Utf8JsonWriter(discarded, new JsonWriterOptions
+        if (variables is not { } payload
+            || payload.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        });
-
-        payload.WriteTo(writer);
-
-        // The count is the writer's own accounting, and it is only complete
-        // after the flush: bytes still pending have not been handed to the
-        // sink and are not committed yet.
-        writer.Flush();
-        return writer.BytesCommitted;
-    }
-
-    /// <summary>
-    /// Sink that accepts every byte and keeps none of them. One scratch buffer
-    /// answers every span the writer asks for, so measuring allocates by the
-    /// largest single token of the payload and never by the payload itself.
-    /// </summary>
-    private sealed class DiscardedBytes : IBufferWriter<byte>
-    {
-        private byte[] _scratch = new byte[4096];
-
-        public void Advance(int count)
-        {
+            return VariablesPayloadVerdict.Admitted;
         }
 
-        public Memory<byte> GetMemory(int sizeHint = 0) => Fitting(sizeHint).AsMemory();
-
-        public Span<byte> GetSpan(int sizeHint = 0) => Fitting(sizeHint).AsSpan();
-
-        private byte[] Fitting(int sizeHint)
+        CompactJsonSize.Outcome measured = CompactJsonSize.Measure(payload);
+        if (!measured.IsReadable)
         {
-            if (sizeHint > _scratch.Length)
-            {
-                _scratch = new byte[sizeHint];
-            }
-
-            return _scratch;
+            return VariablesPayloadVerdict.Unreadable;
         }
+
+        return measured.ByteCount > MaxBytes
+            ? VariablesPayloadVerdict.AboveCeiling
+            : VariablesPayloadVerdict.Admitted;
     }
 }

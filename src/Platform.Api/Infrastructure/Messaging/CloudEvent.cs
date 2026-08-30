@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Infrastructure.Messaging;
 
@@ -65,6 +66,15 @@ public static class CloudEventParser
     public const string ReasonMissingType = "cloudevent-missing-type";
     public const string ReasonMissingData = "cloudevent-missing-data";
 
+    /// <summary>
+    /// The body parses but does not transcode: an escape in it names no
+    /// character. It is its own reason and not the malformed-JSON one, because
+    /// the reader accepted this body and a diagnosis that said otherwise would
+    /// send whoever reads the dead-letter record looking for a syntax error
+    /// that is not there.
+    /// </summary>
+    public const string ReasonUnreadableText = "cloudevent-unreadable-text";
+
     public static CloudEventParse Parse(string body)
     {
         ArgumentNullException.ThrowIfNull(body);
@@ -85,6 +95,23 @@ public static class CloudEventParser
             if (root.ValueKind != JsonValueKind.Object)
             {
                 return CloudEventParse.Invalid(ReasonNotAnObject);
+            }
+
+            // Ahead of every attribute, because reading one is what transcodes
+            // it and the transcoding throws on an escape that names no
+            // character. That throw would land here, outside the retry the
+            // consumer wraps the processor in, and take the consuming service
+            // down instead of one record.
+            //
+            // The refusal covers the whole body rather than the attributes
+            // read below: a lookup unescapes candidate keys to compare them,
+            // so which read reaches an unreadable escape first depends on the
+            // names sought and on their length, and a guard shaped by that is
+            // not a guard. The measure owns the rule and never throws, so
+            // nothing here re-reads what a surrogate is.
+            if (!CompactJsonSize.Measure(root).IsReadable)
+            {
+                return CloudEventParse.Invalid(ReasonUnreadableText);
             }
 
             if (ReadString(root, "specversion") is not { } specVersion

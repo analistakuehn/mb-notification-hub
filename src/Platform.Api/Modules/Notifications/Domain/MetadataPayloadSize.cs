@@ -1,16 +1,37 @@
-using System.Buffers;
-using System.Text.Encodings.Web;
 using System.Text.Json;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications.Domain;
 
+/// <summary>What the ceiling answers about one metadata payload.</summary>
+/// <remarks>
+/// No member takes the zero value, so a caller that leaves the answer to a
+/// default gets a value nothing acts on instead of silently getting the one
+/// answer that admits the payload.
+/// </remarks>
+internal enum MetadataPayloadVerdict
+{
+    /// <summary>Readable, and within the ceiling.</summary>
+    Admitted = 1,
+
+    /// <summary>
+    /// The payload parses but does not transcode: an escape in it names no
+    /// character. The hash cannot canonicalize what cannot be read, so it is
+    /// refused for what it is rather than for its size.
+    /// </summary>
+    Unreadable = 2,
+
+    /// <summary>Readable, and above the ceiling.</summary>
+    AboveCeiling = 3,
+}
+
 /// <summary>
-/// The ceiling on the producer metadata of a request, and the single way its
-/// size is measured. What the ceiling bounds is the idempotency payload hash,
-/// which canonicalizes metadata recursively into a buffer that grows with it,
-/// once for every accepted request and again for every replay resolved against
-/// a stored registration. Shape validation is the only point ahead of both, so
-/// the ceiling is imposed there or nowhere.
+/// The ceiling on the producer metadata of a request, and the single door at
+/// which that metadata is both measured and read. What the ceiling bounds is
+/// the idempotency payload hash, which canonicalizes metadata recursively into
+/// a buffer that grows with it, once for every accepted request and again for
+/// every replay resolved against a stored registration. Shape validation is
+/// the only point ahead of both, so the ceiling is imposed there or nowhere.
 /// <para>
 /// The number is deliberately below the ceiling the catalog publishes for
 /// variables, and this module owns it rather than reading that contract,
@@ -26,14 +47,17 @@ namespace NotificationHub.Api.Modules.Notifications.Domain;
 /// context than a request has any use for.
 /// </para>
 /// <para>
-/// The measure is the compact UTF-8 form with the escaping policy pinned, and
-/// it is exact rather than an approximation: sorting object keys reorders the
-/// bytes the hash writes without changing how many there are. Indentation and
-/// <c>\uXXXX</c> escaping are the writer's choice, so measuring the text as it
-/// arrived would answer differently for one payload depending on how the
-/// producer spelled it. The payload is never materialized to be measured: a
-/// guard against an oversized payload that begins by allocating twice that
-/// payload in UTF-16 is the wrong way round.
+/// The two refusals travel together and are produced by one call, because they
+/// are discovered by one traversal and separating them is what let half the
+/// rule close: a payload that cannot be transcoded throws where it is walked,
+/// and a size check written as a question about bytes alone answers such a
+/// payload by taking the caller down with it.
+/// </para>
+/// <para>
+/// The count is exact rather than an approximation of what the hash writes:
+/// sorting object keys reorders the bytes without changing how many there are.
+/// How the measure itself is defined lives with the measure, in
+/// <see cref="CompactJsonSize"/>; this type owns only the number.
 /// </para>
 /// </summary>
 internal static class MetadataPayloadSize
@@ -46,57 +70,26 @@ internal static class MetadataPayloadSize
     internal const int MaxBytes = 32_768;
 
     /// <summary>
-    /// Whether the metadata is above the ceiling. An absent payload, and a
-    /// JSON null, never are: the hash writes neither.
+    /// Assesses the metadata in one traversal. Absent metadata, and a JSON
+    /// null, are always admitted: the hash writes neither and neither has
+    /// anything to transcode.
     /// </summary>
-    internal static bool ExceedsMaxBytes(JsonElement? metadata)
-        => metadata is { } payload
-            && payload.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
-            && CompactByteCount(payload) > MaxBytes;
-
-    /// <summary>Bytes the payload occupies in the compact UTF-8 form this measure is defined over.</summary>
-    internal static long CompactByteCount(JsonElement payload)
+    internal static MetadataPayloadVerdict Assess(JsonElement? metadata)
     {
-        var discarded = new DiscardedBytes();
-        using var writer = new Utf8JsonWriter(discarded, new JsonWriterOptions
+        if (metadata is not { } payload
+            || payload.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        });
-
-        payload.WriteTo(writer);
-
-        // The count is the writer's own accounting, and it is only complete
-        // after the flush: bytes still pending have not been handed to the
-        // sink and are not committed yet.
-        writer.Flush();
-        return writer.BytesCommitted;
-    }
-
-    /// <summary>
-    /// Sink that accepts every byte and keeps none of them. One scratch buffer
-    /// answers every span the writer asks for, so measuring allocates by the
-    /// largest single token of the payload and never by the payload itself.
-    /// </summary>
-    private sealed class DiscardedBytes : IBufferWriter<byte>
-    {
-        private byte[] _scratch = new byte[4096];
-
-        public void Advance(int count)
-        {
+            return MetadataPayloadVerdict.Admitted;
         }
 
-        public Memory<byte> GetMemory(int sizeHint = 0) => Fitting(sizeHint).AsMemory();
-
-        public Span<byte> GetSpan(int sizeHint = 0) => Fitting(sizeHint).AsSpan();
-
-        private byte[] Fitting(int sizeHint)
+        CompactJsonSize.Outcome measured = CompactJsonSize.Measure(payload);
+        if (!measured.IsReadable)
         {
-            if (sizeHint > _scratch.Length)
-            {
-                _scratch = new byte[sizeHint];
-            }
-
-            return _scratch;
+            return MetadataPayloadVerdict.Unreadable;
         }
+
+        return measured.ByteCount > MaxBytes
+            ? MetadataPayloadVerdict.AboveCeiling
+            : MetadataPayloadVerdict.Admitted;
     }
 }

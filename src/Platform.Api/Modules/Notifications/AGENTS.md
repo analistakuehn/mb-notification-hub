@@ -1,3 +1,7 @@
+---
+language: pt-BR
+---
+
 # Módulo Notifications
 
 ## Limite
@@ -152,6 +156,36 @@ curta própria.
   verificada antes da validação do schema porque essa validação relata achados
   exatamente sobre o payload que não deve ser inspecionado; a idempotência é
   verificada antes do orçamento para que um replay legítimo nunca o consuma.
+- **Um corpo que analisa mas não transcreve é recusado inteiro, antes de
+  qualquer campo.** Um escape pode nomear um substituto que o corpo nunca
+  pareia, e isso é texto JSON legal: o leitor aceita, o valor liga sem
+  reclamar, e só a reescrita para UTF-8 descobre que o escape não nomeia
+  caractere. Ler qualquer campo é o que reescreve, e a busca por um nome
+  desescapa as chaves candidatas para compará-las, então qual leitura tropeça
+  primeiro depende dos nomes procurados e do comprimento deles. Medido, duas
+  escapadas em uma chave já quebram a busca de um nome de nove caracteres, e
+  por isso a recusa cobre o corpo inteiro e nunca a lista de campos de hoje,
+  que reabriria no dia em que um campo fosse acrescentado ou renomeado. São
+  dois pontos, e os dois são deliberados: o envelope, no analisador de
+  CloudEvents, que responde `cloudevent-unreadable-text`, e o `data`, no
+  binder, que responde `payload-invalid`. O envelope precisa do seu próprio
+  ponto porque é lido fora da retentativa que o consumidor envolve em volta do
+  processador, de modo que um lançamento ali derruba o serviço consumidor
+  inteiro em vez de um registro. A medida que responde é a mesma dos tetos de
+  tamanho, e ela nunca lança: nada aqui relê o que é um substituto, porque o
+  runtime já é dono dessa regra e uma segunda leitura dela pode discordar da
+  que de fato transcreve.
+- **Uma falha determinística nunca chega ao transporte como exceção.** O
+  consumidor classifica toda exceção como transitória: tenta quatro vezes com
+  backoff e então pausa a partição sem confirmar o offset, que é retomada e
+  encontra o mesmo registro. A política é permanente vai para a dead-letter,
+  transitório pausa a partição, e uma falha determinística que lança é
+  classificada ao contrário do que ela é, o que trava a partição
+  indefinidamente em vez de deixar um registro de dead-letter que alguém possa
+  ler. Quem acrescentar leitura de payload no caminho do barramento devolve
+  recusa, nunca lança. O ponto de classificação continua o que é, e a
+  assimetria fica registrada aqui: nada hoje impede uma exceção nova de ser
+  lida como transitória.
 - Um erro permanente registra primeiro o registro de dead-letter, depois
   confirma a trilha e a marca de deduplicação e, por fim, o offset. Uma marca
   escrita primeiro faria o replay de uma falha ignorar um registro que nunca foi
