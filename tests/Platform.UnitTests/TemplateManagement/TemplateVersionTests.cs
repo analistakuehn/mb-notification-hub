@@ -125,8 +125,11 @@ public sealed class TemplateVersionTests
         source.SetContent(new ContentEdit(Email, PtBr, "Assunto", "corpo", "texto"), "author-1");
         source.SetVariablesSchema("""{"type":"object"}""", "author-1");
 
-        var clone = TemplateVersion.CreateDraftFrom(source, 2, "author-2", CreatedAt.AddDays(1));
+        Result<TemplateVersion> cloned = TemplateVersion.CreateDraftFrom(
+            source, 2, "author-2", CreatedAt.AddDays(1));
 
+        cloned.IsSuccess.ShouldBeTrue();
+        TemplateVersion clone = cloned.Value!;
         clone.Version.ShouldBe(2);
         clone.Status.ShouldBe(TemplateVersionStatus.Draft);
         clone.CreatedBy.ShouldBe("author-2");

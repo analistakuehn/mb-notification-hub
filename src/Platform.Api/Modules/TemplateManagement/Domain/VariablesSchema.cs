@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 
@@ -30,6 +31,18 @@ public static class VariablesSchema
         try
         {
             using var document = JsonDocument.Parse(schemaJson);
+
+            // A schema can parse and still not transcode, and every step of the
+            // walk below transcodes: reading a property name, reading a string
+            // value, and even looking a name up, because the lookup unescapes
+            // candidate keys to compare them. The whole root is measured once,
+            // before any of that, so this method keeps the promise its name
+            // makes to the publication gate that is built on it.
+            if (!CompactJsonSize.Measure(document.RootElement).IsReadable)
+            {
+                return false;
+            }
+
             declarations = ReadDeclarations(document.RootElement);
             return true;
         }
@@ -53,7 +66,7 @@ public static class VariablesSchema
     /// render time.
     /// </para>
     /// </summary>
-    /// <returns>False when the schema is not readable, which is reported elsewhere.</returns>
+    /// <returns>False when the schema cannot be read, which is reported elsewhere.</returns>
     public static bool TryUndeclaredNames(
         string? schemaJson,
         IReadOnlyList<string> names,
@@ -70,6 +83,11 @@ public static class VariablesSchema
         try
         {
             using var document = JsonDocument.Parse(schemaJson);
+            if (!CompactJsonSize.Measure(document.RootElement).IsReadable)
+            {
+                return false;
+            }
+
             undeclared = [.. names.Where(name => !Declares(document.RootElement, name))];
             return true;
         }

@@ -18,9 +18,11 @@ public static class ErrorCodes
     public const string TemplateRenderFailed = "template-render-failed";
     public const string VariablesPayloadTooLarge = "variables-payload-too-large";
     public const string VariablesPayloadUnreadable = "variables-payload-unreadable";
+    public const string VariablesSchemaUnreadable = "variables-schema-unreadable";
     public const string UrlDomainNotAllowed = "url-domain-not-allowed";
     public const string FourEyesViolation = "four-eyes-violation";
     public const string ContentHashMismatch = "content-hash-mismatch";
+    public const string StoredContentUnreadable = "stored-content-unreadable";
     public const string TemplateValidationFailed = "template-validation-failed";
     public const string LayoutAlreadyExists = "layout-already-exists";
     public const string LayoutNotFound = "layout-not-found";

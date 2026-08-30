@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 
@@ -151,7 +152,12 @@ public static class VersionDiff
         try
         {
             using var document = JsonDocument.Parse(json);
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
+
+            // Measured once, before a single name or value is touched: reading
+            // either transcodes, and a document whose escape names no character
+            // would take the diff down instead of contributing nothing to it.
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !CompactJsonSize.Measure(document.RootElement).IsReadable)
             {
                 return fields;
             }
@@ -160,7 +166,7 @@ public static class VersionDiff
             {
                 if (property.Value.ValueKind != JsonValueKind.Null)
                 {
-                    fields[property.Name] = CanonicalJson.Normalize(property.Value.GetRawText());
+                    fields[property.Name] = CanonicalJson.NormalizeReadable(property.Value);
                 }
             }
 
@@ -185,6 +191,11 @@ public static class VersionDiff
         {
             using var document = JsonDocument.Parse(schemaJson);
             JsonElement root = document.RootElement;
+            if (!CompactJsonSize.Measure(root).IsReadable)
+            {
+                return declarations;
+            }
+
             HashSet<string> required = ReadRequired(root);
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("properties", out JsonElement properties)
@@ -196,7 +207,7 @@ public static class VersionDiff
             foreach (JsonProperty property in properties.EnumerateObject())
             {
                 var requiredMarker = required.Contains(property.Name) ? "required:" : "optional:";
-                declarations[property.Name] = requiredMarker + CanonicalJson.Normalize(property.Value.GetRawText());
+                declarations[property.Name] = requiredMarker + CanonicalJson.NormalizeReadable(property.Value);
             }
 
             return declarations;

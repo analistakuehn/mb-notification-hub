@@ -250,4 +250,36 @@ public sealed class ClassPolicyEndpointTests(TemplateManagementApiFixture fixtur
         (await TemplateApi.ReadJsonAsync(response)).GetProperty("type").GetString()
             .ShouldBe("class-policy-draft-not-found");
     }
+
+    /// <summary>
+    /// The policy door carries the same rule as the schema door. The structural
+    /// validation runs on the submitted definition before the aggregate ever
+    /// sees it, and that walk reads names and string values, so the refusal has
+    /// to stand in front of it and not behind it.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_definition_whose_escape_names_no_character_is_refused_with_400()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-cp-unreadable");
+        var application = ClassPolicyApi.NewApplication();
+
+        // The premise, asserted rather than assumed: the escape is still six
+        // characters on the wire, and not a code unit the compiler folded.
+        UnreadableDocumentSeed.DefinitionWithSurrogate
+            .Contains(UnreadableDocumentSeed.LoneSurrogateEscape, StringComparison.Ordinal)
+            .ShouldBeTrue("O corpo enviado deve carregar o escape cru.");
+
+        HttpResponseMessage response = await author.SendAsync(UnreadableDocumentSeed.PutRawJson(
+            $"{ClassPolicyApi.PolicyUrl(application)}/draft",
+            UnreadableDocumentSeed.DefinitionWithSurrogate,
+            ifMatch: null));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("invalid-request");
+
+        // No draft was opened by a body the door refused.
+        HttpResponseMessage policy = await author.GetAsync(ClassPolicyApi.PolicyUrl(application));
+        policy.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
 }

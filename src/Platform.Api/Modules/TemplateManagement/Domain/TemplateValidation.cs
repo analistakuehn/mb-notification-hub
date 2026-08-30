@@ -174,7 +174,7 @@ public static partial class TemplateValidation
 
         checks.Add(schemaParsed
             ? Passed(ValidationCheckNames.VariablesSchema, "The variables schema is readable.")
-            : Failed(ValidationCheckNames.VariablesSchema, "The variables schema is not valid JSON.", null));
+            : Failed(ValidationCheckNames.VariablesSchema, "The variables schema is not JSON this system can read.", null));
     }
 
     private static void AddDeclaredVariableChecks(

@@ -98,9 +98,25 @@ public sealed class TemplateVersion
         return new TemplateVersion(templateKey, version, createdBy, createdAt);
     }
 
-    public static TemplateVersion CreateDraftFrom(TemplateVersion source, int version, string createdBy, DateTimeOffset createdAt)
+    /// <summary>
+    /// Clones a version into a new draft. Cloning hashes the clone, and hashing
+    /// reads the source schema, so a source whose stored schema no longer
+    /// transcodes is refused here with an answer: the clone would otherwise
+    /// carry a hash nobody could recompute.
+    /// </summary>
+    public static Result<TemplateVersion> CreateDraftFrom(
+        TemplateVersion source,
+        int version,
+        string createdBy,
+        DateTimeOffset createdAt)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if (!source.TryReadStoredSchema(out var canonicalSchema))
+        {
+            Result unreadable = StoredContentUnreadable(source.Version);
+            return new Result<TemplateVersion>(false, null, unreadable.ErrorKind, unreadable.Error);
+        }
+
         TemplateVersion draft = CreateDraft(source.TemplateKey, version, createdBy, createdAt);
         draft.VariablesSchemaJson = source.VariablesSchemaJson;
         draft.LayoutKey = source.LayoutKey;
@@ -115,8 +131,9 @@ public sealed class TemplateVersion
                 content.BodyText));
         }
 
-        draft.ContentHash = draft.ComputeContentHash();
-        return draft;
+        draft.ContentHash = CanonicalHash.OfVersion(
+            canonicalSchema, draft.LayoutKey, draft.LayoutVersion, draft._contents);
+        return Result.Success(draft);
     }
 
     /// <summary>
@@ -153,7 +170,27 @@ public sealed class TemplateVersion
 
         // A caller-supplied hash mirrors the persisted column so integrity
         // verification can compare the stored value against the content.
-        version.ContentHash = state.ContentHash ?? version.ComputeContentHash();
+        if (state.ContentHash is not null)
+        {
+            version.ContentHash = state.ContentHash;
+            return version;
+        }
+
+        // Deriving the hash reads the schema, and this entry point takes
+        // previously validated state only, so a schema that does not transcode
+        // here is a caller that broke that contract rather than a document with
+        // a property. That is the unexpected system failure an exception exists
+        // for, and handing this one a refusal to return would invite a caller
+        // to route user input through the one door that skips the guards.
+        if (!version.TryReadStoredSchema(out var canonicalSchema))
+        {
+            throw new InvalidOperationException(
+                "Rehydrate received a variables schema that does not transcode. "
+                + "This entry point takes previously validated state and never user input.");
+        }
+
+        version.ContentHash = CanonicalHash.OfVersion(
+            canonicalSchema, version.LayoutKey, version.LayoutVersion, version._contents);
         return version;
     }
 
@@ -242,11 +279,17 @@ public sealed class TemplateVersion
             return new Result<TemplateVersion>(false, null, forbidden.ErrorKind, forbidden.Error);
         }
 
-        TemplateVersion clone = CreateDraftFrom(source, version, actor, publishedAt);
-        clone.RolledBackFrom = source.Version;
-        clone.Status = TemplateVersionStatus.Published;
-        clone.PublishedAt = publishedAt;
-        return Result.Success(clone);
+        Result<TemplateVersion> clone = CreateDraftFrom(source, version, actor, publishedAt);
+        if (clone.IsFailure)
+        {
+            return clone;
+        }
+
+        TemplateVersion published = clone.Value!;
+        published.RolledBackFrom = source.Version;
+        published.Status = TemplateVersionStatus.Published;
+        published.PublishedAt = publishedAt;
+        return Result.Success(published);
     }
 
     /// <summary>
@@ -255,14 +298,24 @@ public sealed class TemplateVersion
     /// what its hash vouches for, and nothing may be approved on top of it.
     /// </summary>
     public Result VerifyContentHash()
-        => string.Equals(
+    {
+        // A row that cannot be read did not diverge from its hash: nothing can
+        // recompute one over it. Reporting a mismatch would accuse the stored
+        // bytes of a change nobody made, and send the reader looking for one.
+        if (!TryReadStoredSchema(out var canonicalSchema))
+        {
+            return StoredContentUnreadable(Version);
+        }
+
+        return string.Equals(
             ContentHash,
-            ComputeContentHash(),
+            CanonicalHash.OfVersion(canonicalSchema, LayoutKey, LayoutVersion, _contents),
             StringComparison.Ordinal)
             ? Result.Success()
             : Result.BusinessRuleViolation(DomainError.Format(
                 ErrorCodes.ContentHashMismatch,
                 $"The stored content of version {Version} no longer matches its content hash."));
+    }
 
     private bool WasAuthoredOrEditedBy(string actorId)
         => string.Equals(actorId, CreatedBy, StringComparison.Ordinal)
@@ -299,6 +352,14 @@ public sealed class TemplateVersion
             return ValidationFailure($"Content text body must have at most {TemplateSourceSize.MaxChars} characters.");
         }
 
+        // Read before mutating: an edit applied and then unable to rehash would
+        // leave the version holding a hash that vouches for content it no
+        // longer has.
+        if (!TryReadStoredSchema(out var canonicalSchema))
+        {
+            return StoredContentUnreadable(Version);
+        }
+
         TemplateContent? existing = _contents.FirstOrDefault(content =>
             content.Channel == edit.Channel && content.Locale == edit.Locale);
         if (existing is null)
@@ -310,7 +371,7 @@ public sealed class TemplateVersion
             existing.Update(edit.Subject, edit.Body, edit.BodyText);
         }
 
-        RegisterEdit(editor);
+        RegisterEdit(editor, canonicalSchema);
         return Result.Success();
     }
 
@@ -329,8 +390,29 @@ public sealed class TemplateVersion
             return ValidationFailure($"Variables schema is required and must have at most {MaxSchemaLength} characters.");
         }
 
+        // One traversal answers all three: whether it is JSON, whether anything
+        // can read it, and whether it is an object. The shape rule lives here
+        // and not only at the transport, because a schema that is legal JSON
+        // and not an object declares no variables at all, and a version that
+        // declares none passes every undeclared-name check by saying nothing.
+        CanonicalJsonForm form = CanonicalJson.TryNormalize(schemaJson);
+        switch (form.Verdict)
+        {
+            case CanonicalJsonVerdict.Malformed:
+                return ValidationFailure("The variables schema must be well-formed JSON.");
+            case CanonicalJsonVerdict.Unreadable:
+                return new Result(false, ResultErrorKind.Validation, DomainError.Format(
+                    ErrorCodes.VariablesSchemaUnreadable,
+                    "The variables schema must be JSON text that can be read: "
+                    + "an escape in it names no character."));
+            case CanonicalJsonVerdict.NotAnObject:
+                return ValidationFailure("The variables schema must be a JSON object.");
+            default:
+                break;
+        }
+
         VariablesSchemaJson = schemaJson;
-        RegisterEdit(editor);
+        RegisterEdit(editor, form.Text);
         return Result.Success();
     }
 
@@ -360,9 +442,14 @@ public sealed class TemplateVersion
             return ValidationFailure("layoutVersion must be a positive version number.");
         }
 
+        if (!TryReadStoredSchema(out var canonicalSchema))
+        {
+            return StoredContentUnreadable(Version);
+        }
+
         LayoutKey = layoutKey?.Value;
         LayoutVersion = layoutVersion;
-        RegisterEdit(editor);
+        RegisterEdit(editor, canonicalSchema);
         return Result.Success();
     }
 
@@ -374,19 +461,49 @@ public sealed class TemplateVersion
                 TemplateVersionStatuses.AllowedTransitions(Status),
                 $"Cannot edit {editTarget}: version {Version} is '{Status.Canonical()}' and only a draft accepts edits."));
 
-    private void RegisterEdit(string editor)
+    /// <summary>
+    /// Records the editor and refreshes hash and entity tag. It takes the
+    /// canonical schema the caller already read rather than reading it again:
+    /// the read is the step that can refuse, every caller has done it before
+    /// mutating, and doing it twice would canonicalize the same document twice
+    /// per edit.
+    /// </summary>
+    private void RegisterEdit(string editor, string? canonicalSchema)
     {
         if (!_editors.Contains(editor, StringComparer.Ordinal))
         {
             _editors.Add(editor);
         }
 
-        ContentHash = ComputeContentHash();
+        ContentHash = CanonicalHash.OfVersion(canonicalSchema, LayoutKey, LayoutVersion, _contents);
         EntityTag = NewEntityTag();
     }
 
-    private string ComputeContentHash()
-        => CanonicalHash.OfVersion(VariablesSchemaJson, LayoutKey, LayoutVersion, _contents);
+    /// <summary>
+    /// The canonical form of the stored variables schema, or false when the
+    /// stored document can no longer be read at all. A schema that is legal
+    /// JSON and not an object still reads: the shape rule belongs to the door
+    /// that accepts a schema, and applying it here would turn a row written
+    /// before that door existed into a version nobody can verify.
+    /// </summary>
+    private bool TryReadStoredSchema(out string? canonicalSchema)
+    {
+        canonicalSchema = null;
+        if (VariablesSchemaJson is null)
+        {
+            return true;
+        }
+
+        CanonicalJsonForm form = CanonicalJson.TryNormalize(VariablesSchemaJson);
+        canonicalSchema = form.Text;
+        return form.Text is not null;
+    }
+
+    private static Result StoredContentUnreadable(int version)
+        => Result.BusinessRuleViolation(DomainError.Format(
+            ErrorCodes.StoredContentUnreadable,
+            $"The stored variables schema of version {version} cannot be read: "
+            + "an escape in it names no character."));
 
     private static Result ValidationFailure(string detail)
         => new(false, ResultErrorKind.Validation, DomainError.Format(ErrorCodes.InvalidRequest, detail));

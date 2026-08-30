@@ -70,7 +70,14 @@ internal static partial class CreateTemplateVersion
                         $"Template '{key.Value!.Value}' has no version {fromVersion} to clone from."));
                 }
 
-                draft = TemplateVersion.CreateDraftFrom(source, nextVersion, command.Actor, timeProvider.GetUtcNow());
+                Result<TemplateVersion> cloned = TemplateVersion.CreateDraftFrom(
+                    source, nextVersion, command.Actor, timeProvider.GetUtcNow());
+                if (cloned.IsFailure)
+                {
+                    return cloned.AsFailure<TemplateVersion, Response>();
+                }
+
+                draft = cloned.Value!;
             }
             else
             {

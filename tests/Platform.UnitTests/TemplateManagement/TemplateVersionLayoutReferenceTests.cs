@@ -90,8 +90,11 @@ public sealed class TemplateVersionLayoutReferenceTests
         var source = TemplateVersion.CreateDraft(Key, 1, "author-1", CreatedAt);
         source.SetLayoutReference(BaseLayout, 2, "author-1");
 
-        var clone = TemplateVersion.CreateDraftFrom(source, 2, "author-2", CreatedAt.AddDays(1));
+        Result<TemplateVersion> cloned = TemplateVersion.CreateDraftFrom(
+            source, 2, "author-2", CreatedAt.AddDays(1));
 
+        cloned.IsSuccess.ShouldBeTrue();
+        TemplateVersion clone = cloned.Value!;
         clone.LayoutKey.ShouldBe("email.base");
         clone.LayoutVersion.ShouldBe(2);
         clone.ContentHash.ShouldBe(source.ContentHash);

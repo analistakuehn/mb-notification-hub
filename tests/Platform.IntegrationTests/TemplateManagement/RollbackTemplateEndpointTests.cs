@@ -131,4 +131,29 @@ public sealed class RollbackTemplateEndpointTests(TemplateManagementApiFixture f
         response.EnsureSuccessStatusCode();
         return (await TemplateApi.ReadJsonAsync(response)).GetProperty("contentHash").GetString()!;
     }
+
+    /// <summary>
+    /// A rollback republishes stored content, so it verifies that content
+    /// against the hash its original approval covered. A source that cannot be
+    /// read fails that verification for a reason of its own, and answering it
+    /// as a hash mismatch would accuse the stored bytes of a change nobody
+    /// made.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task Rolling_back_to_a_source_whose_stored_schema_does_not_transcode_is_refused()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-rb-unreadable");
+        HttpClient rollbackCaller = fixture.CreatePublisherClient("publisher-rb-unreadable");
+        var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey());
+        await UnreadableDocumentSeed.SeedVersionAsync(
+            fixture, key, version: 1, status: "published",
+            UnreadableDocumentSeed.SchemaWithSurrogateInValue);
+
+        HttpResponseMessage response = await rollbackCaller.PostAsJsonAsync(
+            $"/v1/templates/{key}/rollback", new { toVersion = 1 });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("stored-content-unreadable");
+    }
 }

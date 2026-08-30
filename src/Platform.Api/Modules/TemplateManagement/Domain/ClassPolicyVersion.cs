@@ -116,7 +116,27 @@ public sealed class ClassPolicyVersion
 
         // A caller-supplied hash mirrors the persisted column so integrity
         // verification can compare the stored value against the definition.
-        version.ContentHash = state.ContentHash ?? HashOf(state.DefinitionJson);
+        if (state.ContentHash is not null)
+        {
+            version.ContentHash = state.ContentHash;
+            return version;
+        }
+
+        // Deriving the hash reads the definition, and this entry point takes
+        // previously validated state only, so a definition that does not
+        // transcode here is a caller that broke that contract rather than a
+        // document with a property. That is the unexpected system failure an
+        // exception exists for, and handing this one a refusal to return would
+        // invite a caller to route user input through the one door that skips
+        // the guards.
+        if (CanonicalJson.TryNormalize(state.DefinitionJson).Text is not { } canonical)
+        {
+            throw new InvalidOperationException(
+                "Rehydrate received a policy definition that does not transcode. "
+                + "This entry point takes previously validated state and never user input.");
+        }
+
+        version.ContentHash = HashOf(canonical);
         return version;
     }
 
@@ -212,11 +232,24 @@ public sealed class ClassPolicyVersion
     /// what its hash vouches for, and nothing may be approved on top of it.
     /// </summary>
     public Result VerifyContentHash()
-        => string.Equals(ContentHash, HashOf(DefinitionJson), StringComparison.Ordinal)
+    {
+        // A row that cannot be read did not diverge from its hash: nothing can
+        // recompute one over it. Reporting a mismatch would accuse the stored
+        // bytes of a change nobody made, and send the reader looking for one.
+        if (CanonicalJson.TryNormalize(DefinitionJson).Text is not { } canonical)
+        {
+            return Result.BusinessRuleViolation(DomainError.Format(
+                ErrorCodes.StoredContentUnreadable,
+                $"The stored definition of version {Version} cannot be read: "
+                + "an escape in it names no character."));
+        }
+
+        return string.Equals(ContentHash, HashOf(canonical), StringComparison.Ordinal)
             ? Result.Success()
             : Result.BusinessRuleViolation(DomainError.Format(
                 ErrorCodes.ContentHashMismatch,
                 $"The stored definition of version {Version} no longer matches its content hash."));
+    }
 
     private Result ApplyDefinition(string definitionJson)
     {
@@ -226,36 +259,49 @@ public sealed class ClassPolicyVersion
                 $"The definition is required and must have at most {MaxDefinitionLength} characters.");
         }
 
-        int schemaVersion;
-        try
+        // One traversal answers all three: whether it is JSON, whether anything
+        // can read it, and whether it is an object. It runs before a single
+        // property is looked up, because looking one up unescapes candidate
+        // keys to compare them and an escape that names no character takes the
+        // lookup down with it.
+        CanonicalJsonForm form = CanonicalJson.TryNormalize(definitionJson);
+        if (form is not { Verdict: CanonicalJsonVerdict.Canonical, Text: { } canonical })
         {
-            using var document = JsonDocument.Parse(definitionJson);
-            if (document.RootElement.ValueKind != JsonValueKind.Object
-                || !document.RootElement.TryGetProperty("schemaVersion", out JsonElement declared)
-                || declared.ValueKind != JsonValueKind.Number
-                || !declared.TryGetInt32(out schemaVersion))
+            return ValidationFailure(form.Verdict switch
             {
-                return ValidationFailure("The definition must be a JSON object declaring an integer 'schemaVersion'.");
-            }
+                CanonicalJsonVerdict.Malformed => "The definition must be well-formed JSON.",
+                CanonicalJsonVerdict.Unreadable =>
+                    "The definition must be JSON text that can be read: an escape in it names no character.",
+                _ => "The definition must be a JSON object declaring an integer 'schemaVersion'.",
+            });
         }
-        catch (JsonException)
+
+        // The parse cannot fail here: the traversal above already read the same
+        // text, so no catch stands between this walk and a defect in it.
+        using var document = JsonDocument.Parse(definitionJson);
+        if (!document.RootElement.TryGetProperty("schemaVersion", out JsonElement declared)
+            || declared.ValueKind != JsonValueKind.Number
+            || !declared.TryGetInt32(out var schemaVersion))
         {
-            return ValidationFailure("The definition must be well-formed JSON.");
+            return ValidationFailure("The definition must be a JSON object declaring an integer 'schemaVersion'.");
         }
 
         DefinitionJson = definitionJson;
         SchemaVersion = schemaVersion;
-        ContentHash = HashOf(definitionJson);
+        ContentHash = HashOf(canonical);
         EntityTag = NewEntityTag();
         return Result.Success();
     }
 
     /// <summary>
     /// The hash covers the canonical JSON form, so formatting and key order
-    /// never change what the approval vouches for.
+    /// never change what the approval vouches for. The caller produces that
+    /// form, because producing it is the step that can refuse the document and
+    /// a hash that could fail would put the refusal in the one place with no
+    /// way to report it.
     /// </summary>
-    private static string HashOf(string definitionJson)
-        => CanonicalHash.OfFields(CanonicalJson.Normalize(definitionJson));
+    private static string HashOf(string canonicalDefinition)
+        => CanonicalHash.OfFields(canonicalDefinition);
 
     private static Result ValidationFailure(string detail)
         => new(false, ResultErrorKind.Validation, DomainError.Format(ErrorCodes.InvalidRequest, detail));

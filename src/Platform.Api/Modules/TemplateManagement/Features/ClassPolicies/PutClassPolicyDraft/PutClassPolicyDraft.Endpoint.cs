@@ -38,6 +38,18 @@ internal static partial class PutClassPolicyDraft
                 "The policy definition must be a JSON object."));
         }
 
+        // A body can parse and bind and still not transcode. The refusal stands
+        // in front of the raw text on purpose: the structural validation runs
+        // on the submitted definition before the aggregate ever sees it, and
+        // that walk reads property names and string values.
+        if (!CompactJsonSize.Measure(definition).IsReadable)
+        {
+            return ApiResults.Problem(ResultErrorKind.Validation, DomainError.Format(
+                ErrorCodes.InvalidRequest,
+                "The policy definition must be JSON text that can be read: "
+                + "an escape in it names no character."));
+        }
+
         Result<Outcome> result = await handler.HandleAsync(
             new Command(route, definition.GetRawText(), actor.Value!),
             cancellationToken);

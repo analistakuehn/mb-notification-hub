@@ -25,7 +25,7 @@ public static class VariablesPayloadValidation
         {
             checks.Add(schemaParsed
                 ? Passed(ValidationCheckNames.VariablesSchema, "The variables schema is readable.")
-                : Failed(ValidationCheckNames.VariablesSchema, "The variables schema is not valid JSON."));
+                : Failed(ValidationCheckNames.VariablesSchema, "The variables schema is not JSON this system can read."));
         }
 
         JsonElement? payload = variables is { ValueKind: JsonValueKind.Object } provided ? provided : null;

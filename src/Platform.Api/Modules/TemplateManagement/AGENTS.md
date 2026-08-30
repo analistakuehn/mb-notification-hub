@@ -632,6 +632,90 @@
   payload with the same walk, and a second copy of it is a second place for the
   same defect to survive the fix applied to the first. The numbers stay with
   their owners; only the walk is shared.
+- **The same rule governs the document the author writes, and it is one rule
+  over three frontiers.** The ceiling above answers about the payload a
+  producer sends; the schema of a template version and the definition of a
+  class policy are documents too, and they reach a canonical form, a hash, a
+  declaration walk and a diff. `Domain/CanonicalJson.TryNormalize` is where the
+  refusal lives for the two that get hashed: one traversal answers whether the
+  text is JSON, whether anything can read it, and whether it is an object, and
+  the caller translates that verdict on its own error axis. The traversal is
+  the one the hash was already paying for, so the guard costs no walk and no
+  allocation beyond it. The authoring endpoints refuse in front of
+  `GetRawText`, with `SharedKernel/CompactJsonSize`, because the raw text is
+  the one read such a body survives and everything past it transcodes; the
+  policy door in particular stands in front of the structural validation, which
+  runs on the submitted definition before the aggregate ever sees it.
+  `Domain/VariablesSchema` and `Domain/VersionDiff` settle readability over the
+  whole root before they read a name or a value, which adds no catch anywhere:
+  a guard shaped around the fields they read today would reopen the day a field
+  is added or renamed, because which lookup trips first depends on the sought
+  name's length against the escaped candidate key's.
+- **The shape rule travels with the readability rule, in one verdict.** A
+  schema that is legal JSON and not an object used to be refused only at the
+  transport. Left out of the domain it publishes: the declaration walk reads no
+  properties out of it, the catalog reports the schema readable, and every
+  undeclared-name check passes over a version that declares nothing at all. The
+  two findings come from one traversal and are returned by one call, for the
+  same reason the ceiling and the readability of a payload are.
+- **`stored-content-unreadable` is not `content-hash-mismatch`.** A row that
+  cannot be read did not diverge from its hash; nothing can recompute one over
+  it. Answering it as a mismatch would accuse the stored bytes of a change
+  nobody made and send an operator looking for one. `variables-schema-unreadable`
+  is the door's code, which an author fixes by resending. Neither code appears
+  in the producer guide, and correctly so: `ErrorCodes` is this module's
+  internal error axis, decoded once at the HTTP boundary, and the guide's
+  catalog is `NotificationRejectionReasons`.
+- **`Rehydrate` still throws on a document it cannot read, on both aggregates.**
+  It is the one entry point that skips every guard, and its contract says it
+  never receives user input, so a document that does not transcode there is a
+  caller that broke that contract rather than a document with a property. That
+  is the unexpected system failure an exception exists for, and giving it a
+  refusal to return would invite a caller to route user input through the one
+  door with no guards. A test asserts that nothing under `src/` calls it.
+- **No hash moved, and none may.** Every published version verifies its stored
+  content against a hash computed the same way it was when the version was
+  approved, so a canonical form that shifted by one byte would report tampering
+  in bulk over content nobody touched. `CanonicalHash.OfVersion` therefore
+  takes the canonical schema rather than the schema, because producing that
+  form is the step that can refuse and a hash that could fail would put the
+  refusal in the one place with no way to report it. The fence is a corpus of
+  schemas whose hashes are pinned as literals, measured before the refusal
+  moved.
+- **What this refusal did not close, and what reopens each one.** None of these
+  is reachable through any endpoint today, past or present: before the refusal
+  existed the write itself failed, so no API ever stored such a document. They
+  are the paths a row written around the API would take.
+  - *The canonical form is not injective.* `{"a":1,"a":2}` and `{"a":2}` hash
+    alike, because both the writer and jsonb collapse a duplicate key to the
+    last occurrence, and the endpoint accepts the duplicate. The hash therefore
+    vouches for less than the stored bytes. Refusing a duplicate would change
+    what a public endpoint accepts and would turn any stored row carrying one
+    into a version nobody can publish, which collides with the retroactive
+    neutrality above. Reopen it when a duplicate key is observed in a stored
+    schema or definition, or when the acceptance change is deliberately wanted.
+  - *`Infrastructure/Http/JsonProjections.ParseOrNull` still fails on such a
+    row.* Making it total is trivial; deciding what a version read should
+    answer when its stored schema cannot be projected is not, and the same
+    answer has to serve five projections. Returning null would make an
+    unreadable column indistinguishable from an absent one, which is a silent
+    failure in a governance read. Reopen it with that contract decision.
+  - *`Domain/ClassPolicyValidation` has no readability guard of its own.* It
+    walks names and string values of the submitted definition and is protected
+    only by the endpoint that refuses in front of it. Reopen it the moment a
+    second caller reaches that catalog, or the moment the definition can arrive
+    from anywhere but that door.
+  - *The canonical form of a schema at the ceiling is a large-object
+    allocation.* One integrity verification over a 64000-character schema
+    allocates about 519 KiB, and the canonical string alone lands on the large
+    object heap. There is a way to hash without materializing it. That is a
+    performance finding of its own, fenced here only against growth.
+  - *`Encoding.UTF8` over `Subject`, `Body` and `BodyText` replaces silently.*
+    Those fields reach the hash as raw bytes with replacement, which is the
+    option this rule forbids for a JSON document. It is unreachable today
+    because no door admits invalid UTF-16 into them, and correcting it would
+    move the hash of every stored row. Reopen it only together with a hash
+    migration.
 - **One number governs the whole template source axis, and it lives in
   `Domain/TemplateSourceSize`.** The body and the text body of a template
   version, the body and the text body of a layout version, the two authoring

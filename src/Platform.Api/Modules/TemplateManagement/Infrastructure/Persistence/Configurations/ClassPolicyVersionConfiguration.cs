@@ -39,9 +39,11 @@ internal sealed class ClassPolicyVersionConfiguration : IEntityTypeConfiguration
         builder.Property(version => version.SchemaVersion)
             .HasColumnName("schema_version");
 
-        // Plain text on purpose: the canonical hash covers the submitted
-        // bytes, and jsonb would rewrite number literals, whitespace and key
-        // order on round trip, breaking hash verification after a reload.
+        // Plain text on purpose: the canonical form writes a number exactly
+        // as it was submitted, and jsonb re-renders one from numeric, so 1e2
+        // would come back 100 and break hash verification after a reload. Key
+        // order and whitespace do not enter it, because the canonical form
+        // already sorts and compacts.
         builder.Property(version => version.DefinitionJson)
             .HasColumnName("definition");
 

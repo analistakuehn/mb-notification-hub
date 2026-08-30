@@ -79,4 +79,38 @@ public sealed class PutTemplateVersionVariablesSchemaEndpointTests(TemplateManag
 
         response.StatusCode.ShouldBe(HttpStatusCode.PreconditionFailed);
     }
+
+    /// <summary>
+    /// The author's door for the same rule the producer payload already has. A
+    /// schema whose escape names no character parses, binds and reaches the
+    /// aggregate; every step past this point transcodes it, so without a
+    /// refusal here the endpoint answers by failing instead of by refusing.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_schema_whose_escape_names_no_character_is_refused_with_400()
+    {
+        HttpClient client = fixture.CreateAuthorClient("editor-1");
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        var url = $"/v1/templates/{key}/versions/{version}/variables-schema";
+
+        // The premise, asserted rather than assumed: the escape is still six
+        // characters on the wire, and not a code unit the compiler folded.
+        UnreadableDocumentSeed.SchemaWithSurrogateInValue
+            .Contains(UnreadableDocumentSeed.LoneSurrogateEscape, StringComparison.Ordinal)
+            .ShouldBeTrue("O corpo enviado deve carregar o escape cru.");
+
+        HttpResponseMessage response = await client.SendAsync(UnreadableDocumentSeed.PutRawJson(
+            url, UnreadableDocumentSeed.SchemaWithSurrogateInValue, etag));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("variables-schema-unreadable");
+
+        // Nothing was stored: the draft still answers with no schema at all.
+        HttpResponseMessage stored = await client.GetAsync($"/v1/templates/{key}/versions/{version}");
+        JsonElement body = await TemplateApi.ReadJsonAsync(stored);
+        body.TryGetProperty("variablesSchema", out JsonElement schema).ShouldBeTrue();
+        schema.ValueKind.ShouldBe(JsonValueKind.Null);
+    }
 }

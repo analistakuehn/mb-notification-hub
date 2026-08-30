@@ -118,4 +118,26 @@ public sealed class CreateTemplateVersionEndpointTests(TemplateManagementApiFixt
         });
         return contentHash;
     }
+
+    /// <summary>
+    /// Cloning reads the source, and reading it means canonicalizing its
+    /// schema. A source row whose schema no longer transcodes has to be
+    /// refused with an answer, not carried out through the transport.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task Cloning_a_source_whose_stored_schema_does_not_transcode_is_refused()
+    {
+        HttpClient client = fixture.CreateAuthorClient("author-clone-1");
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey());
+        await UnreadableDocumentSeed.SeedVersionAsync(
+            fixture, key, version: 1, status: "published",
+            UnreadableDocumentSeed.SchemaWithSurrogateInValue);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions", new { fromVersion = 1 });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        JsonElement problem = await TemplateApi.ReadJsonAsync(response);
+        problem.GetProperty("type").GetString().ShouldBe("stored-content-unreadable");
+    }
 }

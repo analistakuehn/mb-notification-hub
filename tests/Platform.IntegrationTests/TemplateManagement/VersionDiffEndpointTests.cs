@@ -131,4 +131,35 @@ public sealed class VersionDiffEndpointTests(TemplateManagementApiFixture fixtur
         List<string> fields = [.. changed[0].GetProperty("fields").EnumerateArray().Select(field => field.GetString()!)];
         fields.ShouldBe(["bodyText"]);
     }
+
+    /// <summary>
+    /// The diff walks both stored schemas and canonicalizes every field it
+    /// finds. A stored schema that no longer transcodes contributes no fields,
+    /// which is what the comparison already says it does for an absent one, and
+    /// the endpoint answers instead of failing.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task Diffing_against_a_version_whose_stored_schema_does_not_transcode_still_answers()
+    {
+        HttpClient author = fixture.CreateAuthorClient("author-diff-unreadable");
+        var key = await TemplateApi.CreateTemplateAsync(author, TemplateApi.NewKey(), defaultLocale: "pt-BR");
+        await UnreadableDocumentSeed.SeedVersionAsync(
+            fixture, key, version: 1, status: "published",
+            UnreadableDocumentSeed.SchemaWithSurrogateInValue);
+        await UnreadableDocumentSeed.SeedVersionAsync(
+            fixture, key, version: 2, status: "draft",
+            "{\"properties\":{\"orderId\":{\"type\":\"string\"}}}");
+
+        HttpResponseMessage response = await author.GetAsync(
+            $"/v1/templates/{key}/versions/2/diff?against=1");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        JsonElement body = await TemplateApi.ReadJsonAsync(response);
+        List<JsonElement> added = [.. body.GetProperty("variablesSchema").GetProperty("addedFields").EnumerateArray()];
+        added.Select(field => field.GetString()).ShouldBe(["orderId"]);
+
+        // The unreadable side contributed nothing, and nothing it carried
+        // reached the response body.
+        body.GetProperty("variablesSchema").GetProperty("removedFields").GetArrayLength().ShouldBe(0);
+    }
 }

@@ -7,11 +7,20 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persiste
 {
     /// <summary>
     /// Moves the hashed JSON columns from jsonb to plain text so the stored
-    /// bytes survive the round trip (jsonb rewrites number literals, key order
-    /// and whitespace, breaking canonical-hash verification), adds the xmin
-    /// concurrency mapping on the template and layout identities, and creates
-    /// the partial unique indexes that back the one-published-version
-    /// invariant per template, layout and class policy.
+    /// bytes survive the round trip, adds the xmin concurrency mapping on the
+    /// template and layout identities, and creates the partial unique indexes
+    /// that back the one-published-version invariant per template, layout and
+    /// class policy.
+    /// <para>
+    /// What the round trip has to preserve is narrower than this comment once
+    /// claimed. Key order and whitespace never mattered: the canonical form
+    /// sorts object keys and compacts, so a column that reordered or reindented
+    /// would still hash the same, and a test pins that. The number literal is
+    /// what matters. The canonical form writes a number exactly as it was
+    /// submitted, and jsonb re-renders one from numeric, so a schema stored as
+    /// jsonb would come back with 1e2 spelled 100 and fail the integrity check
+    /// its own approval covered. The decision stands on that one leg.
+    /// </para>
     /// </summary>
     public partial class CanonicalTextAndPublicationGuards : Migration
     {

@@ -19,28 +19,32 @@ internal static class CanonicalHash
     internal static string OfFields(params string?[] fields)
         => Hash(AppendFields(new StringBuilder(), fields).ToString());
 
+    /// <summary>
+    /// Hash of a version, over the canonical form of its variables schema
+    /// rather than over the schema as it was submitted. The caller produces
+    /// that form, because producing it is the step that can refuse the document
+    /// and this type answers on every input it is given: a hash that could fail
+    /// would put the refusal in the one place with no way to report it.
+    /// </summary>
     internal static string OfVersion(
-        string? variablesSchemaJson,
+        string? canonicalVariablesSchema,
         string? layoutKey,
         int? layoutVersion,
         IEnumerable<TemplateContent> contents)
     {
         var builder = new StringBuilder();
-        var canonicalSchema = variablesSchemaJson is null
-            ? null
-            : CanonicalJson.Normalize(variablesSchemaJson);
 
         // The layout fields join the header record only when a layout is
         // pinned, so versions without one keep their historical hash bytes.
         if (layoutKey is null)
         {
-            AppendFields(builder, canonicalSchema).Append(RecordSeparator);
+            AppendFields(builder, canonicalVariablesSchema).Append(RecordSeparator);
         }
         else
         {
             AppendFields(
                 builder,
-                canonicalSchema,
+                canonicalVariablesSchema,
                 layoutKey,
                 layoutVersion!.Value.ToString(CultureInfo.InvariantCulture)).Append(RecordSeparator);
         }
