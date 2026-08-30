@@ -3,7 +3,20 @@ using System.Text.Json;
 namespace NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 /// <summary>What to render from the published catalog and with which variables.</summary>
-public sealed record PublishedRenderRequest
+/// <remarks>
+/// This is a reference type without value equality on purpose, and the
+/// member that decides it is <see cref="Variables"/>. A
+/// <see cref="JsonElement"/> does not define its own equality, so the
+/// comparison falls through to its fields, and the field that carries the
+/// meaning is the reference to the document it was parsed from. Two
+/// requests built from the same variables parsed separately therefore
+/// answer no, and two requests sharing one parsed document answer yes: the
+/// answer is about which document instance a producer happened to hand
+/// over, never about the variables. A caller that wants to know whether two
+/// requests ask for the same render compares the four addressing members
+/// and the variables payload it holds, never the requests.
+/// </remarks>
+public sealed class PublishedRenderRequest
 {
     public required string Application { get; init; }
 

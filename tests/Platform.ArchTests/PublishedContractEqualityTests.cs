@@ -74,7 +74,6 @@ public sealed class PublishedContractEqualityTests
         ("Notifications.NotificationOutcomeSummary", UndecidedScope),
         ("Notifications.PolicyEvaluationEvidence", UndecidedScope),
         ("TemplateManagement.PolicyRuleResult.FilterChannels", ClosedHierarchy),
-        ("TemplateManagement.PublishedRenderRequest", OutsideTheDecidedSet),
         ("TemplateManagement.PublishedTemplateLookup.Published", ClosedHierarchy),
     ];
 
@@ -93,14 +92,6 @@ public sealed class PublishedContractEqualityTests
     /// </summary>
     private const string UndecidedScope =
         "owning module not yet reviewed under this question";
-
-    /// <summary>
-    /// The break is real, nothing constrains the repair, and the type was not
-    /// named when the module's own contracts were decided. It is the one entry
-    /// in this list that records a gap rather than a constraint.
-    /// </summary>
-    private const string OutsideTheDecidedSet =
-        "breaks with nothing constraining the repair, and was not named when this module was decided";
 
     private static readonly string[] ExpectedBrokenContracts =
         [.. RecordedBreaks.Select(entry => entry.Contract).Order(StringComparer.Ordinal)];

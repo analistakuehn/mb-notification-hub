@@ -1123,7 +1123,7 @@ no primeiro uso, seja qual for o caminho que chegue lá primeiro.
 ## Igualdade dos contratos publicados: o que foi convertido e por quê
 
 **A decisão, para que o próximo leitor não a reabra.** A régua não é "carrega
-coleção" nem "é do módulo". É **"este tipo quebra a promessa?"**. Cinco
+coleção" nem "é do módulo". É **"este tipo quebra a promessa?"**. Seis
 declarações de `Integration/V1` viraram `sealed class`, todas autônomas, e três
 continuam `record` porque não devem nada.
 
@@ -1134,6 +1134,7 @@ continuam `record` porque não devem nada.
 | `VariablesValidationReport` | `Integration/V1/VariablesValidationReport.cs` |
 | `PublishedTemplate` | `Integration/V1/PublishedTemplate.cs` |
 | `HistoricalTemplateVersion` | `Integration/V1/HistoricalTemplateVersion.cs` |
+| `PublishedRenderRequest` | `Integration/V1/PublishedTemplateRender.cs` |
 
 `DeliveryPlanStep`, `QuietHoursWindow` e `HistoricalLayoutVersion` **ficam
 `record`**, e não por esquecimento: medidos, os três comparam por conteúdo hoje.
@@ -1177,8 +1178,9 @@ tipo público com membro público nascer em `Modules.{X}.Integration` fora de
 `.V1`.
 
 **O censo é piso, não total.** Medido antes da conversão: **20** contratos
-publicados quebravam, sendo 12 nos outros quatro módulos. Depois: **15**, exatamente
-os 20 menos os cinco convertidos, e nenhuma quebra nova nasceu da conversão. O
+publicados quebravam, sendo 12 nos outros quatro módulos. Depois das cinco
+primeiras: **15**, exatamente os 20 menos as cinco, e nenhuma quebra nova nasceu
+da conversão. Depois da sexta: **14**. O
 número é piso porque a quebra dependente de valor fica fora de qualquer contagem
 indexada por tipo.
 
@@ -1189,14 +1191,30 @@ de integração sobre o caminho `CachedRecipientSnapshot`, onde `RecipientSnapsh
 viaja serializado e cifrado no Redis. O conjunto recomendado é **subconjunto
 próprio** do amplo, então nada do que se fez agora se desfaz depois.
 
-**Dois contratos deste módulo quebram e não estavam na decisão.**
-`PublishedTemplateLookup.Published` carrega `PublishedTemplate` e é folha de
-hierarquia fechada de `record`, então converter arrastaria a raiz e a irmã
-`Rejected`, que cumpre hoje; a razão registrada é a hierarquia.
-`PublishedRenderRequest` quebra por `JsonElement? Variables`, é declaração
-autônoma e **nada prende a conversão**: essa é uma lacuna da decisão, não uma
-restrição, e está registrada como tal no inventário da guarda. Pende de decisão
-humana.
+**A sexta entrou depois da mesa, e a razão de ela ter faltado é o método, não
+o descuido.** `PublishedRenderRequest` quebra por `JsonElement? Variables`: um
+`JsonElement` não define igualdade própria, então a comparação cai nos campos
+dele, e o campo que decide é a referência ao documento de onde ele foi
+analisado. Dois pedidos com as mesmas variáveis analisadas em separado
+respondem `False`; dois pedidos que partilham um documento analisado respondem
+`True`. Ou seja, a resposta é sobre qual instância de documento o produtor
+entregou, nunca sobre as variáveis. A lista das cinco veio do censo
+**estrutural**, que enxerga membro de coleção e é cego a `JsonElement` e a
+`ReadOnlyMemory<byte>`; quem achou esta foi o censo **comportamental**, que é a
+pergunta que a guarda faz. Converter estava **dentro** da régua decidida e não a
+expandia: deixar de fora criaria exceção interna sem razão na regra do módulo.
+A conversão não custou nada porque a declaração é autônoma, não é posicional, e
+toda construção usa inicializador de objeto.
+
+**`PublishedTemplateLookup.Published` e `PolicyRuleResult.FilterChannels` ficam
+no inventário da guarda por restrição de hierarquia, não por esquecimento.** As
+duas são folha de hierarquia fechada de `record`, e virar `class` não é local:
+arrastaria a raiz e todas as irmãs. As irmãs **cumprem** a promessa hoje
+(`Rejected(string)` num caso; `Allow`, `Defer(DateTimeOffset)` e
+`Reject(string)` no outro), então converter qualquer uma das duas apagaria
+igualdade de conteúdo que existe e funciona, para consertar uma folha. É essa a
+razão registrada no inventário. Quem quiser reabrir decide primeiro o que fazer
+com as irmãs.
 
 **O `ARC-003` continua `PENDENTE` e isto não é progresso sobre ele.** O dano
 dele é real, presente e maior que a ficha registra. Medido nesta leitura:
