@@ -113,9 +113,19 @@ internal sealed class PublishedTemplateRenderer(
         }
 
         TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
+
+        // Built from what the catalog answered and never from the request: the
+        // request carries whatever the caller wrote, and this names the render
+        // in a log line an operator reads later.
+        var identity = new RenderIdentity(
+            template.Application,
+            version.TemplateKey.Value,
+            version.Version,
+            content.Channel.Value,
+            resolved.Value);
         Result<RenderedForm> full = await RenderFormAsync(
             template,
-            channel.Value!,
+            identity,
             content,
             request.Variables,
             wrapper.Value,
@@ -143,7 +153,7 @@ internal sealed class PublishedTemplateRenderer(
         if (request.IncludeMaskedForm)
         {
             Result<RenderedForm> maskedForm = await RenderMaskedFormAsync(
-                template, channel.Value!, content, request.Variables, wrapper.Value, full.Value!, cancellationToken);
+                template, identity, content, request.Variables, wrapper.Value, full.Value!, cancellationToken);
             if (maskedForm.IsFailure)
             {
                 return maskedForm.AsFailure<RenderedForm, PublishedTemplateRender>();
@@ -177,7 +187,7 @@ internal sealed class PublishedTemplateRenderer(
     /// </summary>
     private async Task<Result<RenderedForm>> RenderMaskedFormAsync(
         Template template,
-        Channel channel,
+        RenderIdentity identity,
         TemplateContent content,
         JsonElement? variables,
         LayoutWrapper? wrapper,
@@ -199,7 +209,7 @@ internal sealed class PublishedTemplateRenderer(
         // than the message, and it is not the message anyway.
         return await RenderFormAsync(
             template,
-            channel,
+            identity,
             content,
             masked.Value,
             wrapper,
@@ -209,7 +219,7 @@ internal sealed class PublishedTemplateRenderer(
 
     private async Task<Result<RenderedForm>> RenderFormAsync(
         Template template,
-        Channel channel,
+        RenderIdentity identity,
         TemplateContent content,
         JsonElement? variables,
         LayoutWrapper? wrapper,
@@ -223,21 +233,21 @@ internal sealed class PublishedTemplateRenderer(
         // below, which repeats the render, never touches this one.
         ScribanTemplateEngine.FormRenderScope scope = engine.BeginForm();
         Result<string?> subject = await RenderFieldAsync(
-            scope, TemplateContentFields.Subject, content.Subject, variables, cancellationToken);
+            scope, identity, TemplateContentFields.Subject, content.Subject, variables, cancellationToken);
         if (subject.IsFailure)
         {
             return subject.AsFailure<string?, RenderedForm>();
         }
 
         Result<string?> body = await RenderFieldAsync(
-            scope, TemplateContentFields.Body, content.Body, variables, cancellationToken);
+            scope, identity, TemplateContentFields.Body, content.Body, variables, cancellationToken);
         if (body.IsFailure)
         {
             return body.AsFailure<string?, RenderedForm>();
         }
 
         Result<string?> bodyText = await RenderFieldAsync(
-            scope, TemplateContentFields.BodyText, content.BodyText, variables, cancellationToken);
+            scope, identity, TemplateContentFields.BodyText, content.BodyText, variables, cancellationToken);
         if (bodyText.IsFailure)
         {
             return bodyText.AsFailure<string?, RenderedForm>();
@@ -250,7 +260,7 @@ internal sealed class PublishedTemplateRenderer(
         if (wrapper is not null)
         {
             Result<string> framed = await WrapInLayoutAsync(
-                scope, TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
+                scope, identity, TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
             if (framed.IsFailure)
             {
                 return framed.AsFailure<string, RenderedForm>();
@@ -260,7 +270,12 @@ internal sealed class PublishedTemplateRenderer(
             if (wrappedBodyText is not null && wrapper.BodyText is not null)
             {
                 Result<string> framedText = await WrapInLayoutAsync(
-                    scope, TemplateContentFields.BodyText, wrapper.BodyText, wrappedBodyText, cancellationToken);
+                    scope,
+                    identity,
+                    TemplateContentFields.BodyText,
+                    wrapper.BodyText,
+                    wrappedBodyText,
+                    cancellationToken);
                 if (framedText.IsFailure)
                 {
                     return framedText.AsFailure<string, RenderedForm>();
@@ -277,7 +292,7 @@ internal sealed class PublishedTemplateRenderer(
         // word.
         Result<RenderedOutput> output = RenderedOutputPolicy.Apply(
             template,
-            channel,
+            content.Channel,
             new RenderedFields(subject.Value, wrappedBody, wrappedBodyText),
             RefusalShape.Bare,
             checks.Ban,
@@ -435,26 +450,32 @@ internal sealed class PublishedTemplateRenderer(
     /// </summary>
     private async Task<Result<string>> WrapInLayoutAsync(
         ScribanTemplateEngine.FormRenderScope scope,
+        RenderIdentity identity,
         string field,
         string layoutSource,
         string renderedContent,
         CancellationToken cancellationToken)
     {
-        Result<string> wrapped = await engine.RenderContentAsync(
+        TemplateRenderOutcome wrapped = await engine.RenderContentOutcomeAsync(
             scope,
             layoutSource,
             LayoutValidation.ContentPlaceholderVariable,
             renderedContent,
             cancellationToken);
-        return wrapped.IsFailure
-            ? Result.ValidationError<string>(DomainError.Format(
+        if (wrapped.Result.IsFailure)
+        {
+            Refused(identity, field, wrapped.Refusal);
+            return Result.ValidationError<string>(DomainError.Format(
                 ErrorCodes.TemplateRenderFailed,
-                $"Layout wrapper for field '{field}': {wrapped.Error}"))
-            : wrapped;
+                $"Layout wrapper for field '{field}': {wrapped.Result.Error}"));
+        }
+
+        return wrapped.Result;
     }
 
     private async Task<Result<string?>> RenderFieldAsync(
         ScribanTemplateEngine.FormRenderScope scope,
+        RenderIdentity identity,
         string field,
         string? source,
         JsonElement? variables,
@@ -465,13 +486,51 @@ internal sealed class PublishedTemplateRenderer(
             return Result.Success<string?>(null);
         }
 
-        Result<string> rendered = await engine.RenderAsync(scope, source, variables, cancellationToken);
-        return rendered.IsFailure
-            ? Result.ValidationError<string?>(DomainError.Format(
+        TemplateRenderOutcome rendered = await engine.RenderOutcomeAsync(
+            scope, source, variables, cancellationToken);
+        if (rendered.Result.IsFailure)
+        {
+            Refused(identity, field, rendered.Refusal);
+            return Result.ValidationError<string?>(DomainError.Format(
                 ErrorCodes.TemplateRenderFailed,
-                $"Field '{field}': {rendered.Error}"))
-            : Result.Success<string?>(rendered.Value);
+                $"Field '{field}': {rendered.Result.Error}"));
+        }
+
+        return Result.Success<string?>(rendered.Result.Value);
     }
+
+    /// <summary>
+    /// Names one sandbox refusal on the dispatch path, and names it by mode.
+    /// <para>
+    /// The engine's own message stays out of it. That text is English against a
+    /// module whose log dialect is not, the same text is already barred from the
+    /// audit trail by an executable scan, and it can carry a caller value that
+    /// redaction did not reach, because redaction only replaces a scalar
+    /// verbatim and the engine reformats some of what it echoes. The mode says
+    /// which ceiling refused; the field says where; the caller-facing result
+    /// still carries the sentence an author needs.
+    /// </para>
+    /// </summary>
+    private void Refused(RenderIdentity identity, string field, TemplateRefusal mode)
+        => logger.PublishedRenderRefused(
+            identity.Application,
+            identity.TemplateKey,
+            identity.Version,
+            identity.Channel,
+            identity.ResolvedLocale,
+            field,
+            mode);
+
+    /// <summary>
+    /// Which render a refusal belongs to. The engine knows the mode and never
+    /// this; only the caller can put the two together.
+    /// </summary>
+    private readonly record struct RenderIdentity(
+        string Application,
+        string TemplateKey,
+        int Version,
+        string Channel,
+        string ResolvedLocale);
 
     /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
     private sealed record LayoutWrapper(string Body, string? BodyText);

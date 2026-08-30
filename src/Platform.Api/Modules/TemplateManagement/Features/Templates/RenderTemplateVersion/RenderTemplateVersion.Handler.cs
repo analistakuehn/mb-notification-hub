@@ -107,8 +107,18 @@ internal static partial class RenderTemplateVersion
             }
 
             TemplateContent content = channelContents.First(candidate => candidate.Locale == resolved);
+
+            // The application is the one the template identity carries: this
+            // route is addressed by template key alone, so nothing in the
+            // request names it.
+            var identity = new RenderIdentity(
+                template.Application,
+                version.TemplateKey.Value,
+                version.Version,
+                content.Channel.Value,
+                resolved.Value);
             Result<Response> rendered = await RenderContentAsync(
-                template, content, locale.Value!, resolved, request.Variables, wrapper.Value, cancellationToken);
+                template, identity, content, locale.Value!, request.Variables, wrapper.Value, cancellationToken);
             if (rendered.IsSuccess)
             {
                 logger.VersionRendered(
@@ -123,29 +133,29 @@ internal static partial class RenderTemplateVersion
 
         private async Task<Result<Response>> RenderContentAsync(
             Template template,
+            RenderIdentity identity,
             TemplateContent content,
             Locale requested,
-            Locale resolved,
             JsonElement? variables,
             LayoutWrapper? wrapper,
             CancellationToken cancellationToken)
         {
             Result<string?> subject = await RenderFieldAsync(
-                TemplateContentFields.Subject, content.Subject, variables, cancellationToken);
+                identity, TemplateContentFields.Subject, content.Subject, variables, cancellationToken);
             if (subject.IsFailure)
             {
                 return subject.AsFailure<string?, Response>();
             }
 
             Result<string?> body = await RenderFieldAsync(
-                TemplateContentFields.Body, content.Body, variables, cancellationToken);
+                identity, TemplateContentFields.Body, content.Body, variables, cancellationToken);
             if (body.IsFailure)
             {
                 return body.AsFailure<string?, Response>();
             }
 
             Result<string?> bodyText = await RenderFieldAsync(
-                TemplateContentFields.BodyText, content.BodyText, variables, cancellationToken);
+                identity, TemplateContentFields.BodyText, content.BodyText, variables, cancellationToken);
             if (bodyText.IsFailure)
             {
                 return bodyText.AsFailure<string?, Response>();
@@ -158,7 +168,7 @@ internal static partial class RenderTemplateVersion
             if (wrapper is not null)
             {
                 Result<string> framed = await WrapInLayoutAsync(
-                    TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
+                    identity, TemplateContentFields.Body, wrapper.Body, wrappedBody, cancellationToken);
                 if (framed.IsFailure)
                 {
                     return framed.AsFailure<string, Response>();
@@ -168,7 +178,11 @@ internal static partial class RenderTemplateVersion
                 if (wrappedBodyText is not null && wrapper.BodyText is not null)
                 {
                     Result<string> framedText = await WrapInLayoutAsync(
-                        TemplateContentFields.BodyText, wrapper.BodyText, wrappedBodyText, cancellationToken);
+                        identity,
+                        TemplateContentFields.BodyText,
+                        wrapper.BodyText,
+                        wrappedBodyText,
+                        cancellationToken);
                     if (framedText.IsFailure)
                     {
                         return framedText.AsFailure<string, Response>();
@@ -204,7 +218,7 @@ internal static partial class RenderTemplateVersion
             return Result.Success(new Response(
                 content.Channel.Value,
                 requested.Value,
-                resolved.Value,
+                identity.ResolvedLocale,
                 rendered.Subject,
                 rendered.Body,
                 rendered.BodyText));
@@ -293,6 +307,7 @@ internal static partial class RenderTemplateVersion
         /// template variable and no template source, only the finished text.
         /// </summary>
         private async Task<Result<string>> WrapInLayoutAsync(
+            RenderIdentity identity,
             string field,
             string layoutSource,
             string renderedContent,
@@ -302,15 +317,21 @@ internal static partial class RenderTemplateVersion
             {
                 [LayoutValidation.ContentPlaceholderVariable] = renderedContent,
             });
-            Result<string> wrapped = await engine.RenderAsync(layoutSource, globals, cancellationToken);
-            return wrapped.IsFailure
-                ? Result.ValidationError<string>(DomainError.Format(
+            TemplateRenderOutcome wrapped = await engine.RenderOutcomeAsync(
+                layoutSource, globals, cancellationToken);
+            if (wrapped.Result.IsFailure)
+            {
+                Refused(identity, field, wrapped.Refusal);
+                return Result.ValidationError<string>(DomainError.Format(
                     ErrorCodes.TemplateRenderFailed,
-                    $"Layout wrapper for field '{field}': {wrapped.Error}"))
-                : wrapped;
+                    $"Layout wrapper for field '{field}': {wrapped.Result.Error}"));
+            }
+
+            return wrapped.Result;
         }
 
         private async Task<Result<string?>> RenderFieldAsync(
+            RenderIdentity identity,
             string field,
             string? source,
             JsonElement? variables,
@@ -321,14 +342,58 @@ internal static partial class RenderTemplateVersion
                 return Result.Success<string?>(null);
             }
 
-            Result<string> rendered = await engine.RenderAsync(source, variables, cancellationToken);
-            return rendered.IsFailure
-                ? Result.ValidationError<string?>(DomainError.Format(
+            TemplateRenderOutcome rendered = await engine.RenderOutcomeAsync(
+                source, variables, cancellationToken);
+            if (rendered.Result.IsFailure)
+            {
+                Refused(identity, field, rendered.Refusal);
+                return Result.ValidationError<string?>(DomainError.Format(
                     ErrorCodes.TemplateRenderFailed,
-                    $"Field '{field}': {rendered.Error}"))
-                : Result.Success<string?>(rendered.Value);
+                    $"Field '{field}': {rendered.Result.Error}"));
+            }
+
+            return Result.Success<string?>(rendered.Result.Value);
         }
+
+        /// <summary>
+        /// Names one sandbox refusal of the preview, and names it by mode.
+        /// <para>
+        /// Every mode is reported, with no filter: a filter here is a rule
+        /// somebody has to remember on the day a mode is added, and nothing
+        /// would make remembering it mandatory. The level belongs to the
+        /// surface and never to the mode, which is why a parse error does not
+        /// get promoted: an author editing a draft produces them constantly,
+        /// and a level that fires on the ordinary case teaches an operator to
+        /// skip it.
+        /// </para>
+        /// <para>
+        /// The engine's own message is left out, as it is on the dispatch side:
+        /// it is English against a log dialect that is not, the audit trail
+        /// already bars the same text by an executable scan, and it can carry a
+        /// caller value that redaction did not reach.
+        /// </para>
+        /// </summary>
+        private void Refused(RenderIdentity identity, string field, TemplateRefusal mode)
+            => logger.PreviewRenderRefused(
+                identity.Application,
+                identity.TemplateKey,
+                identity.Version,
+                identity.Channel,
+                identity.ResolvedLocale,
+                field,
+                mode);
     }
+
+    /// <summary>
+    /// Which preview a refusal belongs to. The engine knows the mode and never
+    /// this; only the caller can put the two together.
+    /// </summary>
+    private readonly record struct RenderIdentity(
+        string Application,
+        string TemplateKey,
+        int Version,
+        string Channel,
+        string ResolvedLocale);
 
     /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
     private sealed record LayoutWrapper(string Body, string? BodyText);

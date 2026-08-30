@@ -125,28 +125,38 @@ public sealed class ScribanTemplateEngineTests
         result.Error!.ShouldNotContain("System.");
     }
 
+    // The two cases below used to match the engine's own message, and both
+    // matched it by accident. Matching 'LoopLimit' held for a range loop and
+    // went red on a collection, on a while and on an inner iteration, so it
+    // covered a quarter of the limit it claimed. Matching 'recursive depth
+    // limit' went green over a plain parse error, because what fires under a
+    // deep enough source is the stack guard and not the depth counter. What the
+    // module can actually tell apart is that the render was refused and that
+    // the mode does not name a limit, which is one assertion for every loop
+    // shape and both recursion shapes at once.
+
     [Fact]
-    public async Task A_runaway_loop_is_stopped_by_the_engine_loop_limit()
+    public async Task A_runaway_loop_is_refused_under_a_mode_that_names_no_limit()
     {
-        Result<string> result = await Engine(loopLimit: 10).RenderAsync(
+        TemplateRenderOutcome outcome = await Engine(loopLimit: 10).RenderOutcomeAsync(
             "{{ for i in 1..100000 }}x{{ end }}",
             variables: null,
             CancellationToken.None);
 
-        result.IsFailure.ShouldBeTrue();
-        result.Error!.ShouldContain("LoopLimit");
+        outcome.Result.IsFailure.ShouldBeTrue();
+        outcome.Refusal.ShouldBe(TemplateRefusal.Unclassified);
     }
 
     [Fact]
-    public async Task Unbounded_recursion_is_stopped_by_the_engine_recursion_limit()
+    public async Task Unbounded_recursion_is_refused_under_a_mode_that_names_no_limit()
     {
-        Result<string> result = await Engine(recursionLimit: 8).RenderAsync(
+        TemplateRenderOutcome outcome = await Engine(recursionLimit: 8).RenderOutcomeAsync(
             "{{ func f(n)\nret f(n)\nend\nf 1 }}",
             variables: null,
             CancellationToken.None);
 
-        result.IsFailure.ShouldBeTrue();
-        result.Error!.ShouldContain("recursive depth limit");
+        outcome.Result.IsFailure.ShouldBeTrue();
+        outcome.Refusal.ShouldBe(TemplateRefusal.Unclassified);
     }
 
     [Fact]

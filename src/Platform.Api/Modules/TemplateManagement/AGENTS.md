@@ -802,3 +802,42 @@
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.
 
 Update this file in the same change that alters the module boundary, public contracts, ubiquitous language, or non-negotiable security rules.
+
+## Sandbox de templates: sinal de recusa
+
+O motor conhece o modo da recusa e nunca a identidade do que renderizou; o
+chamador conhece a identidade e nunca o modo. Por isso o modo volta ao lado do
+`Result`, num canal lateral, e cada superfície emite o seu próprio evento: a
+prévia como nota, o publicado como aviso. O nível pertence à superfície e nunca
+ao modo.
+
+Ficou fora do escopo desta correção, com a razão de cada item:
+
+- **Sinal na análise de origem**: o relatório de validação é um sinal mais forte
+  que log, e a trilha já o registra.
+- **Separar limite de laço, limite de recursão e erro de autor em render**:
+  impossibilidade medida no Scriban 7.2.6, não escolha. A versão não expõe
+  subtipo de exceção, não expõe hook utilizável e o tipo de nó colide com quatro
+  erros de autor comuns. O modo `Unclassified` declara em letra o que carrega, e
+  o teste que fixa a versão de arquivo do pacote é o gatilho de reabertura: ele
+  fica vermelho sozinho quando o motor se move.
+- **Contagem, alarme e limiar**: pertencem à fatia de telemetria. Continua
+  valendo a decisão de não haver `Meter` nem contador em `src/`.
+- **Paridade de oráculo entre a prévia e o publicado**: já é achado aberto de
+  outra lente.
+- **Custo da prévia**: a prévia custa 4,1 vezes a alocação e 3,1 vezes o tempo do
+  despacho, por abrir um contexto por campo. É achado de desempenho separado, e
+  não serve de justificativa para abrir escopo na prévia: a prévia é a única
+  escritora da memoização do host de API.
+- **Segundo furo da redação de valores**: a troca só alcança substring exata de
+  escalar com três ou mais caracteres, então valor reformatado pelo motor
+  escapa. Não é agravado aqui, porque o evento não carrega a mensagem do motor,
+  mas o fato fica registrado.
+
+Registro de um fato descoberto ao corrigir: os dois oráculos que cobriam o
+limite de laço e o limite de recursão passavam por motivo errado. O que casava
+`LoopLimit` valia para o laço sobre intervalo e ficava vermelho sobre coleção,
+sobre `while` e sobre iteração interna. O que casava `recursive depth limit`
+ficava verde sobre um erro de parse, porque o gatilho é a pilha restante e não a
+profundidade. Os dois foram reescritos para afirmar o que o módulo consegue
+distinguir.

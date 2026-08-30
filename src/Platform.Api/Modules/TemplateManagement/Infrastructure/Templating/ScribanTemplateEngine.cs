@@ -42,6 +42,88 @@ internal enum TemplateProvenance
 }
 
 /// <summary>
+/// Which sandbox limit turned one render away, or <see cref="None"/> when
+/// nothing did.
+/// </summary>
+/// <remarks>
+/// The engine knows the mode and never the identity of what it rendered; the
+/// caller knows the identity and, without this, never the mode. That is the
+/// whole reason the value exists: a refusal that reaches an operator as a
+/// caller-facing sentence and nothing else cannot be told apart from any other
+/// refusal of the same shape.
+/// <para>
+/// Two outcomes are deliberately outside this catalogue. The caller giving up
+/// is its own control flow and leaves as an exception rather than a result, so
+/// no mode describes it. A system failure (an allocation that could not be
+/// served) propagates on purpose, because answering it on the caller-facing
+/// axis would turn a memory event into a request the author wrote wrong.
+/// </para>
+/// </remarks>
+internal enum TemplateRefusal
+{
+    /// <summary>The render finished and produced its text.</summary>
+    None,
+
+    /// <summary>
+    /// The source is longer than the configured character ceiling, measured
+    /// before anything parses it.
+    /// </summary>
+    SourceSize,
+
+    /// <summary>The whole source carries more tokens than the ceiling admits.</summary>
+    SourceTokens,
+
+    /// <summary>One expression in the source carries more tokens than the ceiling admits.</summary>
+    SourceCodeBlockTokens,
+
+    /// <summary>The source is not a template the engine can parse.</summary>
+    ParseFailed,
+
+    /// <summary>
+    /// The render crossed the wall-clock deadline. It covers the two doors that
+    /// deadline can arrive through, and it has to: a catastrophic regular
+    /// expression is bounded by the engine's own regex timeout and by the
+    /// render deadline at the same number, so which of them fires first is
+    /// decided by timer resolution and not by the source. Naming only one of
+    /// them would lose half of those refusals, non-deterministically.
+    /// </summary>
+    TimeLimit,
+
+    /// <summary>The accumulated output crossed the configured ceiling.</summary>
+    OutputLimit,
+
+    /// <summary>
+    /// The render failed inside the engine for a reason this module cannot
+    /// separate: the loop limit, the recursion limit, and an authoring mistake
+    /// caught at render time (an undeclared variable, a member on nothing, an
+    /// argument of the wrong kind) all arrive here.
+    /// <para>
+    /// The name promises less than the value carries on purpose. Scriban 7.2.6
+    /// reports all of them as one exception type with no subtype, offers no
+    /// usable hook to observe the limit counters, and hands back a node type
+    /// that collides across the cases, so telling them apart would mean
+    /// matching the engine's own English message text, which is exactly the
+    /// coupling this value exists to remove. Calling the value
+    /// <c>Runtime</c> or <c>Other</c> would read as a residual somebody chose
+    /// not to describe; this one states what it holds.
+    /// </para>
+    /// </summary>
+    Unclassified,
+}
+
+/// <summary>
+/// What one render answers: the caller-facing result, unchanged, and beside it
+/// the mode of the refusal that produced it.
+/// </summary>
+/// <remarks>
+/// A struct because a form on the dispatch path renders every field through
+/// this type and succeeds on all of them: the channel travels the hot path, so
+/// it may not cost an allocation per field to carry a value the successful
+/// render does not even use.
+/// </remarks>
+internal readonly record struct TemplateRenderOutcome(Result<string> Result, TemplateRefusal Refusal);
+
+/// <summary>
 /// Sandboxed Scriban execution. Templates only ever see plain data built from
 /// JSON: no .NET type is exposed and reflected member access is filtered out
 /// entirely. Loop and recursion limits are native to the engine, and the
@@ -113,9 +195,9 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
 
     /// <summary>
     /// Renders one source the author may still be editing, on a context of its
-    /// own.
+    /// own, and answers the mode of the refusal alongside the result.
     /// </summary>
-    internal Task<Result<string>> RenderAsync(
+    internal Task<TemplateRenderOutcome> RenderOutcomeAsync(
         string source,
         JsonElement? variables,
         CancellationToken cancellationToken)
@@ -128,9 +210,9 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
 
     /// <summary>
     /// Renders one field of a published form on the context that form's renders
-    /// share.
+    /// share, and answers the mode of the refusal alongside the result.
     /// </summary>
-    internal Task<Result<string>> RenderAsync(
+    internal Task<TemplateRenderOutcome> RenderOutcomeAsync(
         FormRenderScope scope,
         string source,
         JsonElement? variables,
@@ -144,13 +226,14 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
 
     /// <summary>
     /// Renders a source over one finished text, exposed under the single
-    /// variable name the caller gives. The globals are synthetic and carry no
-    /// payload, so a layout that reads a template variable is refused exactly
-    /// as it is with a payload the caller never passed. Going through JSON to
-    /// say the same thing would escape every angle bracket of an HTML body,
-    /// only to unescape it on the way back in.
+    /// variable name the caller gives, and answers the mode of the refusal
+    /// alongside the result. The globals are synthetic and carry no payload, so
+    /// a layout that reads a template variable is refused exactly as it is with
+    /// a payload the caller never passed. Going through JSON to say the same
+    /// thing would escape every angle bracket of an HTML body, only to unescape
+    /// it on the way back in.
     /// </summary>
-    internal Task<Result<string>> RenderContentAsync(
+    internal Task<TemplateRenderOutcome> RenderContentOutcomeAsync(
         FormRenderScope scope,
         string source,
         string variableName,
@@ -164,6 +247,54 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
             cancellationToken));
 
     /// <summary>
+    /// The text axis of a draft render, for a caller that reports no refusal of
+    /// its own and only needs what the render produced.
+    /// </summary>
+    internal Task<Result<string>> RenderAsync(
+        string source,
+        JsonElement? variables,
+        CancellationToken cancellationToken)
+        => Task.FromResult(Render(
+            scope: null,
+            source,
+            RenderInput.OfPayload(variables),
+            provenance: TemplateProvenance.Draft,
+            cancellationToken).Result);
+
+    /// <summary>
+    /// The text axis of one field of a published form, for a caller that
+    /// reports no refusal of its own.
+    /// </summary>
+    internal Task<Result<string>> RenderAsync(
+        FormRenderScope scope,
+        string source,
+        JsonElement? variables,
+        CancellationToken cancellationToken)
+        => Task.FromResult(Render(
+            scope,
+            source,
+            RenderInput.OfPayload(variables),
+            provenance: TemplateProvenance.Published,
+            cancellationToken).Result);
+
+    /// <summary>
+    /// The text axis of a render over one finished text, for a caller that
+    /// reports no refusal of its own.
+    /// </summary>
+    internal Task<Result<string>> RenderContentAsync(
+        FormRenderScope scope,
+        string source,
+        string variableName,
+        string content,
+        CancellationToken cancellationToken)
+        => Task.FromResult(Render(
+            scope,
+            source,
+            RenderInput.OfContent(variableName, content),
+            provenance: TemplateProvenance.Published,
+            cancellationToken).Result);
+
+    /// <summary>
     /// Opens the execution context the renders of one form share. The caller
     /// owns the scope and lets it go with the form: this engine is a singleton,
     /// so a scope reachable from a field of it would put two notifications in
@@ -171,7 +302,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     /// </summary>
     internal FormRenderScope BeginForm() => new(this);
 
-    private Result<string> Render(
+    private TemplateRenderOutcome Render(
         FormRenderScope? scope,
         string source,
         RenderInput input,
@@ -182,7 +313,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
 
         if (source.Length > options.Value.MaxTemplateSizeChars)
         {
-            return Result.ValidationError<string>(SizeLimitMessage(source.Length));
+            return Refused(TemplateRefusal.SourceSize, SizeLimitMessage(source.Length));
         }
 
         // Published sources are immutable, so their parse memoizes per source
@@ -219,7 +350,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
             SourceComplexityLimit exceeded = Exceeded(source);
             if (exceeded is not SourceComplexityLimit.None)
             {
-                return Result.ValidationError<string>(ComplexityLimitMessage(exceeded));
+                return Refused(RefusalFor(exceeded), ComplexityLimitMessage(exceeded));
             }
 
             template = memoizable ? parseCache.GetOrParse(source) : Template.Parse(source);
@@ -227,7 +358,8 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
 
         if (template.HasErrors)
         {
-            return Result.ValidationError<string>(
+            return Refused(
+                TemplateRefusal.ParseFailed,
                 string.Join(" ", template.Messages.Select(message => message.ToString())));
         }
 
@@ -261,7 +393,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
                 parseCache.Keep(source, template);
             }
 
-            return Result.Success(rendered);
+            return new TemplateRenderOutcome(Result.Success(rendered), TemplateRefusal.None);
         }
         catch (OperationCanceledException)
         {
@@ -277,7 +409,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
             // an oversized render tends to cross on its way out anyway.
             if (output.LimitExceeded)
             {
-                return Result.ValidationError<string>(OutputLimitMessage());
+                return Refused(TemplateRefusal.OutputLimit, OutputLimitMessage());
             }
 
             // The engine reports cancellation as its own runtime error rather
@@ -285,7 +417,7 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
             // identifies the deadline, not the exception shape.
             return deadline.IsCancellationRequested
                 ? Cancelled(cancellationToken)
-                : Result.ValidationError<string>(DescribeFailure(exception, input));
+                : DescribeFailure(exception, input);
         }
         finally
         {
@@ -323,10 +455,10 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     /// its own control flow and propagates; the deadline is an expected outcome
     /// of this module and stays on the <c>Result</c> axis.
     /// </summary>
-    private Result<string> Cancelled(CancellationToken cancellationToken)
+    private TemplateRenderOutcome Cancelled(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Result.ValidationError<string>(TimeLimitMessage());
+        return Refused(TemplateRefusal.TimeLimit, TimeLimitMessage());
     }
 
     /// <summary>
@@ -334,11 +466,34 @@ internal sealed class ScribanTemplateEngine(IOptions<TemplatingOptions> options,
     /// type name, limit, position) is what an author needs to fix a template;
     /// the values passed in are not, and at dispatch time they are the
     /// recipient's own data.
+    /// <para>
+    /// This is the second door the wall-clock deadline arrives through: a
+    /// catastrophic regular expression is stopped by the engine's own regex
+    /// timeout, set to the same number as the render deadline, so which of the
+    /// two fires is decided by timer resolution. Everything else the engine
+    /// raises here is one exception type with no subtype, which is why it
+    /// leaves under a single mode.
+    /// </para>
     /// </summary>
-    private string DescribeFailure(ScriptRuntimeException exception, RenderInput input)
+    private TemplateRenderOutcome DescribeFailure(ScriptRuntimeException exception, RenderInput input)
         => exception.InnerException is RegexMatchTimeoutException
-            ? TimeLimitMessage()
-            : RedactCallerValues(exception.Message, input);
+            ? Refused(TemplateRefusal.TimeLimit, TimeLimitMessage())
+            : Refused(TemplateRefusal.Unclassified, RedactCallerValues(exception.Message, input));
+
+    /// <summary>
+    /// One refusal, on the caller-facing axis it has always travelled and with
+    /// the mode beside it. The text is built exactly as before: a sibling module
+    /// compares the whole error string for equality, so nothing here may reword
+    /// it.
+    /// </summary>
+    private static TemplateRenderOutcome Refused(TemplateRefusal refusal, string message)
+        => new(Result.ValidationError<string>(message), refusal);
+
+    /// <summary>The mode that names an admission ceiling the source crossed.</summary>
+    private static TemplateRefusal RefusalFor(SourceComplexityLimit exceeded)
+        => exceeded is SourceComplexityLimit.CodeBlockTokens
+            ? TemplateRefusal.SourceCodeBlockTokens
+            : TemplateRefusal.SourceTokens;
 
     /// <summary>
     /// Removes caller-supplied values from an engine message. Some engine

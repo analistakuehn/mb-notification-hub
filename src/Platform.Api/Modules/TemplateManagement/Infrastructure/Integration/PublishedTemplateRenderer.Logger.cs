@@ -1,3 +1,5 @@
+using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Templating;
+
 namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 
 internal static partial class PublishedTemplateRendererLogger
@@ -14,4 +16,15 @@ internal static partial class PublishedTemplateRendererLogger
         this ILogger logger,
         string layoutKey,
         int layoutVersion);
+
+    [LoggerMessage(EventId = 2112, Level = LogLevel.Warning, Message = "O sandbox recusou o campo {Field} da renderização publicada do template {TemplateKey} da aplicação {Application}, versão {Version}, para ({Channel}, {ResolvedLocale}), no modo {Mode}.")]
+    internal static partial void PublishedRenderRefused(
+        this ILogger logger,
+        string application,
+        string templateKey,
+        int version,
+        string channel,
+        string resolvedLocale,
+        string field,
+        TemplateRefusal mode);
 }

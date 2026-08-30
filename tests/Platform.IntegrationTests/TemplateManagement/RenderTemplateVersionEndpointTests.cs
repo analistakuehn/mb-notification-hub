@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace NotificationHub.IntegrationTests.TemplateManagement;
 
@@ -753,4 +755,62 @@ public sealed class RenderTemplateVersionEndpointTests(TemplateManagementApiFixt
         problem.GetProperty("type").GetString().ShouldBe("template-render-failed");
         problem.GetProperty("detail").GetString()!.ShouldContain("nome");
     }
+
+    /// <summary>
+    /// The preview is the surface an author drives, so a refusal here is a note
+    /// and not an alarm, and it is emitted for every mode without a filter. The
+    /// engine's own sentence stays on the response, which is what the author
+    /// reads; the log names the field and the mode, which is what an operator
+    /// can act on, and carries neither the engine vocabulary nor the variable
+    /// name the author wrote.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_refused_preview_leaves_a_note_that_names_the_mode_and_not_the_engine()
+    {
+        var recorded = new RecordingLoggerProvider();
+        using WebApplicationFactory<Program> observed = fixture.WithWebHostBuilder(builder =>
+            builder.ConfigureLogging(logging => logging.AddProvider(recorded)));
+        HttpClient client = fixture.CreateAuthorClient(observed, "author-1");
+
+        var key = await TemplateApi.CreateTemplateAsync(client, TemplateApi.NewKey(), defaultLocale: "pt-BR");
+        (var version, var etag) = await TemplateApi.CreateDraftAsync(client, key);
+        await TemplateApi.PutContentAsync(client, key, version, "sms/pt-BR", new { body = "Olá {{ nome }}" }, etag);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/v1/templates/{key}/versions/{version}/render",
+            new { channel = "sms", locale = "pt-BR" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        RecordedEvent note = recorded.Events.Single(item => item.EventId.Id == 2051);
+        note.Level.ShouldBe(LogLevel.Information);
+        note.Message.ShouldContain(key);
+        note.Message.ShouldContain("body");
+        note.Message.ShouldContain("Unclassified");
+
+        foreach (var vocabulary in EngineVocabulary)
+        {
+            note.Message.Contains(vocabulary, StringComparison.OrdinalIgnoreCase).ShouldBeFalse(
+                $"a nota da prévia repetiu o vocabulário do motor '{vocabulary}': {note.Message}");
+        }
+
+        note.Message.ShouldNotContain("nome");
+    }
+
+    /// <summary>
+    /// Words only the engine writes, and the variable name it echoes back. None
+    /// of them belongs in a log line: the text is English against a module whose
+    /// log dialect is not, the audit trail already bars the same text by an
+    /// executable scan, and it can carry a caller value that redaction did not
+    /// reach.
+    /// </summary>
+    private static readonly string[] EngineVocabulary =
+    [
+        "LoopLimit",
+        "iteration limit",
+        "recursive depth limit",
+        "null object",
+        "<input>(",
+        "error :",
+    ];
 }

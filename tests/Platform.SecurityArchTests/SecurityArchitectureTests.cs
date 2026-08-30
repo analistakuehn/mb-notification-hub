@@ -207,6 +207,14 @@ public sealed partial class SecurityArchitectureTests
     /// rule. A composer that neither drives the sandbox nor names the wrapper
     /// or the normalizer escapes all three rules of this family.
     /// </para>
+    /// <para>
+    /// The method name is deliberately open-ended rather than a list of the
+    /// entry points that exist today. A closed list is a rule that a rename
+    /// silently empties: the call sites move, every file stops matching, and
+    /// what the rule reports is that it found nothing to check. The emptiness
+    /// tripwire above catches that, and matching any render entry point on the
+    /// receiver keeps it from happening in the first place.
+    /// </para>
     /// </summary>
     [Fact]
     public void Every_file_that_renders_through_the_sandbox_applies_the_output_policy()
@@ -420,7 +428,7 @@ public sealed partial class SecurityArchitectureTests
     [GeneratedRegex(@"\b\w*[Nn]ote\w*\??\.Text\b")]
     private static partial Regex LifecycleNoteProse();
 
-    [GeneratedRegex(@"\bengine\s*\.\s*Render(?:Content)?Async\s*\(")]
+    [GeneratedRegex(@"\bengine\s*\.\s*Render\w*Async\s*\(")]
     private static partial Regex SandboxRender();
 
     [GeneratedRegex(@"SmsContentNormalizer\s*\.\s*Normalize\s*\(|\bLayoutWrapper\b")]
