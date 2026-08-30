@@ -273,6 +273,28 @@ curta própria.
   payload e paginação, pertence à ferramenta `tools/Platform.GoLiveChecks`; ela
   comprova a ausência de atribuições operacionais sem expor o token em log ou
   recibo.
+- **A administração do kill switch está sem observabilidade nas três camadas, e
+  isto é dívida registrada, não desenho.** O desenho do sistema nomeia o kill
+  switch manual como compensação do fail open do rate limit: é o controle que
+  resta de pé quando o outro cede. Hoje a fatia não tem
+  `KillSwitchAdministration.Handler.Logger.cs` nem `ILogger` injetado, enquanto
+  a parada automática irmã emite evento em `Critical` com mensagem que termina
+  mandando o operador ao caminho manual; o endpoint não aplica
+  `.WithRequestLogging()`, e é uma das duas rotas do host fora do filtro; e o
+  host não tem log de acesso, porque `Program.cs` não usa `UseHttpLogging`,
+  `W3CLogging` nem equivalente. O traço de quem parou ou religou um escopo é
+  zero, e não traço sem ator.
+- Junte-se a isso que os dois `catch` do handler traduzem
+  `DbUpdateConcurrencyException` e violação de unicidade em
+  `Result.Success(... Conflict: true)` depois do rollback. Um conflito no
+  controle compensatório volta ao chamador como sucesso, sem log, sem trilha e
+  sem linha de requisição.
+- Sequenciamento para fechar isto: primeiro o logger de fatia, depois o filtro
+  no endpoint, depois a decisão explícita sobre os dois `catch`. Só então valem
+  os portões que dependem deles, o de evento de log em `catch` que envolve
+  escrita de trilha e o de cobertura do filtro em todo endpoint mapeado. Escritos
+  antes, os dois nascem com esta fatia como violação e forçariam uma isenção
+  nomeada.
 
 ## Eventos de resultado de saída
 

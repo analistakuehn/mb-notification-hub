@@ -245,19 +245,49 @@
 
 ## Logging
 
-- Each use case ships a dedicated `<UseCase>.Handler.Logger.cs` file holding a
-  top-level `internal static partial class <UseCase>Logger` (extension methods
-  do not compile in nested classes, so the logger class sits beside the slice
-  container, not inside it).
-- Log methods are source-generated: `[LoggerMessage] internal static partial
-  void Evento(this ILogger logger, ...)`; handlers call `logger.Evento(...)` on
-  the injected `ILogger`.
-- Identifiers stay in English (`TemplateCreated`, `EndpointInvocationStarted`);
-  pt-BR appears only in log message text and user-facing text, with proper
-  diacritics. Placeholders carry real domain names (template key, version,
-  channel, locale), never personal data, variables, or rendered content.
-- The dialect covers every `.Logger.cs` in the repository, including the host's
-  `Infrastructure/EndpointFilters/RequestLoggingFilter.Logger.cs`.
+- Loggers follow the repository dialect: `*.Logger.cs` files with
+  source-generated extension methods, identifiers in English, message text in
+  pt-BR, never personal data, variables or rendered content in placeholders.
+  Identifiers name domain facts (`TemplateCreated`, `EndpointInvocationStarted`)
+  and placeholders carry domain names: template key, version, channel, locale.
+- A slice keeps its events in a top-level `internal static partial class
+  <UseCase>Logger`, beside the slice container and never inside it, because an
+  extension method does not compile in a nested class. Handlers call
+  `logger.Event(...)` on the injected `ILogger`.
+- The pairing is enforced in both directions, and it is the whole rule: a
+  handler that takes an `ILogger` ships `<UseCase>.Handler.Logger.cs` beside it,
+  and that file sits only beside a handler that takes one. The architecture test
+  project owns the rule and carries no exemption list.
+- Whether a slice logs at all is not enforced, here or anywhere else in this
+  repository. The gap is deliberate and its cost is accepted: the slice decides,
+  and no rule guesses the decision back.
+- Coverage keyed on the verb was measured and rejected, even confined to this
+  module, where it has no violation and no exemption today. It holds by the
+  current shape of these slices and not by design, and the counterexample
+  already lives in two of the four modules: the notification history read writes
+  the recipient snapshot back to the cache, and the attempt content read moves
+  the disclosure alarm. The repository has already paid for that predicate once.
+  The security rule that demands authorization and rate limiting matches
+  `MapPost`, `MapPut`, `MapPatch` and `MapDelete` only, so the two disclosure
+  routes, the most sensitive reads in the system, fell outside it and had their
+  rate limiting applied by hand. Take the decision back to review when a GET
+  slice in this module needs to log.
+- Deferred, with the condition that unblocks it: a `catch` in a slice that wraps
+  an audit trail write declares a log event. Measured before deferring, every
+  handler `catch` in this module translates a concurrency or a uniqueness
+  failure into the `Result` axis and none of them swallows a trail failure. The
+  rule would be born with one violation, in the kill switch administration slice
+  of the notification module, so it belongs to the security architecture
+  project, where a trail that fails without a witness is the harm. Write it once
+  that slice is closed, never with a named exemption: an exemption, even a dated
+  one, teaches that the defect it carries is acceptable.
+- Deferred, with the condition that unblocks it: every mapped endpoint applies
+  `.WithRequestLogging()`. Two routes stand outside it today, the provider
+  webhook, which carries its own logger and needs a separate decision, and the
+  kill switch administration route, which carries nothing. The rule belongs
+  beside the state-changing endpoint rule in the security architecture project
+  and covers every verb, because it is the direct remedy for the blind spot of
+  that rule.
 
 ## Security and tests
 
