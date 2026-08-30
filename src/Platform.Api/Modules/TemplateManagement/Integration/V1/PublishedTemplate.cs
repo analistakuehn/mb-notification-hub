@@ -31,6 +31,22 @@ public static class LayoutRejectionReasons
 }
 
 /// <summary>
+/// Reasons the published render refuses content it produced correctly. The
+/// values belong to the canonical rejection-reason catalog shared with the
+/// notification events, so a consumer forwards them without translation.
+/// </summary>
+public static class RenderedContentRejectionReasons
+{
+    /// <summary>
+    /// The render is larger than the channel carries. The word names no
+    /// channel on purpose: the unit differs per channel, and a channel that
+    /// gains a ceiling later has to reuse this member instead of adding one to
+    /// a closed catalog.
+    /// </summary>
+    public const string TooLarge = "rendered-content-too-large";
+}
+
+/// <summary>
 /// The purpose vocabulary a sibling module has to recognize. The vocabulary
 /// itself stays open, because it is governance data an author writes; only the
 /// one word that changes how a notification is treated is published here.

@@ -90,6 +90,31 @@ public sealed class NotificationRejectionReasonsTests
     }
 
     [Fact]
+    public void The_size_refusal_of_the_render_keeps_its_own_reason()
+    {
+        // The render worked and the payload passed the published schema. What
+        // stopped the message is that the text it produced does not fit the
+        // channel, and the producer can act on that by shortening a variable
+        // value. Collapsing it into either neighbour sends the producer to the
+        // template owner or back to the schema, and neither has the defect.
+        NotificationRejectionReasons.IsCanonical(RenderStage.ReasonRenderedContentTooLarge)
+            .ShouldBeTrue();
+        NotificationRejectionReasons.RenderedContentTooLarge
+            .ShouldNotBe(NotificationRejectionReasons.TemplateRenderFailed);
+        NotificationRejectionReasons.RenderedContentTooLarge
+            .ShouldNotBe(NotificationRejectionReasons.TemplateVariablesInvalid);
+    }
+
+    [Fact]
+    public void The_size_reason_of_the_stage_is_the_word_the_renderer_refuses_with()
+    {
+        // Same module crossing as the two refusals above, and the same failure
+        // mode if it drifts: the stage would map a message that is too large
+        // onto a render failure and no consumer could tell the two apart.
+        RenderStage.ReasonRenderedContentTooLarge.ShouldBe(RenderedContentRejectionReasons.TooLarge);
+    }
+
+    [Fact]
     public void Catalog_covers_every_problem_type_the_ingestion_route_publishes()
     {
         NotificationRejectionReasons.IsCanonical(IngestionProblems.ClassNotAllowedType).ShouldBeTrue();

@@ -420,7 +420,8 @@
   differently about the same text.
 - **The order inside that policy is the rule, not an arrangement of it.**
   Normalize for the channel, ban a link inside an authentication SMS over the
-  already normalized text, guard the destination, hash what is left.
+  already normalized text, guard the destination, measure the result against
+  what the channel carries, hash what is left.
   Normalization comes first because every step after it decides about the bytes
   a provider actually receives, and the audited hash has to describe those
   bytes: hashing before normalizing leaves the audit calling every SMS tampered
@@ -431,6 +432,113 @@
   on `Infrastructure`, and the policy is where the normalizer is now called
   from. The single call site is itself a rule, since two of them are two
   orderings waiting to diverge.
+- **The rendered SMS has a ceiling, and it is counted in segments.** The unit
+  is the segment because that is what a carrier splits, bills and delivers, and
+  because the same text costs a different number of them depending on which
+  characters it carries: one character outside the GSM 03.38 tables switches the
+  whole message to a two-byte encoding and can more than double the count.
+  `Domain/SmsSegmentCount` is the counter and `Domain/SmsSegmentCeiling` holds
+  the number. Ten is derived, `floor(1600 / 153)`, and the derivation is written
+  next to the constant: `153 * 10 = 1530 <= 1600`, so nothing the ceiling admits
+  can overflow the assumed provider body limit in any encoding, while eleven
+  would give `1683 > 1600` and the two numbers would contradict each other. The
+  1600 is an inference about the provider and is not verified anywhere in this
+  repository; the identical 1600 that bounds the template source is a different
+  measurement over a different thing, and the two agreeing is not evidence about
+  either. Ten is the largest defensible ceiling and not a spending policy:
+  whoever pays the bill may lower it, and raising it needs the assumed limit
+  confirmed first.
+- **The counter segments for real in both alphabets and never divides a total
+  by a capacity.** Each alphabet has a unit that may not be split across a
+  boundary, and a segment that cannot fit the next whole unit gives its last
+  position up. In UCS-2 that unit is the surrogate pair: a segment nominally
+  carries 67 UTF-16 units, but a pair is one character in two units and a
+  segment that ended between them would ship two halves that decode to nothing,
+  so a boundary landing mid-pair leaves the segment carrying 66. Sixty-seven
+  emoji are 134 units and three segments, while dividing by 67 predicts two. In
+  GSM-7 that unit is the escape sequence: a character of the extension table
+  travels as an escape plus itself, so a segment holding 152 of its 153 septets
+  gives the last position up and carries 76 extension characters rather than
+  76 and a half. Seven hundred and sixty-one extension characters are 1522
+  septets, which divided by 153 predicts ten segments and really occupies
+  eleven, and the range 761 to 765 is the one that crossed the ceiling. Both
+  arms were division once and both were wrong in the permissive direction,
+  which is the direction that turns a ceiling into a bypass.
+- **Every bound over this counter uses 66, the worst-case UCS-2 capacity, and
+  GSM-7 cannot take that place.** The most expensive GSM text is every
+  character from the extension table at 76 per segment, so 660 of them are nine
+  segments against the ten that 660 units of astral text cost, and at the upper
+  bound the cheapest character is still the basic one at one septet. The 1378
+  counterexamples over the all-astral lengths from 2 to 5000 units are what the
+  permanent oracle in the unit tests exists to keep out. That oracle is an upper
+  bound and therefore polices overcounting only: an undercount can never violate
+  it, so the two boundary tests, one per alphabet, are what police the direction
+  that matters, and each asserts both of its sides.
+- **The ceiling runs the counter only between 661 and 1530 units.** At or below
+  660 nothing can exceed ten segments, because the worst case per unit is 66;
+  above 1530 nothing can stay within ten, because the best case per unit is one
+  septet at 153 per segment. The upper bound is exact, and the lower one is
+  conservative by a single unit: 661 units also always fit, because the last
+  segment has nothing after it to split and takes its full 67, while 662 units
+  of astral text cost eleven. The derived form is kept over a hand-tuned 661,
+  because it can be rechecked by hand whenever the ceiling or the capacity
+  moves. Both bounds are pinned by tests asserting every side, since a bound
+  asserted from one side alone does not distinguish the right number from any
+  looser one, and the lower one asserts three lengths rather than two so the
+  conservatism is stated instead of discovered later as a defect. The lower bound is an admitting shortcut, so
+  it must be conservative: at 670, which the nominal rate would give, 331 astral
+  characters are 662 units and cost 11 segments and would be admitted without
+  ever being measured.
+- **The size check is the fourth of the five steps, after both security checks
+  and before the hash, and the order costs something on purpose.** Normalization
+  has to precede it because composing changes the length in both directions: 400
+  copies of one precomposed Hebrew code point become 1200 characters under NFC,
+  and 800 letters written with a combining accent become 800 characters instead
+  of 1600, so a measure taken first refuses messages that fit and admits
+  messages that do not. The two security checks precede it because capacity is
+  not a security question: if the size answered first, an operator reading "too
+  large" would never learn that the message also carried a phishing link inside
+  an authentication SMS, and the producer would shorten the text until the real
+  refusal finally surfaced. The measured price of that order is 12,3 ms per
+  refused render, with identical allocation.
+- **`RenderedSizeCeiling.Exempt` exists for the masked form and nothing else,
+  and its reason is the opposite of the ban exemption's.** The ban may be
+  skipped on the masked form because masking only ever removes a link. The
+  ceiling must be skipped on it because masking may add text: the marker is
+  three characters, so a one-character authentication code makes the masked
+  field two characters longer than the message, and an authentication code of a
+  single digit is enough to refuse a legitimate message over the size of its own
+  trail copy. The masked form is not the message. Never reuse
+  `AuthenticationLinkBan` for this axis and never derive either from the other,
+  or a later pass that skips the ban stops being measured without anyone
+  deciding that.
+- **`rendered-content-too-large` names no channel on purpose.** The catalog is
+  closed, and a second channel gaining a ceiling has to reuse this member rather
+  than add one. Push, e-mail and WhatsApp have no ceiling here today, and each
+  is out for its own reason rather than by omission. Push is a separate finding
+  and not a number to copy: its unit is bytes, not segments, and the provider
+  budget is shared with a data payload this policy never sees, so a ceiling set
+  here would bound the wrong half of the request. E-mail has no comparable hard
+  limit at this layer, and the gateway-side limits that do exist are about
+  attachments and total message size, neither of which this policy composes.
+  WhatsApp is template-governed at the provider, which enforces its own body
+  limits when the template is approved, so a second ceiling here would refuse
+  content the provider already accepted.
+- **The publication check speaks about the template source, and its message says
+  so.** It counts the characters an author wrote, placeholders included, and it
+  cannot say anything about the message a recipient receives, because the values
+  that replace the placeholders are unknown at that point and the same source
+  renders to a different length for every request. It is not weakened by the
+  render-time ceiling and it does not substitute for it.
+- **`Integration/V1/SmsSegmentLimit` publishes the number, the unit and the
+  counter, and deliberately no gate.** Nothing can assess this before a render:
+  the size that matters belongs to text that does not exist until the variables
+  are interpolated, the layout frames the body and the channel normalizer
+  rewrites the result. A published gate would be a contract no caller could
+  satisfy and every caller would believe, which is worse than none, because a
+  consumer would check it, pass, and still be refused at the render. A unit test
+  pins the published members one by one, so any entry point shaped like a
+  verdict on a request fails it whatever it is called.
 - **The refusal shape is a parameter because it is a consumer contract, not a
   preference.** `RefusalShape.Bare` returns the bare word: the Core pipeline
   compares the whole error text against it for equality, and anything wrapped
@@ -462,18 +570,19 @@
   pass a third orchestrator that guards the destination and skips normalization,
   the ban, and the hash. The single exemption is the policy's own file, named
   and not matched by a pattern, and it opens no hole, because a fourth rule
-  demands all four steps of that file instead of the presence of one call. Two
+  demands all five steps of that file instead of the presence of one call. Two
   residues are known, measured, and written into those tests: a composer that
   neither drives the sandbox nor names the wrapper or the normalizer escapes all
   three, and the first rule anchors on the identifier `engine`, which is a
   parameter name, so a renamed receiver escapes it.
 - **The order is pinned by unit tests that read the policy directly**, not only
   by the render behavior tests. Three of them pass under a policy that runs the
-  same four steps in the wrong sequence, so the ones that matter are the two
-  about precedence: the ban answers before the destination guard, and the
-  normalizer runs before the ban. A change that reorders the four steps has a
-  gate, and it is not the architecture scan, which reads presence and never
-  order.
+  same five steps in the wrong sequence, so the ones that matter are the ones
+  about precedence: the ban answers before the destination guard, the
+  normalizer runs before the ban, and the ceiling answers after both security
+  checks, before the hash, and over the already normalized text. A change that
+  reorders the five steps has a gate, and it is not the architecture scan,
+  which reads presence and never order.
 - **The preview draws its line at content, never at identity.** It refuses a
   disabled layout, and it does not refuse a `deprecated` or a `disabled`
   template, while dispatch refuses all three. The goal is not "preview equals

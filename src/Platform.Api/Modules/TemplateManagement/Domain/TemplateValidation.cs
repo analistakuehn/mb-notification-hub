@@ -752,6 +752,15 @@ public static partial class TemplateValidation
     /// of the content placeholder in: a layout may read the placeholder more
     /// than once, so discounting it once would understate the message. The
     /// result is conservative by that much.
+    /// <para>
+    /// The messages say "template source" and mean it. This check counts the
+    /// characters an author wrote, placeholders included, and it can say
+    /// nothing about the message a recipient receives: the values that replace
+    /// the placeholders are not known here, and the same source renders to a
+    /// different length for every request. What the rendered message costs is
+    /// answered at render time, in segments, which is the unit a carrier
+    /// actually splits and bills.
+    /// </para>
     /// </summary>
     private static void AddChannelLimitChecks(
         List<ValidationCheck> checks,
@@ -771,8 +780,9 @@ public static partial class TemplateValidation
                 checks.Add(Failed(
                     ValidationCheckNames.ChannelLimits,
                     framing is null
-                        ? $"SMS body template exceeds {SmsMaxBodyChars} characters."
-                        : $"SMS body template and the layout it pins exceed {SmsMaxBodyChars} characters together.",
+                        ? $"The SMS body template source exceeds {SmsMaxBodyChars} characters."
+                        : "The SMS body template source and the layout it pins exceed "
+                            + $"{SmsMaxBodyChars} characters together.",
                     At(content.Channel, content.Locale, TemplateContentFields.Body)));
             }
 

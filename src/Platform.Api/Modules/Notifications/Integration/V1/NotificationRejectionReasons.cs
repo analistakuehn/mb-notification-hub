@@ -51,6 +51,17 @@ public static class NotificationRejectionReasons
     /// </summary>
     public const string LayoutDisabled = "layout-disabled";
 
+    /// <summary>
+    /// The rendered message is larger than the channel carries. Separate from
+    /// <see cref="TemplateRenderFailed"/> because the render worked and what
+    /// refused it was a capacity rule, and separate from
+    /// <see cref="TemplateVariablesInvalid"/> because the payload passed the
+    /// published schema: what grew the text was the value of a variable the
+    /// schema admits. The word names no channel, so a second channel gaining a
+    /// ceiling reuses it instead of widening a closed catalog.
+    /// </summary>
+    public const string RenderedContentTooLarge = "rendered-content-too-large";
+
     /// <summary>The producer principal is outside the registry, or the class is not allowed for it.</summary>
     public const string ProducerNotAuthorized = "producer-not-authorized";
 
@@ -109,6 +120,7 @@ public static class NotificationRejectionReasons
         TemplateRenderFailed,
         AuthenticationSmsLink,
         LayoutDisabled,
+        RenderedContentTooLarge,
         ProducerNotAuthorized,
         ProducerDisabled,
         ClassNotAllowedForPrincipal,

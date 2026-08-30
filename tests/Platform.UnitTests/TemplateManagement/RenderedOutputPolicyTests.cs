@@ -46,7 +46,8 @@ public sealed class RenderedOutputPolicyTests
             Channel.Sms,
             new RenderedFields(null, Body, null),
             RefusalShape.Bare,
-            AuthenticationLinkBan.Enforce);
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
 
         result.IsFailure.ShouldBeTrue();
         result.Error.ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
@@ -79,7 +80,8 @@ public sealed class RenderedOutputPolicyTests
             Channel.Sms,
             new RenderedFields(null, Raw, null),
             RefusalShape.Bare,
-            AuthenticationLinkBan.Enforce);
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
 
         result.IsFailure.ShouldBeTrue();
         result.Error.ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
@@ -103,7 +105,8 @@ public sealed class RenderedOutputPolicyTests
             Channel.Sms,
             new RenderedFields(null, Raw, null),
             RefusalShape.Bare,
-            AuthenticationLinkBan.Enforce);
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
 
         result.IsSuccess.ShouldBeTrue(result.Error);
         RenderedOutput output = result.Value!;
@@ -127,13 +130,23 @@ public sealed class RenderedOutputPolicyTests
         var fields = new RenderedFields(null, Body, null);
 
         Result<RenderedOutput> enforced = RenderedOutputPolicy.Apply(
-            template, Channel.Sms, fields, RefusalShape.Bare, AuthenticationLinkBan.Enforce);
+            template,
+            Channel.Sms,
+            fields,
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
 
         enforced.IsFailure.ShouldBeTrue();
         enforced.Error.ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
 
         Result<RenderedOutput> skipped = RenderedOutputPolicy.Apply(
-            template, Channel.Sms, fields, RefusalShape.Bare, AuthenticationLinkBan.AlreadyEnforced);
+            template,
+            Channel.Sms,
+            fields,
+            RefusalShape.Bare,
+            AuthenticationLinkBan.AlreadyEnforced,
+            RenderedSizeCeiling.Enforce);
 
         skipped.IsSuccess.ShouldBeTrue(skipped.Error);
         skipped.Value!.Body.ShouldBe(Body);
@@ -153,14 +166,24 @@ public sealed class RenderedOutputPolicyTests
         var fields = new RenderedFields(null, Body, null);
 
         Result<RenderedOutput> bare = RenderedOutputPolicy.Apply(
-            template, Channel.Sms, fields, RefusalShape.Bare, AuthenticationLinkBan.Enforce);
+            template,
+            Channel.Sms,
+            fields,
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
 
         bare.IsFailure.ShouldBeTrue();
         bare.ErrorKind.ShouldBe(ResultErrorKind.Validation);
         bare.Error.ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
 
         Result<RenderedOutput> formatted = RenderedOutputPolicy.Apply(
-            template, Channel.Sms, fields, RefusalShape.Formatted, AuthenticationLinkBan.Enforce);
+            template,
+            Channel.Sms,
+            fields,
+            RefusalShape.Formatted,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
 
         formatted.IsFailure.ShouldBeTrue();
         formatted.ErrorKind.ShouldBe(ResultErrorKind.Validation);
@@ -195,7 +218,8 @@ public sealed class RenderedOutputPolicyTests
             Channel.Email,
             new RenderedFields(Subject, Body, BodyText),
             RefusalShape.Bare,
-            AuthenticationLinkBan.Enforce);
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
 
         result.IsSuccess.ShouldBeTrue(result.Error);
         RenderedOutput output = result.Value!;
@@ -203,6 +227,284 @@ public sealed class RenderedOutputPolicyTests
         output.Body.ShouldBe(Body);
         output.BodyText.ShouldBe(BodyText);
         output.ContentHash.ShouldBe(CanonicalHash.OfFields(Subject, Body, BodyText));
+    }
+
+    [Fact]
+    public void An_sms_render_above_ten_segments_is_refused_with_a_stable_code()
+    {
+        // The ceiling is counted in what the carrier bills, and the code is the
+        // bare word because a sibling module compares the whole error text
+        // against it.
+        var body = new string('a', 1531);
+        Template template = MakeTemplate("order-updates");
+
+        // Premises: nothing else in the policy has anything to refuse here, so
+        // the refusal below is the ceiling and not one of its neighbours.
+        TemplateValidation.ContainsLinkLikeText(body).ShouldBeFalse();
+        RenderedDestinationPolicy.Validate(template, Channel.Sms, null, body, null)
+            .IsSuccess.ShouldBeTrue();
+
+        Result<RenderedOutput> result = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, body, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(RenderedContentRejectionReasons.TooLarge);
+        result.ErrorKind.ShouldBe(ResultErrorKind.Validation);
+    }
+
+    [Fact]
+    public void An_sms_render_of_fifteen_hundred_and_thirty_plain_characters_is_admitted()
+    {
+        // Falsification for the refusal above. One character shorter is the
+        // largest message the ceiling admits, so the test pair tells a working
+        // ceiling from a policy that refuses long text in general.
+        var body = new string('a', 1530);
+
+        Result<RenderedOutput> result = RenderedOutputPolicy.Apply(
+            MakeTemplate("order-updates"),
+            Channel.Sms,
+            new RenderedFields(null, body, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        result.IsSuccess.ShouldBeTrue(result.Error);
+        result.Value!.Body.Length.ShouldBe(1530);
+    }
+
+    [Fact]
+    public void The_size_ceiling_answers_after_the_authentication_link_ban()
+    {
+        // Both refusals are available, and which one answers decides what an
+        // operator learns. If the size answered first, nobody would find out
+        // that this authentication SMS also carried a link, and the producer
+        // would shorten the text until the real refusal finally surfaced.
+        var body = new string('a', 1531) + " https://montebravo.com.br/otp";
+        Template template = MakeTemplate(TemplatePurposes.Authentication);
+
+        // Premises: the text really is above the ceiling and really does carry
+        // a link, so this is precedence and not the absence of one of them.
+        SmsSegmentCeiling.Admits(body).ShouldBeFalse();
+        TemplateValidation.ContainsLinkLikeText(body).ShouldBeTrue();
+
+        Result<RenderedOutput> result = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, body, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
+    }
+
+    [Fact]
+    public void The_size_ceiling_answers_after_the_destination_guard()
+    {
+        // Same precedence question against the other security check. A
+        // destination outside the allowlist is a fact about where the message
+        // sends people, and losing it behind a capacity complaint would file a
+        // link to a host nobody approved as a message that was merely too long.
+        var body = new string('a', 1531) + " https://evil.example.io/x";
+        Template template = MakeTemplate("order-updates");
+
+        // Premises: above the ceiling, and refused on its own by the guard.
+        SmsSegmentCeiling.Admits(body).ShouldBeFalse();
+        Result guard = RenderedDestinationPolicy.Validate(template, Channel.Sms, null, body, null);
+        guard.IsFailure.ShouldBeTrue();
+
+        Result<RenderedOutput> result = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, body, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        result.IsFailure.ShouldBeTrue();
+        DomainError.Describe(result.Error, result.ErrorKind).Code.ShouldBe(ErrorCodes.UrlDomainNotAllowed);
+    }
+
+    [Fact]
+    public void The_size_ceiling_answers_before_the_canonical_hash()
+    {
+        // No output ever leaves this policy describing content the ceiling
+        // refused. An audit re-renders a stored message and compares hashes, so
+        // a hash over a message that was never allowed to exist would be a
+        // record of something nobody sent.
+        var refused = new string('a', 1531);
+        var admitted = new string('a', 1530);
+        Template template = MakeTemplate("order-updates");
+
+        Result<RenderedOutput> above = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, refused, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        above.IsFailure.ShouldBeTrue();
+        above.Value.ShouldBeNull();
+
+        // The contrast that makes the line above worth asserting: one character
+        // less and the policy does produce the hash, so what withheld it was
+        // the ceiling and not a policy that never hashes.
+        Result<RenderedOutput> within = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, admitted, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        within.IsSuccess.ShouldBeTrue(within.Error);
+        within.Value!.ContentHash.ShouldBe(CanonicalHash.OfFields(null, admitted, null));
+    }
+
+    [Fact]
+    public void Composition_expands_the_text_before_the_ceiling_measures_it()
+    {
+        // Composing to the shipped form makes text longer as well as shorter. A
+        // ceiling measured on the untouched render would admit this one in a
+        // single comparison and hand the carrier three times the text.
+        var raw = new string('\ufb2c', 400);
+        var normalized = SmsContentNormalizer.Normalize(raw);
+        Template template = MakeTemplate("order-updates");
+
+        // Premises: the untouched render is short enough that the shortcut
+        // would admit it without counting, and the composed form is three times
+        // as long.
+        raw.Length.ShouldBe(400);
+        SmsSegmentCeiling.Admits(raw).ShouldBeTrue();
+        normalized.Length.ShouldBe(1200);
+
+        Result<RenderedOutput> result = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, raw, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(RenderedContentRejectionReasons.TooLarge);
+    }
+
+    [Fact]
+    public void Composition_shortens_the_text_before_the_ceiling_measures_it()
+    {
+        // The other direction, and the one that costs a producer a legitimate
+        // message. Measured untouched this render is past the point where no
+        // encoding can fit, so a ceiling that ran first would refuse a message
+        // that occupies six segments.
+        var raw = string.Concat(Enumerable.Repeat("a\u0300", 800));
+        var normalized = SmsContentNormalizer.Normalize(raw);
+        Template template = MakeTemplate("order-updates");
+
+        // Premises: untouched it is refused outright by length alone, and
+        // composed it is an ordinary GSM message of six segments.
+        raw.Length.ShouldBe(1600);
+        SmsSegmentCeiling.Admits(raw).ShouldBeFalse();
+        normalized.Length.ShouldBe(800);
+        SmsSegmentCount.Of(normalized).ShouldBe(6);
+
+        Result<RenderedOutput> result = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, raw, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        result.IsSuccess.ShouldBeTrue(result.Error);
+        result.Value!.Body.Length.ShouldBe(800);
+    }
+
+    [Fact]
+    public void The_masked_form_is_not_measured_against_the_ceiling()
+    {
+        // Masking may make a field longer, because the marker is three
+        // characters and the value it replaces can be one: a single-digit
+        // authentication code costs two characters more once masked. The
+        // masked form is the copy a trail may store and never the message, so
+        // measuring it would refuse a message that fits over the size of its
+        // own audit record.
+        var message = new string('a', 1530);
+        var maskedForm = message[..1529] + VariableMasking.MaskedValue;
+        Template template = MakeTemplate("order-updates");
+
+        // Premise: masking really did make it longer, and past the ceiling.
+        maskedForm.Length.ShouldBe(1532);
+        SmsSegmentCeiling.Admits(message).ShouldBeTrue();
+        SmsSegmentCeiling.Admits(maskedForm).ShouldBeFalse();
+
+        Result<RenderedOutput> exempt = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, maskedForm, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.AlreadyEnforced,
+            RenderedSizeCeiling.Exempt);
+
+        exempt.IsSuccess.ShouldBeTrue(exempt.Error);
+        exempt.Value!.Body.Length.ShouldBe(1532);
+
+        // What the success above is worth: the same text under the enforcing
+        // pass is refused, so the exemption is what admitted it and not the
+        // ceiling failing to answer.
+        Result<RenderedOutput> enforced = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, maskedForm, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        enforced.IsFailure.ShouldBeTrue();
+        enforced.Error.ShouldBe(RenderedContentRejectionReasons.TooLarge);
+    }
+
+    [Fact]
+    public void The_pinned_layout_counts_toward_the_rendered_segments()
+    {
+        // What leaves the platform is the content inside its wrapper, and the
+        // caller frames the body before handing it here. A ceiling that saw
+        // only the interpolated content would let a heavy layout push every
+        // message that pins it past what the carrier delivers, while every
+        // template author measured a body that fits.
+        var content = new string('a', 100);
+        var framed = new string('b', 1450) + content;
+        Template template = MakeTemplate("order-updates");
+
+        // Premise: the content on its own is nowhere near the ceiling, so what
+        // refuses the framed body below is the wrapper's own text.
+        Result<RenderedOutput> unframed = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, content, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        unframed.IsSuccess.ShouldBeTrue(unframed.Error);
+
+        Result<RenderedOutput> result = RenderedOutputPolicy.Apply(
+            template,
+            Channel.Sms,
+            new RenderedFields(null, framed, null),
+            RefusalShape.Bare,
+            AuthenticationLinkBan.Enforce,
+            RenderedSizeCeiling.Enforce);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(RenderedContentRejectionReasons.TooLarge);
     }
 
     private static Template MakeTemplate(string purpose, params string[] linkDomainsAllowed)

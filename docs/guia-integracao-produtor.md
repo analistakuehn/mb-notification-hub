@@ -685,6 +685,8 @@ protocolo, listados no fim desta seção.
 | `template-variables-invalid` | As variáveis não passam no esquema publicado | Corrija o payload usando os `checks` da resposta. Não retente o mesmo corpo |
 | `template-render-failed` | A renderização do conteúdo publicado falhou | Não é corrigível pelo produtor. Acione o time dono do template |
 | `authentication-sms-link` | O SMS renderizado de um template de autenticação contém um link | Corrija o valor da variável que produziu o endereço. Um código de autenticação por SMS não carrega link nesta plataforma, e a recusa vale também quando o link chega por valor de variável |
+| `layout-disabled` | O layout que a versão publicada fixa está desativado, então a mensagem não tem moldura aprovada | Não é corrigível pelo produtor. Acione o time dono do template, que precisa republicar a versão apontando para um layout ativo |
+| `rendered-content-too-large` | A mensagem renderizada ultrapassa o limite do canal. Em SMS o limite é contado em segmentos, e o mesmo texto custa mais que o dobro de segmentos quando carrega acento, porque a operadora troca a codificação | Reduza o valor da variável que fez o texto crescer. Renderize a versão pelo preview com as mesmas variáveis para conferir antes de solicitar |
 | `producer-not-authorized` | A identidade do produtor está fora do registro, ou pede classe que o registro não concede | Peça o registro ou o ajuste de concessão. Só ocorre no caminho Kafka |
 | `class-not-allowed-for-principal` | O token não carrega o papel da classe pedida, ou não carrega identidade estável | Peça a atribuição do papel ao seu principal. Só ocorre no caminho REST |
 | `sensitive-variables-on-bus` | O template declara variáveis sensíveis e a solicitação veio pelo barramento | Migre a solicitação desse template para REST |
@@ -726,7 +728,8 @@ dela.
 
 Alguns motivos do catálogo **não** aparecem como status HTTP, porque são
 decididos depois do aceite, no pipeline: `no-valid-contact`, `no-consent`,
-`channel-suppressed`, `duplicate-window`, `authentication-sms-link`, além de
+`channel-suppressed`, `duplicate-window`, `authentication-sms-link`,
+`layout-disabled`, `rendered-content-too-large`, além de
 `template-render-failed` e `expired`. Eles chegam pelo evento `rejected` e pela
 consulta.
 

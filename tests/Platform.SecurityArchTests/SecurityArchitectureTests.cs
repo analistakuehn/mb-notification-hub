@@ -264,8 +264,8 @@ public sealed partial class SecurityArchitectureTests
     /// <para>
     /// The exemption opens no hole: that file does not leave this family, it
     /// answers to a stricter member of it. <see
-    /// cref="The_output_policy_normalizes_bans_authentication_links_guards_destinations_and_hashes"/>
-    /// requires all four steps to be present in it, while these two rules only
+    /// cref="The_output_policy_normalizes_bans_links_guards_destinations_measures_size_and_hashes"/>
+    /// requires all five steps to be present in it, while these two rules only
     /// require a call to be present. Exempting it here and demanding more of it
     /// there is what lets the guard pattern stay a single alternative: accepting
     /// a direct call to the destination policy as a substitute would pass a
@@ -299,15 +299,16 @@ public sealed partial class SecurityArchitectureTests
     }
 
     /// <summary>
-    /// The file the three rules above point at does the four things the render
+    /// The file the three rules above point at does the five things the render
     /// path delegates to it, in one place: it normalizes for the channel, bans
-    /// a link inside an authentication SMS, guards the destination, and hashes
-    /// the text it returns. Without this, an output policy emptied of one step
-    /// keeps every other rule of this family green while the step it lost stops
-    /// running anywhere.
+    /// a link inside an authentication SMS, guards the destination, measures
+    /// the result against what the channel carries, and hashes the text it
+    /// returns. Without this, an output policy emptied of one step keeps every
+    /// other rule of this family green while the step it lost stops running
+    /// anywhere.
     /// </summary>
     [Fact]
-    public void The_output_policy_normalizes_bans_authentication_links_guards_destinations_and_hashes()
+    public void The_output_policy_normalizes_bans_links_guards_destinations_measures_size_and_hashes()
     {
         var files = ModuleSourceFiles()
             .Where(path => Path.GetFileName(path) == OutputPolicyFileName)
@@ -321,6 +322,7 @@ public sealed partial class SecurityArchitectureTests
             ("channel normalization", ChannelNormalization()),
             ("authentication link ban", AuthenticationLinkBan()),
             ("destination guard", RenderedDestinationGuard()),
+            ("rendered size ceiling", RenderedSizeCeiling()),
             ("canonical content hash", CanonicalContentHash()),
         ];
 
@@ -435,6 +437,9 @@ public sealed partial class SecurityArchitectureTests
 
     [GeneratedRegex(@"TemplateValidation\s*\.\s*ContainsLinkLikeText\s*\(")]
     private static partial Regex AuthenticationLinkBan();
+
+    [GeneratedRegex(@"SmsSegmentCeiling\s*\.\s*Admits\s*\(")]
+    private static partial Regex RenderedSizeCeiling();
 
     [GeneratedRegex(@"CanonicalHash\s*\.\s*OfFields\s*\(")]
     private static partial Regex CanonicalContentHash();

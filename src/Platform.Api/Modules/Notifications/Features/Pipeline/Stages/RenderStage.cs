@@ -41,6 +41,16 @@ internal sealed class RenderStage(
     /// </summary>
     internal const string ReasonLayoutDisabled = NotificationRejectionReasons.LayoutDisabled;
 
+    /// <summary>
+    /// Refusal the published renderer answers with when the render is larger
+    /// than the channel carries. It travels as the whole error text of the
+    /// failed render, exactly like the two refusals above, and for the same
+    /// reason: a producer has to tell a template it cannot fix from a variable
+    /// value it can shorten.
+    /// </summary>
+    internal const string ReasonRenderedContentTooLarge =
+        NotificationRejectionReasons.RenderedContentTooLarge;
+
     internal const string FallbackLocale = "pt-BR";
 
     public string Name => "Render";
@@ -86,7 +96,7 @@ internal sealed class RenderStage(
     }
 
     /// <summary>
-    /// Which rejection a failed render is. The renderer words two refusals of
+    /// Which rejection a failed render is. The renderer words three refusals of
     /// its own and answers with the bare word, so recognizing them is an
     /// equality against that word; everything else is a template to fix. One
     /// table answers for the ingestion path and for the fallback path alike:
@@ -98,6 +108,7 @@ internal sealed class RenderStage(
     {
         ReasonAuthenticationSmsLink => ReasonAuthenticationSmsLink,
         ReasonLayoutDisabled => ReasonLayoutDisabled,
+        ReasonRenderedContentTooLarge => ReasonRenderedContentTooLarge,
         _ => ReasonRenderFailed,
     };
 }

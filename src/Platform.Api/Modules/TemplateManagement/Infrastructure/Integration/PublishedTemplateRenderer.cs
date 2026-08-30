@@ -119,7 +119,7 @@ internal sealed class PublishedTemplateRenderer(
             content,
             request.Variables,
             wrapper.Value,
-            AuthenticationLinkBan.Enforce,
+            FormChecks.Message,
             cancellationToken);
         if (full.IsFailure)
         {
@@ -193,14 +193,17 @@ internal sealed class PublishedTemplateRenderer(
         // The full form already answered the authentication-SMS ban over this
         // same content, and masking only replaces a value with a fixed marker:
         // it can remove a link and never write one. A second pass would be a
-        // second scan of every rendered field for nothing.
+        // second scan of every rendered field for nothing. The size ceiling is
+        // skipped for the opposite reason: the marker is longer than the value
+        // it replaces whenever that value is short, so this form can be larger
+        // than the message, and it is not the message anyway.
         return await RenderFormAsync(
             template,
             channel,
             content,
             masked.Value,
             wrapper,
-            AuthenticationLinkBan.AlreadyEnforced,
+            FormChecks.MaskedForm,
             cancellationToken);
     }
 
@@ -210,7 +213,7 @@ internal sealed class PublishedTemplateRenderer(
         TemplateContent content,
         JsonElement? variables,
         LayoutWrapper? wrapper,
-        AuthenticationLinkBan ban,
+        FormChecks checks,
         CancellationToken cancellationToken)
     {
         // The fields of one form share the execution context, which is what a
@@ -267,16 +270,18 @@ internal sealed class PublishedTemplateRenderer(
             }
         }
 
-        // Normalizing, banning, guarding and hashing are one decision taken in
-        // one order, and it lives in the policy so this path and the preview
-        // cannot take it differently. The refusal travels bare here: the
-        // consuming module compares the whole error text against the word.
+        // Normalizing, banning, guarding, measuring and hashing are one
+        // decision taken in one order, and it lives in the policy so this path
+        // and the preview cannot take it differently. The refusal travels bare
+        // here: the consuming module compares the whole error text against the
+        // word.
         Result<RenderedOutput> output = RenderedOutputPolicy.Apply(
             template,
             channel,
             new RenderedFields(subject.Value, wrappedBody, wrappedBodyText),
             RefusalShape.Bare,
-            ban);
+            checks.Ban,
+            checks.Ceiling);
         if (output.IsFailure)
         {
             return output.AsFailure<RenderedOutput, RenderedForm>();
@@ -470,6 +475,25 @@ internal sealed class PublishedTemplateRenderer(
 
     /// <summary>Layout sources that frame the rendered body and, optionally, the text variant.</summary>
     private sealed record LayoutWrapper(string Body, string? BodyText);
+
+    /// <summary>
+    /// The two checks one pass of the render owes. They travel as one value
+    /// because this path decides both at the same place, and they stay two
+    /// values because their exemptions rest on opposite facts: masking may
+    /// only remove a link, and masking may add characters. Deriving either
+    /// from the other would let a later pass lose one check by asking for the
+    /// other.
+    /// </summary>
+    private readonly record struct FormChecks(AuthenticationLinkBan Ban, RenderedSizeCeiling Ceiling)
+    {
+        /// <summary>The message itself, which owes every check.</summary>
+        internal static FormChecks Message { get; } =
+            new(AuthenticationLinkBan.Enforce, RenderedSizeCeiling.Enforce);
+
+        /// <summary>The trail copy, which owes neither, for two separate reasons.</summary>
+        internal static FormChecks MaskedForm { get; } =
+            new(AuthenticationLinkBan.AlreadyEnforced, RenderedSizeCeiling.Exempt);
+    }
 }
 
 /// <summary>

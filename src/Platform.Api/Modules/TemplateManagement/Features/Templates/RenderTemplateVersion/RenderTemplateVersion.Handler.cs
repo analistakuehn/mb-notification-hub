@@ -178,8 +178,9 @@ internal static partial class RenderTemplateVersion
                 }
             }
 
-            // Normalizing, banning, guarding and hashing are one decision taken
-            // in one order, and the dispatch path takes exactly the same one.
+            // Normalizing, banning, guarding, measuring and hashing are one
+            // decision taken in one order, and the dispatch path takes exactly
+            // the same one.
             // The refusal is formatted here because a person reads this
             // response, while over there it travels bare so a sibling module
             // can compare the whole error text against the word.
@@ -188,7 +189,8 @@ internal static partial class RenderTemplateVersion
                 content.Channel,
                 new RenderedFields(subject.Value, wrappedBody, wrappedBodyText),
                 RefusalShape.Formatted,
-                AuthenticationLinkBan.Enforce);
+                AuthenticationLinkBan.Enforce,
+                RenderedSizeCeiling.Enforce);
             if (output.IsFailure)
             {
                 return output.AsFailure<RenderedOutput, Response>();
