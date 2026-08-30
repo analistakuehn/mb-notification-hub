@@ -26,7 +26,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 
 | Achado | Severidade | Estado | Assunto |
 |---|---|---|---|
-| `ARC-001` | `MEDIUM` | **PENDENTE** | O módulo registra duas abstrações transversais que ninguém consome |
+| `ARC-001` | `MEDIUM` | **RESOLVIDO** | O módulo registra duas abstrações transversais que ninguém consome |
 | `ARC-002` | `MEDIUM` | **PENDENTE** | Erro fora da codificação `DomainError` atravessando um contrato... |
 | `ARC-003` | `MEDIUM` | **PENDENTE** | O vocabulário canônico publicado não faz round trip pelo serializador... |
 | `ARC-004` | `MEDIUM` | **PENDENTE** | A superfície pública real tem quatro contratos, e o documento declara... |
@@ -36,7 +36,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `ARC-008` | `LOW` | **PENDENTE** | Os cinco efeitos de layout não preenchem `Application` na trilha |
 
 ---
-## `ARC-001` · PENDENTE
+## `ARC-001` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -47,8 +47,8 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | tipo-de-evidência | leitura-de-código |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-architect |
-| **estado** | **PENDENTE** |
-| nota de estado | Não tratado. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | **A evidência desta ficha se sustentou inteira**, o que nesta revisão é exceção e não regra. Confirmado por medição: nenhum tipo do repositório resolvia `IConnectionMultiplexer` nem `IDistributedCache`, e as únicas ocorrências da primeira fora do arquivo removido eram TRÊS COMENTÁRIOS DE DOCUMENTAÇÃO nos módulos irmãos dizendo que deliberadamente não resolvem a do container. `IDistributedCache` não aparecia em `src/` nem em `tests/`. O cache real do módulo é `MemoryCache`, em `Infrastructure/Integration/PublishedReadCache.cs`, e nenhum ADR ou documento amarra este módulo ao Redis: os dois hits em `docs/` são a barreira de dedupe do módulo `Notifications`, onde `templateKey` é só parte da chave. ACRESCENTADO À FICHA, e alivia o diagnóstico dela: o `Platform.Worker` NÃO é afetado, porque só registra o papel configurado e o `TemplateManagement` não tem papel de worker, então a ausência da seção no `appsettings` dele sempre foi inofensiva. O acoplamento de boot estava confinado à API, que tem a seção, e portanto era latente e não defeito vivo. ACRESCENTADO TAMBÉM, e é a forma concreta desse acoplamento: as fixtures de `Platform.IntegrationTests` injetavam a cadeia de conexão de Redis **só para o host conseguir subir**, e isso saiu junto. PROVA DE BOOT MEDIDA, e não argumentada, que é a verificação que a própria ficha pede: com a seção removida dos dois `appsettings`, o host respondeu `Now listening on` e `Application started`. As falhas de Postgres no log são ambiente (a cadeia de desenvolvimento não declara senha e o contêiner exige) e acontecem em serviços de fundo DEPOIS do start, nunca na validação de opções, que roda antes. ENTREGUE: `RedisSetup.cs`, `RedisOptions.cs` e o diretório `Caching/` inteiro removidos, a chamada tirada do módulo, a seção retirada dos dois `appsettings`, das fixtures de integração e da variável de ambiente deste módulo no `compose.yaml`. O **serviço** `redis` do compose FICA, e as duas variáveis dos irmãos também, porque três módulos usam Redis de verdade. O pacote `Microsoft.Extensions.Caching.StackExchangeRedis` saiu de `Directory.Packages.props` e do `.csproj`, porque só ele fornecia `AddStackExchangeRedisCache`; **`StackExchange.Redis` fica**, porque os irmãos o usam direto. Saiu também a seção `Redis cache` do `README.md`, que documentava exatamente as duas abstrações removidas e era texto de scaffold: mantê-la seria o README afirmando o que o código não faz mais. `.araia/stack-profile.yaml` continua correto com `cache: [redis]`, porque a afirmação é da solução e não deste módulo. PORTÃO MEDIDO E RECUSADO, com o motivo escrito no `AGENTS.md` do módulo: a própria ficha observa que o teste de arquitetura por namespace não enxerga acoplamento na coleção de serviços, o que convida a um portão. Medido, ele **não é viável como regra mecânica**: `TimeProvider.System` é registrado por vários módulos (`AuditModule`, `PartitionManagerSetup`, `ChainVerificationSetup` e o próprio `TemplateManagementModule`) e é abstração de framework legítima, e some-se `IValidator` por varredura de assembly, `AddDbContext`, health checks e rate limiters. A distinção entre abstração de framework que um módulo pode registrar e infraestrutura transversal de terceiro que ele deve envolver é semântica e não mecânica, então o portão exigiria lista de exceção grande e sem princípio, que é pior que portão nenhum. O que segura a linha é a regra escrita mais revisão humana, e isso ficou dito em vez de implícito. A regra registrada para o futuro: se memoização distribuída for desejada, entra por decisão aceita e com wrapper próprio do módulo, no padrão que os três irmãos documentam (multiplexer preguiçoso, `AbortOnConnectFail` forçado a `false`, falha na primeira operação), **nunca por registro de abstração global**. Portões verificados de forma independente: build com 0 erros e 0 avisos, ArchTests 15, SecurityArchTests 14, UnitTests 1657, todos iguais à base. |
 
 **O módulo registra duas abstrações transversais que ninguém consome.**
 
