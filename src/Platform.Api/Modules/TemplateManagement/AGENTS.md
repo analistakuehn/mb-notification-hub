@@ -204,17 +204,29 @@
   `template-disabled` returned as catalog data for the consumer to reject, and
   the published class policy by `(application, class)`),
   `IPublishedVariablesValidator` (variables payload against the published
-  variables schema, in the shared checks vocabulary), and
+  variables schema, in the shared checks vocabulary),
   `IPublishedTemplateRenderer` (published version by channel and locale with
-  the pinned layout applied).
+  the pinned layout applied), and `IHistoricalCatalog` (one exact version by
+  `(application, templateKey, version)`, returned as
+  `HistoricalTemplateVersion` with the layout version it pinned).
+- The two catalogs are separate contracts because they answer opposite
+  questions. The published catalog answers "what would go out now", and a
+  caller deciding what to send reads it. The historical catalog answers "what
+  went out then", and a caller reconstructing a past notification reads it.
+  Mixing them is how an audit surface starts quoting a version nobody used, so
+  a caller that already knows the version number asks the historical contract
+  for it and never the published one.
 - The renderer produces the full form for dispatch and, on demand, the masked
   form for the trail; each form carries the canonical hash of exactly the
   fields it shipped. Masking replaces sensitive values with `***` before the
   masked render, so the stored form proves that a value was sent, never which
   one.
 - Contracts expose immutable DTOs and `Result`/`Result<T>` only; domain
-  entities never cross the boundary. Only published state is visible: drafts
-  and superseded versions stay internal.
+  entities never cross the boundary. The published reads show published state
+  only: drafts and superseded versions stay internal to them. The historical
+  read is the one exception, and it is bounded by construction, because it
+  answers the single version the caller already named and never a lookup that
+  could discover one.
 - The published reads memoize in process. Per-version values never expire,
   because a version is immutable by the governance contract; the
   current-published pointers expire 60 seconds after they load. A lifecycle
@@ -226,6 +238,12 @@
   the fleet within 60 seconds and never sooner. Treat that bound as the
   contract of this surface: a control that has to stop traffic faster does not
   belong behind these pointers.
+- The historical read is not memoized at all, and never as a current pointer.
+  It reads the store for the version it was named, and a version does not move
+  once it leaves draft, so a lifecycle transition has nothing to invalidate
+  there. Memoizing it behind a pointer would produce the exact defect the two
+  contracts exist to keep apart: the answer about a past notification would
+  start following the current publication.
 
 ## Error axis
 
@@ -845,8 +863,6 @@
 - Do not log personal data, financial values, tokens, secrets, or connection strings.
 - Start with a failing behavior test; add unit tests for aggregate invariants and Domain Events.
 
-Update this file in the same change that alters the module boundary, public contracts, ubiquitous language, or non-negotiable security rules.
-
 ## Sandbox de templates: sinal de recusa
 
 O motor conhece o modo da recusa e nunca a identidade do que renderizou; o
@@ -1286,3 +1302,5 @@ implícito.
 `AddStackExchangeRedisCache`. **`StackExchange.Redis` fica**, porque os três
 irmãos o usam direto. O serviço `redis` do `compose.yaml` fica pelo mesmo
 motivo; saiu só a variável de ambiente deste módulo.
+
+Update this file in the same change that alters the module boundary, public contracts, ubiquitous language, or non-negotiable security rules.
