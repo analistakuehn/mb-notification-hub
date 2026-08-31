@@ -8,6 +8,7 @@ using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.Notifications;
 
@@ -110,6 +111,21 @@ public sealed class DispatcherWorkerRole : IWorkerRoleModule
                 new SqsQueueBinding($"dispatch-{channel}-{entry.Suffix}", (int)entry.Band)))];
     }
 
+    /// <summary>
+    /// The hosted channels this instance drains, in the hosting order and
+    /// never in the configured one.
+    /// <para>
+    /// Every configured name passes through the vocabulary once, and only the
+    /// canonical word it resolves to is compared from there on. Doing it in
+    /// one place is what keeps the two comparisons below from disagreeing: a
+    /// name the vocabulary accepts and the hosted list does not spell the same
+    /// way would otherwise clear the guard and then fall out of the selection,
+    /// and the instance would boot healthy draining fewer channels than the
+    /// operator configured, without the empty binding list that refuses the
+    /// boot. Failing closed with the wrong diagnosis is bad; booting open and
+    /// silent is worse.
+    /// </para>
+    /// </summary>
     private static string[] ResolveChannels(string[] configured)
     {
         if (configured.Length == 0)
@@ -117,23 +133,28 @@ public sealed class DispatcherWorkerRole : IWorkerRoleModule
             return HostedChannels;
         }
 
+        var canonical = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in configured)
         {
-            if (Channel.Create(name).IsFailure)
+            Result<Channel> channel = Channel.Create(name);
+            if (channel.IsFailure)
             {
                 throw new InvalidOperationException(
                     $"Canal desconhecido '{name}' em '{DispatcherWorkerOptions.SectionName}:Channels'. "
-                    + "Canais conhecidos: email, sms, push, whatsapp.");
+                    + $"Canais conhecidos: {string.Join(", ", Channel.All.Select(known => known.Value))}.");
             }
 
-            if (!HostedChannels.Contains(name, StringComparer.Ordinal))
+            var word = channel.Value!.Value;
+            if (!HostedChannels.Contains(word, StringComparer.Ordinal))
             {
                 throw new InvalidOperationException(
                     $"O canal '{name}' não possui adapter hospedado neste papel; "
                     + $"os canais hospedados são: {string.Join(", ", HostedChannels)}.");
             }
+
+            canonical.Add(word);
         }
 
-        return [.. HostedChannels.Where(channel => configured.Contains(channel, StringComparer.Ordinal))];
+        return [.. HostedChannels.Where(canonical.Contains)];
     }
 }
