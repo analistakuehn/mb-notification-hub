@@ -3,7 +3,6 @@ using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Templates;
 using NotificationHub.Api.Modules.Notifications.Integration.V1;
-using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.UnitTests.Notifications;
@@ -64,7 +63,7 @@ public sealed class NotificationRejectionReasonsTests
         // is pinned here: a rename on one side without the other would leave
         // the stage silently mapping a security refusal to a render failure.
         RenderStage.ReasonAuthenticationSmsLink
-            .ShouldBe(TemplateValidation.AuthenticationSmsLinkCode);
+            .ShouldBe(RenderedContentRejectionReasons.AuthenticationSmsLink);
     }
 
     [Fact]

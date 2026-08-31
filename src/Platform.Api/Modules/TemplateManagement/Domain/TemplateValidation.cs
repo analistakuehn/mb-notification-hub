@@ -82,12 +82,12 @@ public static partial class TemplateValidation
 
     /// <summary>
     /// Stable code of the refusal that a link inside an authentication SMS
-    /// earns, at publication and at render alike. A false positive costs one
-    /// authentication code; a false negative hands an attacker the one message
-    /// people are trained to trust and act on immediately, so the answer is to
-    /// refuse.
+    /// earns, at publication and at render alike, under the name this module
+    /// has always read it by. The value itself belongs to the published
+    /// surface, where the consuming module compares against it, so there is
+    /// one word and one place that defines it.
     /// </summary>
-    public const string AuthenticationSmsLinkCode = "authentication-sms-link";
+    public const string AuthenticationSmsLinkCode = RenderedContentRejectionReasons.AuthenticationSmsLink;
 
     /// <summary>
     /// The refusal one culture argument earns, worded once and read at

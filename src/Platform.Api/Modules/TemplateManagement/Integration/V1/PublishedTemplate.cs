@@ -38,6 +38,23 @@ public static class LayoutRejectionReasons
 public static class RenderedContentRejectionReasons
 {
     /// <summary>
+    /// The SMS render of an authentication template produced a link. A false
+    /// positive costs one authentication code; a false negative hands an
+    /// attacker the one message people are trained to trust and act on
+    /// immediately, so the answer is to refuse.
+    /// <para>
+    /// The same word answers at publication, where the source itself offers
+    /// the link, and at render, where a variable value introduced it. It is
+    /// published here because the predicate every reader asks lives on this
+    /// surface, and a consuming module compares the whole error text against
+    /// it: one word and one place that defines it is what keeps a rename on
+    /// one side from silently collapsing a security refusal into an ordinary
+    /// render failure on the other.
+    /// </para>
+    /// </summary>
+    public const string AuthenticationSmsLink = "authentication-sms-link";
+
+    /// <summary>
     /// The render is larger than the channel carries. The word names no
     /// channel on purpose: the unit differs per channel, and a channel that
     /// gains a ceiling later has to reuse this member instead of adding one to
