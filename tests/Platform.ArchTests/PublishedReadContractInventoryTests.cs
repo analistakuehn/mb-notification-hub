@@ -1,4 +1,3 @@
-using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Modules.TemplateManagement;
@@ -166,48 +165,8 @@ public sealed class PublishedReadContractInventoryTests
         return contracts;
     }
 
-    /// <summary>
-    /// The enumerating bullet of the section, joined into one line because the
-    /// enumeration wraps. Bullets are read from the heading to the next one at
-    /// the same level, so prose added to the section later cannot be mistaken
-    /// for the enumeration.
-    /// </summary>
     private static string? EnumerationBullet()
-    {
-        var lines = File.ReadAllLines(GuidePath());
-        var header = Array.FindIndex(lines, line => line.Trim() == SectionHeader);
-        if (header < 0)
-        {
-            return null;
-        }
-
-        var bullet = new StringBuilder();
-        for (var index = header + 1; index < lines.Length; index++)
-        {
-            var trimmed = lines[index].Trim();
-            if (trimmed.StartsWith("## ", StringComparison.Ordinal))
-            {
-                break;
-            }
-
-            if (trimmed.StartsWith("- ", StringComparison.Ordinal))
-            {
-                if (Anchored(bullet))
-                {
-                    return bullet.ToString();
-                }
-
-                bullet.Clear();
-            }
-
-            bullet.Append(trimmed).Append(' ');
-        }
-
-        return Anchored(bullet) ? bullet.ToString() : null;
-    }
-
-    private static bool Anchored(StringBuilder bullet)
-        => bullet.ToString().Contains(EnumerationAnchor, StringComparison.Ordinal);
+        => GuideEnumeration.Bullet(GuidePath(), SectionHeader, EnumerationAnchor);
 
     private static bool LooksLikeContractName(string span)
         => span.Length > 1
