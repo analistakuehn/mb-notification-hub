@@ -15,7 +15,10 @@ public interface IHistoricalCatalog
     /// <summary>
     /// Finds one exact version of a template of the application, published or
     /// superseded, with the layout version it pinned. An unknown application,
-    /// template or version fails as not found.
+    /// template or version fails as not found, and so does a version that never
+    /// left draft: it shipped nothing, so it is not part of what an old
+    /// notification can be reconstructed from. The pinned layout follows the
+    /// same rule and is omitted when it does not meet it.
     /// </summary>
     Task<Result<HistoricalTemplateVersion>> FindTemplateVersionAsync(
         string application,

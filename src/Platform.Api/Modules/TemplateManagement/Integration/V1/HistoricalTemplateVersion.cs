@@ -33,7 +33,7 @@ public sealed class HistoricalTemplateVersion
 
     public required int Version { get; init; }
 
-    /// <summary>Lifecycle of this version today: published, superseded or draft.</summary>
+    /// <summary>Lifecycle of this version today: published or superseded.</summary>
     public required string VersionStatus { get; init; }
 
     /// <summary>Lifecycle of the template identity today: active, deprecated or disabled.</summary>
@@ -68,6 +68,7 @@ public sealed record HistoricalLayoutVersion
 
     public required int Version { get; init; }
 
+    /// <summary>Lifecycle of the pinned version today: published or superseded.</summary>
     public required string VersionStatus { get; init; }
 
     public required string ContentHash { get; init; }

@@ -245,6 +245,59 @@
   contracts exist to keep apart: the answer about a past notification would
   start following the current publication.
 
+## The historical read answers for published and superseded only
+
+Three declarations described this surface and two of them disagreed with the
+third. `IHistoricalCatalog` promised one version that is published or
+superseded. `HistoricalCatalog` filtered by key and version number with no
+status test at all, on the version path and on the pinned layout path alike.
+`HistoricalTemplateVersion.VersionStatus` documented published, superseded or
+draft, so the published contract type agreed with the code against the
+interface. The interface carried the truth. The code and the contract doc moved
+to it.
+
+Three measurements decide that, and none of them is a preference:
+
+1. The version lifecycle runs draft, published, superseded, and never back.
+   `TemplateVersionStatuses.AllowedTransitions` allows `Draft => [Published]`,
+   `Published => [Superseded]`, and `Superseded => []`. A version that is a
+   draft today has never been published.
+2. Only a published version renders. The published reads load their version
+   through `PublishedTemplateQueries.FindPublishedVersionAsync`, which filters
+   on `Status == Published`. Evidence naming version N therefore cannot have
+   come from an N that is a draft today.
+3. Publishing a version whose pin resolves to a layout draft is refused.
+   `TemplateValidation.AddLayoutReferenceChecks` fails the layout-reference
+   check unless the pinned layout version is published, and
+   `LayoutReferenceFacts.PinIsUsable` carries the same rule for the rules that
+   read the layout text. A published version pinning a layout draft is
+   impossible for the same reason, one step further out.
+
+Neither withheld state is reachable through a legitimate path, so reaching one
+is reported and never absorbed. That half carries the weight. The consumer of
+this contract is the notification evidence disclosure, and it turns a failed
+lookup into a missing template block, so a bare filter would trade a wrong
+answer for a silent one: the compliance surface would say "no record of that
+version" while the truth is "that version exists and never shipped", which is a
+different and more alarming fact, and which reads exactly like a version that
+never existed or was deleted. `HistoricalCatalogLogger` records both cases at
+error level, event `2120` for the version and event `3100` for the pinned
+layout. Error rather than warning for three reasons: the state is unreachable
+rather than uncommon; the version number arrives from the stored notification
+evidence and never from a caller, so no request can flood the level; and this
+repository already reserves error for evidence that contradicts itself, as
+`ChainVerifier` does for a broken audit chain.
+
+The new layout case entered under an ambiguity that another finding closes. A
+`null` layout in the answer already carried two meanings, "the version pinned
+no layout" and "the version pinned one that no longer resolves", and a pin that
+resolves to a draft is now a third. Separating them is out of scope here and
+belongs to `ARC-007`, still recorded as `PENDENTE`. This change neither narrows
+that ambiguity nor counts as progress on it. It only puts the new case on the
+log axis, so the omission stays as ambiguous as it was while the reason behind
+it becomes audible, and whoever closes `ARC-007` finds three cases to separate
+instead of two.
+
 ## Error axis
 
 - This module has exactly one error axis: `Result`/`Result<T>` from the
