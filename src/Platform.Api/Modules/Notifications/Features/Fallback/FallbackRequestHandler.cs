@@ -148,9 +148,7 @@ internal sealed class FallbackRequestHandler(
             logger.FallbackAdmittedPlanUnreadable(notification.Id, unreadable.Refused);
         }
 
-        IReadOnlyList<DeliveryPlanStep> plan = admitted is AdmittedPlanRead.Present present
-            ? present.Plan
-            : policy.Value!.Definition.DeliveryPlan;
+        IReadOnlyList<DeliveryPlanStep> plan = PlanFor(admitted, policy.Value!.Definition.DeliveryPlan);
 
         // Whether any later step exists at all is answered before the catalog
         // and the directory are asked, because a plan whose failed channel was
@@ -261,6 +259,23 @@ internal sealed class FallbackRequestHandler(
     /// </summary>
     internal static string RenderFailureReason(string? error)
         => RenderStage.ReasonForFailedRender(error);
+
+    /// <summary>
+    /// The plan this fallback decision runs on: the admitted one whenever the
+    /// notification carries one that still reads, the published one otherwise.
+    /// <para>
+    /// Absence and an unreadable document resolve to the same plan and are not
+    /// the same event. Absence is the ordinary history of a row older than the
+    /// column. An unreadable document continues on the published order, which
+    /// may name a channel the admission had already removed, and that is the
+    /// case the stored plan exists to prevent, so the caller leaves a witness
+    /// for one and not for the other.
+    /// </para>
+    /// </summary>
+    internal static IReadOnlyList<DeliveryPlanStep> PlanFor(
+        AdmittedPlanRead admitted,
+        IReadOnlyList<DeliveryPlanStep> published)
+        => admitted is AdmittedPlanRead.Present present ? present.Plan : published;
 
     /// <summary>The step after the failed channel in the plan; null when none follows.</summary>
     internal static DeliveryPlanStep? NextStep(IReadOnlyList<DeliveryPlanStep> plan, string failedChannel)
