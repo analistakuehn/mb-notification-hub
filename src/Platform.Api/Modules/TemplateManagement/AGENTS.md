@@ -1588,4 +1588,66 @@ acrescentar pacote de provedor em memória, e os três caminhos são exercidos e
 `HistoricalCatalogContractTests`, com o estado anômalo escrito por SQL cru,
 porque nenhuma rota do módulo o produz.
 
+## A trilha de layout é global de propósito, e o que isso custa
+
+**A decisão, para que ninguém a desfaça achando que conserta um descuido.** Os
+cinco efeitos de layout que gravam trilha (`CreateLayout`, `DeprecateLayout`,
+`DisableLayout`, `PublishLayoutVersion` e `RollbackLayout`) deixam o campo
+`application` ausente, e isso é escolha. Não acrescente aplicação ao agregado
+`Layout` e não preencha o campo nesses efeitos. Uma leitura de trilha filtrada
+por aplicação não inclui transição de layout, e isso também é desenho, não
+lacuna.
+
+**A razão fecha a questão.** O campo é de valor único e o recurso é de muitos
+para muitos. Um layout que os templates de cinco aplicações fixam não tem uma
+aplicação. Preencher exigiria escolher uma arbitrariamente, ou gravar cinco
+linhas para um efeito só, e nenhuma das duas diz a verdade. A ausência é o único
+valor honesto que o campo aceita, e vale mais do que a aparência de completude
+que o preenchimento daria.
+
+**O que se perde é atribuição, e uma das cinco transições leva disponibilidade
+junto.** Criar, depreciar, publicar versão e reverter não alteram render
+existente, porque o template fixa uma versão exata de layout e o resolvedor a
+carrega por número sem consultar o status dela. Desativar é diferente: ele
+recusa o render de todo template que fixa aquele layout, em toda aplicação, pelo
+teste de `FramesMessages` em `PublishedTemplateRenderer`, e é justamente uma das
+linhas de trilha que não dizem para quem. Quem perguntar "o que mudou para a
+aplicação X" filtrando por aplicação não verá nem as transições de moldura nem
+esse corte, e precisa consultar a trilha de layout por chave de layout. Hoje não
+existe consulta de trilha por aplicação em lugar nenhum do sistema, então nada
+disso está quebrado agora; morde quem escrever a primeira consulta assim, ou
+quem investigar direto na tabela por que os templates de uma aplicação pararam
+de renderizar.
+
+**Uma precisão sobre a consulta que resta.** Nenhuma das duas existe como
+caminho de código: as leituras da trilha andam por janela de tempo e por
+sequência. A diferença está no armazenamento. A consulta por chave de layout cai
+em `ix_audit_event_entity`, sobre `entity_type` e `entity_id`, que já existe; o
+filtro por aplicação não tem índice nenhum. O caminho que resta a quem investiga
+é o mais barato dos dois.
+
+**A severidade é baixa porque existe caminho alternativo, e não por ausência de
+efeito em tempo de execução.** A revisão que levantou o ponto sustentava a
+severidade em "o efeito não é de tempo de execução", e essa razão é falsa para a
+desativação, pelo parágrafo acima. O que sustenta a severidade baixa é outra
+coisa. A recusa loga onde acontece, com a chave do layout e o número da versão
+fixada (`DisabledLayoutRefused`), e o produtor recebe `layout-disabled` como
+motivo específico de rejeição em vez de um genérico
+(`NotificationRejectionReasons.LayoutDisabled`, preservado por igualdade em
+`RenderStage.ReasonForFailedRender`). Quem investiga não fica cego, fica sem o
+atalho: falta o índice reverso de aplicação para evento de layout, e nada no
+sistema o consulta. Guarde a distinção, porque é ela que impede reabrir o ponto
+pelo argumento errado e também fechá-lo pelo argumento errado.
+
+**Onde a decisão é sustentada.** `AuditApplicationInventoryTests`, nos testes de
+arquitetura. Ele lê os dois lados do código compilado e nunca de lista escrita à
+mão: dos doze tipos deste módulo que constroem `AuditEntry`, os cinco da família
+de layout deixam o campo ausente e os outros sete o preenchem, a saber os cinco
+de template, a publicação de política de classe e o apagador de nota de ciclo de
+vida, que não é fatia de feature e entra pelo mesmo critério. O escopo é este
+módulo por medição e não por gosto: fora dele há escritores que omitem o campo
+por razões que nada têm a ver com recurso compartilhado, então uma versão de
+solução inteira precisaria de lista de exceção, e é a lista que envelhece
+enquanto o portão segue verde.
+
 Update this file in the same change that alters the module boundary, public contracts, ubiquitous language, or non-negotiable security rules.
