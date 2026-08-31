@@ -235,7 +235,7 @@ Rollback da I1 usa reversão de imagem e configuração e revogação aditiva de
 Aplicam-se as fronteiras já decididas no design de sistema, sem alteração nesta fase:
 
 - PII nasce no estágio Resolve e não volta para trás da fronteira (§4.4); filas internas carregam apenas referências (claim check, §4.2).
-- Variáveis sensíveis não trafegam no barramento: template com `sensitive_variables` só aceita solicitação via REST; evento Kafka com variável sensível vai para `.dlt` com rejeição e `audit_event` (§7.2, ADR-0010).
+- Variáveis sensíveis não trafegam no barramento: template cuja versão publicada declara `sensitive_variables` só aceita solicitação via REST; evento Kafka com variável sensível vai para `.dlt` com rejeição e `audit_event` (§7.2, ADR-0010).
 - Autorização em duas camadas na entrada: app roles do Entra no REST; no Kafka, ACL exclusiva autentica o escritor do tópico dedicado e o `PRODUCER_REGISTRY` limita aplicação e classe para o produtor lógico derivado desse tópico (§7.2). `producer` e `source` não participam da autorização.
 - O kill switch implementado fecha novos efeitos por produtor, aplicação e canal. Seu estado canônico fica no Postgres; a API administrativa exige `Platform.Admin` obtido via PIM, identifica o ator por `oid` ou `sub` e grava estado e `audit_event` na mesma transação. Falha de leitura fecha o gate.
 - Papéis e segregação de funções conforme §9.1; leitura de conteúdo e contato apenas por `/v1/audit/*` com trilha `audit.read` (fatia B14).
