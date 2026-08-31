@@ -24,6 +24,7 @@ public static class ValidationCheckNames
     public const string AuthenticationSmsLinks = "authentication-sms-links";
     public const string SensitiveVariables = "sensitive-variables";
     public const string SensitiveVariablesRetained = "sensitive-variables-retained";
+    public const string SensitiveVariablesUnused = "sensitive-variables-unused";
     public const string ChannelLimits = "channel-limits";
     public const string DefaultLocale = "default-locale";
     public const string LayoutReference = "layout-reference";
@@ -169,6 +170,7 @@ public static partial class TemplateValidation
         AddUrlChecks(checks, template, version, declarations, analyses, layoutReference);
         AddAuthenticationSmsChecks(checks, template, version, declarations, analyses, layoutReference);
         AddSensitiveVariableChecks(checks, version);
+        AddSensitiveVariableUsageChecks(checks, version);
         AddSensitiveVariableRetentionChecks(checks, version, sensitiveVariablesInForce);
         AddChannelLimitChecks(checks, version, layoutReference);
         AddDefaultLocaleChecks(checks, template, version);
@@ -712,6 +714,66 @@ public static partial class TemplateValidation
     }
 
     /// <summary>
+    /// Names, one by one, the sensitive variables no content of this version
+    /// reads. It warns and does not fail, because the same shape is what an
+    /// author writes while preparing a channel or a locale that has not landed
+    /// yet, and nobody has measured how often that happens.
+    /// <para>
+    /// What earns it its place is not the damage, it is the record. The
+    /// publication trail keeps the names of the checks and drops their
+    /// messages, so a declaration that has quietly stopped matching the content
+    /// leaves no trace at all while it travels under the generic unused
+    /// variable warning. A name of its own is the only thing that makes it
+    /// nameable there, and it lands in the <c>warned</c> list of the entry.
+    /// </para>
+    /// <para>
+    /// The rename that goes with it is the reason: a schema that drops the old
+    /// name while the declaration still points at it publishes green and stores
+    /// the value in clear. Under the four eyes this version now carries, the
+    /// honest rename is to edit schema, content and declaration in one draft
+    /// and have somebody else approve it.
+    /// </para>
+    /// </summary>
+    private static void AddSensitiveVariableUsageChecks(List<ValidationCheck> checks, TemplateVersion version)
+    {
+        // Mirrors the schema and layout-reference checks: the rule exists only
+        // when there is a declaration to answer about.
+        if (version.SensitiveVariables.Count == 0)
+        {
+            return;
+        }
+
+        var sensitive = new HashSet<string>(version.SensitiveVariables, StringComparer.Ordinal);
+        HashSet<string> read = new(StringComparer.Ordinal);
+        foreach (TemplateContent content in version.Contents)
+        {
+            foreach ((_, var text) in Fields(content))
+            {
+                read.UnionWith(SensitiveVariablesRead(text, sensitive, urlPositionOnly: false));
+            }
+        }
+
+        var before = checks.Count;
+        foreach (var variable in version.SensitiveVariables.Where(variable => !read.Contains(variable)))
+        {
+            checks.Add(new ValidationCheck(
+                ValidationCheckNames.SensitiveVariablesUnused,
+                ValidationCheckStatuses.Warning,
+                $"Sensitive variable '{variable}' is declared but no content of this version reads it. "
+                + "Either the content stopped using it and the declaration should go, "
+                + "or the content renamed it and the value is no longer being masked.",
+                null));
+        }
+
+        if (checks.Count == before)
+        {
+            checks.Add(Passed(
+                ValidationCheckNames.SensitiveVariablesUnused,
+                "Every sensitive variable this version declares is read by its content."));
+        }
+    }
+
+    /// <summary>
     /// Refuses a version that stops declaring a name the version in force
     /// declares. Whether a template accepts ingestion over the bus is read off
     /// the published declaration, so a version that drops a name silently
@@ -806,6 +868,20 @@ public static partial class TemplateValidation
     /// no placeholder, which turns an authoring endpoint into a CPU sink.
     /// </summary>
     private static IEnumerable<string> SensitiveVariablesInUrlPosition(string text, HashSet<string> sensitive)
+        => SensitiveVariablesRead(text, sensitive, urlPositionOnly: true);
+
+    /// <summary>
+    /// Sensitive variables the text reads, either everywhere or only from a URL
+    /// position. The scan works on the raw text rather than on the variables
+    /// the sandbox reports, and that is the whole point: the analyzer answers
+    /// with the root identifier of a read, so <c>{{ cliente.cpf }}</c> reaches
+    /// it as <c>cliente</c> and a sensitive <c>cpf</c> would read as absent
+    /// from content that does carry it, and does mask it.
+    /// </summary>
+    private static IEnumerable<string> SensitiveVariablesRead(
+        string text,
+        HashSet<string> sensitive,
+        bool urlPositionOnly)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -814,7 +890,7 @@ public static partial class TemplateValidation
 
         foreach (Match placeholder in Placeholder().Matches(text))
         {
-            if (!SitsInUrlPosition(text, placeholder.Index))
+            if (urlPositionOnly && !SitsInUrlPosition(text, placeholder.Index))
             {
                 continue;
             }
