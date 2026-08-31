@@ -533,25 +533,28 @@ public sealed class PublishedReadMemoizationTests
     }
 
     [Fact]
-    public void A_load_that_started_before_an_invalidation_does_not_repopulate_the_pointer()
+    public async Task A_load_that_started_before_an_invalidation_does_not_repopulate_the_pointer()
     {
         var clock = new SteppingClock(Start);
         using var cache = new PublishedReadCache(clock);
         var key = PublishedPointerKeys.Template(Application, Key);
-        cache.SetPointer(key, "published-v1");
 
-        // The order of a lost race: the reader captures the fence, the
-        // transition commits and drops the key, and only then does the write
-        // of the value loaded before that commit arrive.
-        var generation = cache.Generation;
-        cache.InvalidatePointer(key);
-        cache.SetPointerIfCurrent(key, "published-v1", generation);
+        // The order of a lost race, forced by the mechanism rather than by the
+        // test: the fence is captured before the loader runs, so a transition
+        // that commits inside the load refuses the write that follows it. A
+        // reader that captured the fence after its query would land here.
+        Result<string> loaded = await cache.ReadPointerAsync(key, () =>
+        {
+            cache.InvalidatePointer(key);
+            return Task.FromResult(Result.Success("published-v1"));
+        });
 
+        loaded.Value.ShouldBe("published-v1");
         cache.TryGetPointer(key, out string _).ShouldBeFalse();
     }
 
     [Fact]
-    public void A_load_that_started_after_an_invalidation_repopulates_the_pointer()
+    public async Task A_load_that_started_after_an_invalidation_repopulates_the_pointer()
     {
         // Falsification pair of the fence above: without it, refusing every
         // write would satisfy that assertion and leave the surface with no
@@ -562,53 +565,64 @@ public sealed class PublishedReadMemoizationTests
         cache.SetPointer(key, "published-v1");
         cache.InvalidatePointer(key);
 
-        var generation = cache.Generation;
-        cache.SetPointerIfCurrent(key, "published-v2", generation);
+        Result<string> loaded = await cache.ReadPointerAsync(
+            key, () => Task.FromResult(Result.Success("published-v2")));
 
+        loaded.Value.ShouldBe("published-v2");
         cache.TryGetPointer(key, out string value).ShouldBeTrue();
         value.ShouldBe("published-v2");
     }
 
     [Fact]
-    public void An_invalidation_that_lands_while_the_write_is_in_flight_leaves_no_stale_pointer()
+    public async Task An_invalidation_that_lands_while_the_write_is_in_flight_leaves_no_stale_pointer()
     {
         // The losing order of the race the fence exists for, forced instead of
-        // raced: the reader captures the fence, passes the check, and the
-        // transition commits and drops the key while that write is still in
-        // flight. The check alone cannot see it, so the write has to end by
-        // looking again.
+        // raced: the loader returns, the write passes the first reading, and
+        // the transition commits and drops the key while that write is still
+        // in flight. The first reading alone cannot see it, so the write has
+        // to end by looking again.
         var clock = new InterleavingClock(Start);
         using var cache = new PublishedReadCache(clock);
         var key = PublishedPointerKeys.Template(Application, Key);
-        cache.SetPointer(key, "published-v1");
 
-        var generation = cache.Generation;
-        clock.ArmOnce(() => cache.InvalidatePointer(key));
-        cache.SetPointerIfCurrent(key, "published-v1", generation);
+        Result<string> loaded = await cache.ReadPointerAsync(key, () =>
+        {
+            // Armed from inside the load, so the seam it takes is the clock
+            // read of the write and never one the lookup that missed took
+            // before it.
+            clock.ArmOnce(() => cache.InvalidatePointer(key));
+            return Task.FromResult(Result.Success("published-v1"));
+        });
 
         clock.Fired.ShouldBe(1, "sem a costura do relógio o teste não intercala nada e não prova nada");
+        loaded.Value.ShouldBe("published-v1");
         cache.TryGetPointer(key, out string _).ShouldBeFalse();
     }
 
     [Fact]
-    public void Invalidating_a_key_that_was_never_memoized_changes_nothing()
+    public async Task Invalidating_a_key_nobody_memoized_keeps_the_resident_and_drops_a_write_in_flight()
     {
         var clock = new SteppingClock(Start);
         using var cache = new PublishedReadCache(clock);
         var resident = PublishedPointerKeys.Template(Application, Key);
+        var loading = PublishedPointerKeys.Template(Application, "other.template");
         cache.SetPointer(resident, "published-v1");
-        var generation = cache.Generation;
 
-        cache.InvalidatePointer(PublishedPointerKeys.Template(Application, "never.memoized"));
+        // The fence moves all the same, which is the declared price of one
+        // counter for every key: a write in flight for a key the invalidation
+        // never named reloads instead of landing. What that costs is asserted
+        // here, because the counter itself only restates the implementation.
+        Result<string> loaded = await cache.ReadPointerAsync(loading, () =>
+        {
+            cache.InvalidatePointer(PublishedPointerKeys.Template(Application, "never.memoized"));
+            return Task.FromResult(Result.Success("published-v2"));
+        });
 
+        loaded.Value.ShouldBe("published-v2");
+        cache.TryGetPointer(loading, out string _).ShouldBeFalse();
         cache.TryGetPointer(resident, out string value).ShouldBeTrue();
         value.ShouldBe("published-v1");
         cache.PointerCount.ShouldBe(1);
-
-        // The fence moves all the same, which is the declared price of one
-        // counter for every key: a write in flight for an unrelated key
-        // reloads instead of landing.
-        cache.Generation.ShouldBe(generation + 1);
     }
 
     [Fact]

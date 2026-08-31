@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Options;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integration;
 
@@ -58,15 +59,15 @@ internal sealed class PublishedReadCache : IDisposable
     }
 
     /// <summary>
-    /// The fence a reader captures before it goes to the store and hands back
-    /// to <see cref="SetPointerIfCurrent{T}" />. It counts invalidations for
-    /// every pointer key at once, and that is deliberate: an invalidation also
-    /// discards the writes in flight for keys it did not name, which costs a
-    /// few cold loads and buys a design with a single counter. The transitions
-    /// that move it are human governance and rare, so those loads are rare
-    /// with them.
+    /// The fence <see cref="ReadPointerAsync{T}" /> captures before it goes to
+    /// the store and hands back to <see cref="SetPointerIfCurrent{T}" />. It
+    /// counts invalidations for every pointer key at once, and that is
+    /// deliberate: an invalidation also discards the writes in flight for keys
+    /// it did not name, which costs a few cold loads and buys a design with a
+    /// single counter. The transitions that move it are human governance and
+    /// rare, so those loads are rare with them.
     /// </summary>
-    internal long Generation => Interlocked.Read(ref _generation);
+    private long Generation => Interlocked.Read(ref _generation);
 
     /// <summary>How many pointer lookups were answered from memory. Observability for tests.</summary>
     internal long PointerHits => Interlocked.Read(ref _pointerHits);
@@ -104,15 +105,47 @@ internal sealed class PublishedReadCache : IDisposable
 
     /// <summary>
     /// Writes a pointer without reading the fence. No published read writes
-    /// through it: every reader captures <see cref="Generation" /> before its
-    /// query leaves and lands on <see cref="SetPointerIfCurrent{T}" />. This
-    /// one exists to seed a store directly, and the contention probe binds it
-    /// by name, so renaming it or turning it into an overload breaks that
-    /// binding at run time and not at compile time.
+    /// through it: every one of them goes through
+    /// <see cref="ReadPointerAsync{T}" />. This one exists to seed a store
+    /// directly, and the contention probe binds it by name, so renaming it or
+    /// turning it into an overload breaks that binding at run time and not at
+    /// compile time.
     /// </summary>
     internal void SetPointer<T>(string key, T value)
         where T : class
         => _pointers.Set(key, value, PointerEntry);
+
+    /// <summary>
+    /// The whole read protocol of a "current published" pointer, in one place:
+    /// answer from memory, or capture the fence, load, and memoize under it.
+    /// The loader arrives as a callback and runs between the two readings of
+    /// the fence, so no reader can write that order wrong. Spelled out at each
+    /// reader instead, the protocol was three independent things to remember,
+    /// and reading the fence after the load compiled, passed the suite, and
+    /// put the superseded value back for a whole window.
+    /// </summary>
+    /// <remarks>
+    /// Only a success is memoized: a load that found nothing has to see the
+    /// next publication immediately. The closure the loader allocates is paid
+    /// on the miss path alone, next to the query it wraps.
+    /// </remarks>
+    internal async Task<Result<T>> ReadPointerAsync<T>(string key, Func<Task<Result<T>>> load)
+        where T : class
+    {
+        if (TryGetPointer(key, out T cached))
+        {
+            return Result.Success(cached);
+        }
+
+        var generation = Generation;
+        Result<T> loaded = await load();
+        if (loaded.IsSuccess)
+        {
+            SetPointerIfCurrent(key, loaded.Value!, generation);
+        }
+
+        return loaded;
+    }
 
     /// <summary>
     /// Memoizes a "current published" value under the fence its reader
@@ -137,7 +170,7 @@ internal sealed class PublishedReadCache : IDisposable
     /// the miss path only, after a query to the store.
     /// </para>
     /// </summary>
-    internal void SetPointerIfCurrent<T>(string key, T value, long generation)
+    private void SetPointerIfCurrent<T>(string key, T value, long generation)
         where T : class
     {
         if (generation != Interlocked.Read(ref _generation))

@@ -413,37 +413,29 @@ internal sealed class PublishedTemplateRenderer(
     /// locale, which decides nothing.
     /// </para>
     /// </summary>
-    private async Task<Result<LayoutIdentity>> ResolveLayoutIdentityAsync(
+    private Task<Result<LayoutIdentity>> ResolveLayoutIdentityAsync(
         LayoutKey key,
         CancellationToken cancellationToken)
-    {
-        var cacheKey = PublishedPointerKeys.LayoutIdentity(key.Value);
-        if (cache.TryGetPointer(cacheKey, out LayoutIdentity cached))
-        {
-            return Result.Success(cached);
-        }
+        => cache.ReadPointerAsync(
+            PublishedPointerKeys.LayoutIdentity(key.Value),
+            async () =>
+            {
+                Layout? layout = await dbContext.Layouts
+                    .AsNoTracking()
+                    .WhereKey(key)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (layout is null)
+                {
+                    // A pinned version whose identity is gone is a broken
+                    // invariant, and a status nobody can read may never pass
+                    // for an active one.
+                    return Result.NotFound<LayoutIdentity>(DomainError.Format(
+                        ErrorCodes.LayoutNotFound,
+                        $"The version pins layout '{key.Value}', whose identity does not exist."));
+                }
 
-        // The fence is read before the query leaves: a disable or a deprecation
-        // that commits while this load is in flight refuses the write below
-        // instead of having the previous status put back on top of it.
-        var generation = cache.Generation;
-        Layout? layout = await dbContext.Layouts
-            .AsNoTracking()
-            .WhereKey(key)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (layout is null)
-        {
-            // A pinned version whose identity is gone is a broken invariant,
-            // and a status nobody can read may never pass for an active one.
-            return Result.NotFound<LayoutIdentity>(DomainError.Format(
-                ErrorCodes.LayoutNotFound,
-                $"The version pins layout '{key.Value}', whose identity does not exist."));
-        }
-
-        var identity = new LayoutIdentity(layout.Status, layout.DefaultLocale);
-        cache.SetPointerIfCurrent(cacheKey, identity, generation);
-        return Result.Success(identity);
-    }
+                return Result.Success(new LayoutIdentity(layout.Status, layout.DefaultLocale));
+            });
 
     /// <summary>
     /// Renders the layout wrapper with the already-rendered template field
