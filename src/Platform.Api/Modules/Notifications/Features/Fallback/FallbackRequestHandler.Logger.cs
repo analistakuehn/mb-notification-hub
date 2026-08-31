@@ -22,4 +22,7 @@ internal static partial class FallbackRequestHandlerLogger
 
     [LoggerMessage(EventId = 7146, Level = LogLevel.Information, Message = "A notificação {NotificationId} avançou para '{Channel}' com o attempt {FailedAttemptId} ainda inconclusivo; o risco de mensagem duplicada foi assumido e registrado na trilha.")]
     internal static partial void FallbackRequestedFromUnknown(this ILogger logger, Guid notificationId, Guid failedAttemptId, string channel);
+
+    [LoggerMessage(EventId = 7147, Level = LogLevel.Warning, Message = "O plano admitido da notificação {NotificationId} está ilegível (recusado: '{Refused}'); a decisão seguiu pelo plano publicado, que pode nomear canal já removido na admissão.")]
+    internal static partial void FallbackAdmittedPlanUnreadable(this ILogger logger, Guid notificationId, string refused);
 }

@@ -137,9 +137,20 @@ internal sealed class FallbackRequestHandler(
         // back, so re-deriving here would change the plan of a notification
         // already in flight. A row written before the column existed carries
         // none, and falls back to the published plan.
-        IReadOnlyList<DeliveryPlanStep> plan =
-            AdmittedDeliveryPlan.Read(notification.AdmittedPlanJson)
-            ?? policy.Value!.Definition.DeliveryPlan;
+        AdmittedPlanRead admitted = AdmittedDeliveryPlan.Read(notification.AdmittedPlanJson);
+        if (admitted is AdmittedPlanRead.Unreadable unreadable)
+        {
+            // A row older than the column and a document that no longer reads
+            // both continue on the published plan, and only one of them is an
+            // anomaly. The trail names the refused word, because continuing
+            // here is exactly the case the stored plan exists to prevent: the
+            // published order may name a channel the admission removed.
+            logger.FallbackAdmittedPlanUnreadable(notification.Id, unreadable.Refused);
+        }
+
+        IReadOnlyList<DeliveryPlanStep> plan = admitted is AdmittedPlanRead.Present present
+            ? present.Plan
+            : policy.Value!.Definition.DeliveryPlan;
 
         // Whether any later step exists at all is answered before the catalog
         // and the directory are asked, because a plan whose failed channel was
