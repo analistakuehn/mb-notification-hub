@@ -13,7 +13,8 @@ namespace NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 /// </summary>
 internal sealed class RouteStage : INotificationStage
 {
-    private const string PushChannel = "push";
+    /// <summary>Derived from the canonical vocabulary, never re-spelled here.</summary>
+    private static readonly string PushChannel = Channel.Push.Value;
 
     public string Name => "Route";
 

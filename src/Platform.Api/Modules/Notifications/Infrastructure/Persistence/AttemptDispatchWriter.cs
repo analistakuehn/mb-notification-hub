@@ -9,6 +9,7 @@ using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
+using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 
@@ -53,8 +54,11 @@ internal sealed class AttemptDispatchWriter(
 {
     internal const string ConsumerName = "dispatcher";
 
-    /// <summary>Canonical channel whose attempts fan out over sibling device tokens.</summary>
-    internal const string PushChannel = "push";
+    /// <summary>
+    /// Canonical channel whose attempts fan out over sibling device tokens,
+    /// taken from the published vocabulary instead of spelled again here.
+    /// </summary>
+    internal static readonly string PushChannel = Channel.Push.Value;
 
     /// <summary>Stable code of a push attempt claimed with zero active device tokens.</summary>
     internal const string ErrorNoActiveDeviceToken = "no-active-device-token";

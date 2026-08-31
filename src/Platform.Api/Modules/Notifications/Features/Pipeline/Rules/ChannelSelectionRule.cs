@@ -19,7 +19,8 @@ internal sealed class ChannelSelectionRule : IPolicyRule<NotificationContext>
     internal const string RuleName = "ChannelSelection";
     internal const string ReasonNoValidContact = ResolveStage.ReasonNoValidContact;
 
-    private const string PushChannel = "push";
+    /// <summary>Derived from the canonical vocabulary, never re-spelled here.</summary>
+    private static readonly string PushChannel = Channel.Push.Value;
 
     public string Name => RuleName;
 
