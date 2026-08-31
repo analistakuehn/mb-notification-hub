@@ -32,7 +32,7 @@ Ordenados por estado: o que ainda exige ação fica no fim.
 | `ARC-004` | `MEDIUM` | **RESOLVIDO** | A superfície pública real tem quatro contratos, e o documento declara... |
 | `ARC-005` | `MEDIUM` | **RESOLVIDO** | `sensitiveVariables` vive na identidade imutável, e o schema que a... |
 | `ARC-006` | `MEDIUM` | **RESOLVIDO** | O frescor não é parte do contrato de leitura publicada, é propriedade... |
-| `ARC-007` | `LOW` | **PENDENTE** | `null` carrega dois significados incompatíveis numa superfície de... |
+| `ARC-007` | `LOW` | **RESOLVIDO** | `null` carrega dois significados incompatíveis numa superfície de... |
 | `ARC-008` | `LOW` | **PENDENTE** | Os cinco efeitos de layout não preenchem `Application` na trilha |
 
 ---
@@ -343,7 +343,7 @@ convergência declarado.
 
 ---
 
-## `ARC-007` · PENDENTE
+## `ARC-007` · RESOLVIDO
 
 | Campo | Valor |
 |---|---|
@@ -354,8 +354,8 @@ convergência declarado.
 | tipo-de-evidência | contrato |
 | introduzido-por-diff | `false` |
 | revisores | dotnet-architect |
-| **estado** | **PENDENTE** |
-| nota de estado | Não tratado. |
+| **estado** | **RESOLVIDO** |
+| nota de estado | **A ficha fala em DOIS significados colapsados; hoje são TRÊS**, e o terceiro entrou por uma correção anterior desta mesma revisão, a que tirou rascunho da leitura histórica. Ela registrou na época que o caso novo entrava **sob a ambiguidade que esta ficha fecha**, e é o que se fecha agora. Os três caminhos que devolvem `null` em `FindPinnedLayoutAsync`: a versão **não fixou layout**; o pino **não resolve mais**; e o layout fixado **nunca saiu de rascunho**. O XML doc de `HistoricalTemplateVersion.Layout` prometia **um só**. **MEDIÇÃO QUE DECIDIU A FORMA: os casos 2 e 3 são ANOMALIAS, não estados legítimos.** Transições de layout são `Draft -> Published -> Superseded` sem volta; `AddLayoutReferenceChecks` reprova pino que não resolva para layout publicado e a publicação só segue com o relatório aprovado; e as doze fatias de `Features/Layouts/` não têm exclusão. **Logo um estado legítimo e duas anomalias compartilhavam a mesma representação, e o documento nomeava só o legítimo.** O consumidor propaga direto: o `null` virava bloco de layout ausente na evidência, e quem lê conformidade concluía 'saiu sem wrapper' quando o estado real podia ser 'o wrapper existia e o hash é desconhecido'. A ficha chama isso de resposta **errada, não parcial**, e está certa. **A ALTERNATIVA 'DEVOLVER FALHA' DA FICHA ESTÁ FALSIFICADA** e foi recusada por medição: o consumidor faz `IsSuccess ? ... : null`, então falhar por causa do layout **apagaria o bloco de template INTEIRO** da evidência, trocando uma omissão por uma maior, que é o mesmo colapso corrigido noutro ponto desta revisão. **ENTREGUE, de forma aditiva e não por união**, porque é `LOW` e o tipo é `sealed class` com propriedades `init`: um irmão que carrega o **pino cru como a versão o declarou**, presente sempre que a versão fixou algo. Ausente com `Layout` ausente é o único caso legítimo; presente com `Layout` ausente é retenção. **A anomalia passou a ser visível NA EVIDÊNCIA**, e não só num log que quem lê conformidade nunca vê, e o consumidor foi atualizado para expor o pino retido, senão a distinção morreria na fronteira. Corrigida também uma **assimetria criada pela correção anterior**: o caso de rascunho tinha testemunha e o caso de pino não resolvido não tinha, sendo anomalias da mesma família; ele ganhou a sua, em `Error`, com justificativa própria de que **das duas é a pior**, porque no rascunho a linha ainda existe e o hash é recuperável à mão, e aqui a linha sumiu. **UMA AFIRMAÇÃO MINHA CAIU, e a correção AUMENTA o achado em vez de reduzi-lo.** Eu disse que a chave estrangeira era restritiva. Existe um `Restrict`, mas é o de `layout_version` para `layout`, que protege a identidade: **o pino não tem chave estrangeira nenhuma**, são duas colunas soltas sem relação declarada. O que sustenta 'pino que não resolve é anomalia' é a **ausência de rota que apague a linha**, não integridade referencial, e um `DELETE` cru passa sem obstáculo. **O caso 2 é mais alcançável do que a ficha e eu supúnhamos**, o que aumenta o valor da testemunha. Quatro mutações, cada uma isolando uma asserção e nascendo no teste e não no compilador; a primeira serviu também de prova de que a integração roda de verdade, porque a duração curta levantou dúvida e o vermelho nomeando o valor plantado a fechou. **FICA DECLARADO E NÃO É LACUNA:** a evidência distingue legítimo de retido, e **não** distingue uma anomalia da outra entre si; quem precisa da diferença lê os dois eventos de log. **E fica registrado o que não foi possível:** não há caminho unitário para os três caminhos na origem, porque a leitura histórica vai direto ao banco sem semente de cache e o projeto unitário não referencia provedor em memória, então eles são cobertos por integração com o estado anômalo escrito por SQL cru, já que nenhuma rota do módulo o produz. Portões verificados de forma independente: build com 0 erros e 0 avisos, ArchTests 27, SecurityArchTests 14, UnitTests **1707** contra base de 1703, mais o filtro estreito de integração em 5. |
 
 **`null` carrega dois significados incompatíveis numa superfície de evidência.**
 
