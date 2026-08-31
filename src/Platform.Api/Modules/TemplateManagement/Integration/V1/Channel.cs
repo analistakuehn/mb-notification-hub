@@ -1,9 +1,11 @@
+using System.Text.Json.Serialization;
 using NotificationHub.Api.Modules.TemplateManagement.Domain;
 using NotificationHub.SharedKernel;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 
 /// <summary>Delivery channel a template content entry targets. Canonical, closed set.</summary>
+[JsonConverter(typeof(ChannelJsonConverter))]
 public sealed class Channel
 {
     public static readonly Channel Email = new("email");
