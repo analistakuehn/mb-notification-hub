@@ -69,6 +69,22 @@ Adotar a opção 1: templates, layouts e políticas são dados geridos pelo hub,
 
 **Fronteira que não muda.** Não existe template em código, nem no hub (fixtures só em projetos de teste), e não existe outro caminho de edição além da API.
 
+### Errata de 2026-08-31: as variáveis sensíveis são da versão, e a promessa de validação integral está por metade
+
+Três itens de decisão acima falam da lista de variáveis sensíveis. Um é superseção parcial, um não muda e é justamente o que transforma a lacuna em violação de contrato, e um prometia mais do que o código entrega.
+
+**Modelo, superseção parcial.** O item de modelo lista as variáveis sensíveis entre os metadados mínimos do `TEMPLATE`. Elas saem de lá e passam ao `TEMPLATE_VERSION`, entrando no `content_hash`. O motivo é que o dado é objeto de aprovação e a máquina de aprovação é toda de versão: quatro olhos, hash, `approval` e imutabilidade após publicada existem no `TEMPLATE_VERSION` e não existem no `TEMPLATE`. Enquanto a lista morava na identidade, quem criava o template a gravava sozinho, na criação, e nenhum mutador a alcançava depois. Uma lista errada não tinha ato que a corrigisse.
+
+**Quatro olhos no publish, sem alteração.** O item que promete `approval` sobre o `content_hash` da versão permanece exatamente como está, e é ele que qualifica o que havia. Foi medido que o `ContentHash` de uma versão era idêntico para `["cpf"]` e para `[]`: a lista não entrava na forma canônica, logo o `approval` registrado não cobria nada do que ela dizia. A ADR prometia aprovação sobre o conteúdo e a lista viajava fora dele. Isso é violação de contrato, não lacuna de escopo, e a superseção acima é o que passa a cumprir a promessa que este item sempre fez.
+
+**Validação integral, promessa por metade.** O item de validação diz que `sensitive_variables` é validada "só via máscara". A implementação entrega `lista ⊆ schema`: cada nome declarado precisa resolver por um caminho que o schema descreve, ou a máscara nunca o alcançaria. É uma metade, e é satisfazível de modo vazio: foi medido que a checagem passa com uma lista de dois nomes declarados sobre um conteúdo que não lê variável nenhuma. A metade que falta é `sensível-de-fato ⊆ lista`, isto é, garantir que todo valor sensível que o conteúdo carrega esteja declarado.
+
+Essa metade não é fechável por código. Detectar dado pessoal por padrão de conteúdo foi medido e recusado em decisão anterior, e essa recusa permanece: fechar por adivinhação de conteúdo produz falso negativo silencioso, que é exatamente o modo de falha que esta lista existe para evitar. O que substitui a detecção é ato humano sob quatro olhos: a lista agora é aprovada por uma segunda pessoa, junto com o conteúdo e o schema que ela descreve, no mesmo `content_hash`.
+
+**Superfície e persistência.** A declaração deixa de viajar no `POST /v1/templates` e passa a ter porta própria, `PUT /v1/templates/{key}/versions/{version}/sensitive-variables`, isomórfica à porta do layout: só rascunho aceita, o editor fica registrado, e por isso quem declara não publica. O catálogo de validação ganha duas checagens de nome próprio. `sensitive-variables-retained` reprova a versão que larga um nome que a versão em vigor declara, porque a ingestão por barramento e a máscara leem a versão publicada e mudariam sem aviso. `sensitive-variables-unused` avisa, e não reprova, quando nenhum conteúdo da versão lê um nome declarado; ele existe pelo registro durável, já que a trilha grava nomes de checagem e descarta mensagens. No banco, a coluna sai de `template` e entra em `template_version`, sem backfill, e o `content_hash` de toda versão muda.
+
+**O que fica declaradamente aberto.** A lista omissa. O achado passa de "declaração de ator único, nunca aprovada" para "declaração aprovada, possivelmente incompleta". É progresso, e não é fechamento.
+
 ### Consequências
 
 **Positivas**

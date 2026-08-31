@@ -1398,4 +1398,63 @@ por lista à mão; e o vocabulário menos os canais de ponto de contato é
 exatamente `push`, que está fora de propósito porque o roteamento dele vive em
 token de dispositivo. O recorte é derivado e verificado, **nunca apagado**.
 
+## Variáveis sensíveis: o que a mudança fecha e o que fica aberto
+
+A declaração de quais variáveis carregam dado sensível saiu da identidade e
+passou à versão, entrando no `content_hash` que a aprovação assina. O que ela
+era antes: declaração de ator único, gravada na criação do template, fora do
+hash canônico, sem mutador e por isso sem ato que a corrigisse. O que ela é
+agora: edição de rascunho como qualquer outra, que registra o editor e por isso
+recusa que quem a declarou publique a versão.
+
+**O campo entra na forma canônica sempre, lista vazia inclusive.** Há
+precedente de recorte condicional nos campos de layout, com o motivo escrito de
+preservar bytes históricos de hash, e esse motivo não vale aqui: recortar faria
+`[]` colidir com "campo inexistente", que é como o defeito volta disfarçado.
+Consequência medida: os catorze hashes fixados em `ContentHashNeutralityTests`
+mudaram, todos, e foram refixados de propósito. A janela para isso fecha na
+primeira linha gravada que precise sobreviver a um redeploy; a partir daí um
+deslocamento ali é defeito, não decisão.
+
+**A guarda de não regressão vale em três chamadores, não em um.** Quem lê a
+declaração é a versão publicada, então publicar uma versão que a largue reabre
+a ingestão por barramento e para a máscara no mesmo instante. Fechar só a
+publicação deixava duas portas abertas: o rollback, que é publicação em todo
+sentido e cuja fonte é justamente a forma que declara menos que a em vigor, e a
+validação de ensaio, que responderia verde sobre uma versão que a publicação
+recusa. Os três leem a versão em vigor antes de validar.
+
+**O que fica declaradamente aberto.**
+
+1. **A lista omissa não é fechada por alternativa nenhuma.** O achado passa de
+   "declaração de ator único, nunca aprovada" para "declaração aprovada,
+   possivelmente incompleta". É progresso e não é fechamento. A metade que
+   falta, `sensível-de-fato ⊆ lista`, não é fechável por código: detectar dado
+   pessoal por padrão de conteúdo foi medido e recusado em decisão anterior, e
+   essa recusa permanece. O que a substitui é ato humano sob quatro olhos.
+2. **Conluio entre autor e publicador não é coberto por nada.** Quatro olhos
+   exige duas pessoas distintas e não exige que a segunda discorde. Nenhuma
+   checagem deste catálogo, nenhum portão de arquitetura e nenhuma trilha
+   distingue uma aprovação lida de uma aprovação carimbada.
+3. **Postura de transporte é decisão própria, e ela tem um defeito a responder
+   primeiro.** Hoje declarar qualquer variável sensível fecha a ingestão por
+   barramento para o template, sem que ninguém possa dizer o contrário. Trocar
+   isso por uma postura explícita parece a evolução natural, mas uma postura
+   imutável fixada na criação seria ato de ator único sem quatro olhos: uma
+   postura erradamente permissiva ficaria permanentemente incorrigível. É a
+   trava original movida de uma lista para um booleano, e quem abrir essa
+   decisão responde a isso antes de escolher a forma.
+4. **Promover `sensitive-variables-unused` a `Failed` está pendente de
+   medição.** Ela avisa e não reprova porque a mesma forma é a de quem prepara
+   canal ou locale que ainda não chegou, e ninguém mediu quantos casos legítimos
+   de preparo existem. Sem esse número, reprovar troca um risco medido por um
+   custo não medido.
+
+**Satisfação vazia, medida e fechada no arranjo.** Esvaziar a lista no arranjo
+de `SensitiveVariableValidationTests` deixava oito dos doze casos verdes, cinco
+deles afirmando `Passed` e recebendo `Passed` de graça, porque a checagem
+responde `Passed` sobre lista vazia. O arranjo agora afirma que a declaração
+chegou à versão; sob a mesma mutação, nove dos doze reprovam. A vacuidade era da
+suíte e não da checagem, e é assim que ela fica fechada.
+
 Update this file in the same change that alters the module boundary, public contracts, ubiquitous language, or non-negotiable security rules.
