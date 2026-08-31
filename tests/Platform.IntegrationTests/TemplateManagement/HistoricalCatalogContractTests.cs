@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
@@ -98,6 +99,7 @@ public sealed class HistoricalCatalogContractTests(TemplateManagementApiFixture 
         Result<HistoricalTemplateVersion> before = await FindAsync(observed.Services, key, version);
         before.IsSuccess.ShouldBeTrue(before.Error);
         before.Value!.Layout.ShouldNotBeNull().Version.ShouldBe(layoutVersion);
+        before.Value!.LayoutPin.ShouldNotBeNull().Version.ShouldBe(layoutVersion);
         recorded.Events.Count(entry => entry.EventId.Id == 3100).ShouldBe(0);
 
         await PushLayoutVersionBackToDraftAsync(layoutKey, layoutVersion);
@@ -108,11 +110,83 @@ public sealed class HistoricalCatalogContractTests(TemplateManagementApiFixture 
         after.Value!.Version.ShouldBe(version);
         after.Value!.Layout.ShouldBeNull();
 
+        // The pin survives the withholding, and that is the whole difference
+        // between this answer and the answer for a version that framed its
+        // message with nothing.
+        after.Value!.LayoutPin.ShouldNotBeNull().LayoutKey.ShouldBe(layoutKey);
+        after.Value!.LayoutPin.Version.ShouldBe(layoutVersion);
+
         RecordedEvent witness = recorded.Events.Single(entry => entry.EventId.Id == 3100);
         witness.Level.ShouldBe(LogLevel.Error);
         witness.Message.ShouldContain(layoutKey);
         witness.Message.ShouldContain(key);
         witness.Message.ShouldContain(LayoutVersionStatuses.Draft);
+    }
+
+    /// <summary>
+    /// The one legitimate absence on this axis, asserted as an absence of both
+    /// members and of any witness. It is the control the two anomaly cases are
+    /// read against: if this answer carried a pin, the pin would stop meaning
+    /// that the message was framed at all.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_version_that_pinned_no_layout_declares_no_pin_and_no_witness()
+    {
+        var recorded = new RecordingLoggerProvider();
+        using WebApplicationFactory<Program> observed = fixture.WithWebHostBuilder(builder =>
+            builder.ConfigureLogging(logging => logging.AddProvider(recorded)));
+        HttpClient author = fixture.CreateAuthorClient("author-hist-4");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-hist-4");
+        (var key, var version) = await TemplateApi.CreatePublishableDraftAsync(author);
+        await TemplateApi.PublishAsync(publisher, key, version);
+
+        Result<HistoricalTemplateVersion> found = await FindAsync(observed.Services, key, version);
+
+        found.IsSuccess.ShouldBeTrue(found.Error);
+        found.Value!.LayoutPin.ShouldBeNull();
+        found.Value!.Layout.ShouldBeNull();
+        recorded.Events.Count(entry => entry.EventId.Id is 3100 or 3101).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The second anomaly, and the one the answer used to be silent about in
+    /// every way. Publishing this version required the pin to resolve to a
+    /// published layout version, and no route of this module deletes or moves a
+    /// layout version afterwards, so a pin that stops resolving was moved from
+    /// outside the module. The answer keeps the pin and drops the layout, and
+    /// the log is what names which of the two withholdings happened.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_pin_that_no_longer_resolves_is_declared_and_named_in_the_log()
+    {
+        var recorded = new RecordingLoggerProvider();
+        using WebApplicationFactory<Program> observed = fixture.WithWebHostBuilder(builder =>
+            builder.ConfigureLogging(logging => logging.AddProvider(recorded)));
+        HttpClient author = fixture.CreateAuthorClient("author-hist-5");
+        HttpClient publisher = fixture.CreatePublisherClient("publisher-hist-5");
+        (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
+        (var key, var version) = await CreatePinnedPublishedVersionAsync(
+            author, publisher, layoutKey, layoutVersion);
+        var unresolvable = layoutVersion + 100;
+
+        await RepointPinAsync(key, version, unresolvable);
+        Result<HistoricalTemplateVersion> found = await FindAsync(observed.Services, key, version);
+
+        found.IsSuccess.ShouldBeTrue(found.Error);
+        found.Value!.Layout.ShouldBeNull();
+
+        // The pin as the version declares it, not as the store can honour it:
+        // the number that resolves to nothing is exactly the fact an auditor
+        // needs, and inventing a resolvable one would hide the anomaly.
+        found.Value!.LayoutPin.ShouldNotBeNull().LayoutKey.ShouldBe(layoutKey);
+        found.Value!.LayoutPin.Version.ShouldBe(unresolvable);
+
+        RecordedEvent witness = recorded.Events.Single(entry => entry.EventId.Id == 3101);
+        witness.Level.ShouldBe(LogLevel.Error);
+        witness.Message.ShouldContain(layoutKey);
+        witness.Message.ShouldContain(key);
+        witness.Message.ShouldContain(unresolvable.ToString(CultureInfo.InvariantCulture));
+        recorded.Events.Count(entry => entry.EventId.Id == 3100).ShouldBe(0);
     }
 
     private static async Task<Result<HistoricalTemplateVersion>> FindAsync(
@@ -162,6 +236,19 @@ public sealed class HistoricalCatalogContractTests(TemplateManagementApiFixture 
         await TemplateApi.PublishAsync(publisher, key, version);
         return (key, version);
     }
+
+    /// <summary>
+    /// Moves the pin of a published version onto a layout version number that
+    /// was never created. No route of this module edits a published version, so
+    /// the row is edited directly, which is the only way this state is reached
+    /// at all.
+    /// </summary>
+    private Task RepointPinAsync(string templateKey, int version, int layoutVersion)
+        => fixture.ExecuteDbAsync(db => db.Database.ExecuteSqlAsync($"""
+            UPDATE templatemanagement.template_version
+            SET layout_version = {layoutVersion}
+            WHERE template_key = {templateKey} AND version = {version}
+            """));
 
     /// <summary>
     /// Writes the status the lifecycle refuses to write. Nothing in the domain

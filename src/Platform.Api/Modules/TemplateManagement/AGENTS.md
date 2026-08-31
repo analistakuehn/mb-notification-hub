@@ -335,23 +335,25 @@ lookup into a missing template block, so a bare filter would trade a wrong
 answer for a silent one: the compliance surface would say "no record of that
 version" while the truth is "that version exists and never shipped", which is a
 different and more alarming fact, and which reads exactly like a version that
-never existed or was deleted. `HistoricalCatalogLogger` records both cases at
-error level, event `2120` for the version and event `3100` for the pinned
-layout. Error rather than warning for three reasons: the state is unreachable
-rather than uncommon; the version number arrives from the stored notification
-evidence and never from a caller, so no request can flood the level; and this
-repository already reserves error for evidence that contradicts itself, as
-`ChainVerifier` does for a broken audit chain.
+never existed or was deleted. `HistoricalCatalogLogger` records every case at
+error level, event `2120` for the version, event `3100` for a pinned layout that
+never left draft, and event `3101` for a pin that no longer resolves. Error
+rather than warning for three reasons: the state is unreachable rather than
+uncommon; the version number arrives from the stored notification evidence and
+never from a caller, so no request can flood the level; and this repository
+already reserves error for evidence that contradicts itself, as `ChainVerifier`
+does for a broken audit chain.
 
-The new layout case entered under an ambiguity that another finding closes. A
-`null` layout in the answer already carried two meanings, "the version pinned
-no layout" and "the version pinned one that no longer resolves", and a pin that
-resolves to a draft is now a third. Separating them is out of scope here and
-belongs to `ARC-007`, still recorded as `PENDENTE`. This change neither narrows
-that ambiguity nor counts as progress on it. It only puts the new case on the
-log axis, so the omission stays as ambiguous as it was while the reason behind
-it becomes audible, and whoever closes `ARC-007` finds three cases to separate
-instead of two.
+The three cases the omitted layout used to collapse into one are separated in
+the answer itself, and the section at the end of this file records how. An
+absent layout carried "the version pinned no layout", "the version pinned one
+that no longer resolves" and "the version pinned one that never left draft"
+alike, and only the first of the three is a state a legitimate path produces.
+`HistoricalTemplateVersion.LayoutPin` now carries the pin as the version
+declared it, key and number, present whenever the version pinned anything, so
+the absence of that member is the only way the answer states that the message
+was framed by nothing. The two events above are what still separate the two
+anomalies from each other.
 
 ## Error axis
 
@@ -1511,5 +1513,79 @@ deles afirmando `Passed` e recebendo `Passed` de graça, porque a checagem
 responde `Passed` sobre lista vazia. O arranjo agora afirma que a declaração
 chegou à versão; sob a mesma mutação, nove dos doze reprovam. A vacuidade era da
 suíte e não da checagem, e é assim que ela fica fechada.
+
+## O eixo do layout na leitura histórica: três estados, um legítimo
+
+**O que a ausência do layout queria dizer, e por que isso era resposta errada.**
+`HistoricalCatalog` omitia o layout por três caminhos distintos: a versão não
+fixou layout nenhum; o pino não resolve mais; o layout fixado nunca saiu de
+rascunho. O documento do contrato prometia um só, "ausente quando não fixou
+nenhum". Quem consome é a divulgação de evidência, que propaga a omissão como
+bloco de layout ausente, então o auditor lia "esta notificação saiu sem
+moldura" sobre uma mensagem que pode ter tido uma e cujo hash ninguém sabe
+produzir. Resposta errada, não parcial.
+
+**Dois dos três são anomalia, e a medição é esta.** As transições de versão de
+layout correm rascunho, publicado, substituído, e nunca voltam
+(`LayoutVersionStatuses.AllowedTransitions`). Publicar versão de template exige
+que o pino resolva para versão de layout publicada
+(`TemplateValidation.AddLayoutReferenceChecks` reprova o contrário, e a
+publicação só segue com o relatório aprovado). E nenhuma das doze fatias de
+`Features/Layouts/` apaga versão de layout; nada no módulo remove essas linhas.
+Logo, "pino não resolve" e "layout fixado em rascunho" só nascem de intervenção
+fora do módulo.
+
+**Uma precisão que a leitura anterior não tinha.** O pino de `template_version`
+para `layout_version` são duas colunas simples, `layout_key` e `layout_version`,
+**sem chave estrangeira**. O `DeleteBehavior.Restrict` que existe é o de
+`layout_version` para `layout`, e ele protege a identidade, não o pino. Ou seja,
+o que sustenta "pino que não resolve é anomalia" é ausência de rota que apague a
+linha, não integridade referencial do banco. Um `DELETE` cru passa. Isso reforça
+a necessidade da testemunha em vez de enfraquecê-la.
+
+| estado | `LayoutPin` | `Layout` | legítimo |
+|---|---|---|---|
+| não fixou layout | ausente | ausente | sim |
+| fixou e resolveu | presente | presente | sim |
+| fixou e foi retido | presente | ausente | não |
+
+**A forma é aditiva e a razão é de custo, não de gosto.**
+`HistoricalTemplateVersion` é `sealed class` de propriedades `init`, então
+acrescentar `LayoutPin` opcional não quebra consumidor nenhum. Uma união
+reestruturaria contrato publicado por achado de severidade baixa. **A ausência
+do irmão passa a ser o único jeito de a resposta dizer que a mensagem saiu sem
+moldura.**
+
+**Devolver falha em vez de omitir foi medido e recusado.** O consumidor faz
+`template.IsSuccess ? ToTemplate(template.Value!) : null`, então uma falha por
+causa do layout apagaria o bloco de template inteiro da evidência. Seria trocar
+uma omissão por outra maior, que é exatamente o colapso que a leitura histórica
+já conserta no eixo da versão. Não reabra por essa porta.
+
+**A testemunha do pino que não resolve é `3101`, em `Error`, e o nível tem
+razão.** Ela é irmã de `3100` na mesma família: estado inalcançável por caminho
+legítimo, argumentos vindos da evidência armazenada e nunca do chamador (então
+nenhuma requisição inunda o nível), e este repositório já reserva erro para
+evidência que se contradiz. Duas razões a mais, próprias deste caso. Primeira:
+das duas anomalias, esta é a pior, porque no caso do rascunho a linha ainda
+existe e o hash é recuperável à mão, e aqui a linha sumiu. Segunda: a assimetria
+anterior, em que um caso logava e o outro não, não tinha razão nenhuma; ela
+nasceu de a correção anterior ter tocado só um dos dois.
+
+**O que a evidência separa e o que ela continua sem separar.** A resposta separa
+o legítimo das duas anomalias. Ela **não** separa as duas anomalias entre si, e
+isso é decisão, não esquecimento: para o auditor as duas dizem a mesma coisa,
+"houve moldura e esta resposta não carrega hash dela", e a diferença entre
+"linha sumiu" e "linha voltou a rascunho" é operacional. Quem precisa dela lê
+`3100` contra `3101`.
+
+**Onde a distinção é medida.** No consumidor, sem banco, em
+`EvidenceTemplateProjectionTests`, que compara os bytes servidos dos três
+estados entre si em vez de afirmar um de cada vez, porque o defeito fechado era
+justamente dois deles serializarem igual. Na origem, a leitura histórica lê o
+banco direto, sem semente de cache, então não há caminho unitário sem
+acrescentar pacote de provedor em memória, e os três caminhos são exercidos em
+`HistoricalCatalogContractTests`, com o estado anômalo escrito por SQL cru,
+porque nenhuma rota do módulo o produz.
 
 Update this file in the same change that alters the module boundary, public contracts, ubiquitous language, or non-negotiable security rules.

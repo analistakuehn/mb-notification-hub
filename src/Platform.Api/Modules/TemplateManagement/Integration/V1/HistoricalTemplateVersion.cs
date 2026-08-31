@@ -57,8 +57,45 @@ public sealed class HistoricalTemplateVersion
     /// <summary>Version this one republished, when a rollback created it.</summary>
     public int? RolledBackFromVersion { get; init; }
 
-    /// <summary>The layout this version pinned, with its own canonical hash; absent when it pinned none.</summary>
+    /// <summary>
+    /// The pin exactly as the version declared it, key and number, present
+    /// whenever the version pinned anything and whether or not <see cref="Layout"/>
+    /// resolved. Its absence is the one way this answer states that the message
+    /// went out framed by nothing.
+    /// </summary>
+    public HistoricalLayoutPin? LayoutPin { get; init; }
+
+    /// <summary>
+    /// The layout this version pinned, with its own canonical hash, present only
+    /// when the pin still resolves to a published or superseded layout version.
+    /// </summary>
+    /// <remarks>
+    /// Three different states leave this member absent, and <see cref="LayoutPin"/>
+    /// is what tells them apart. No pin at all: both members are absent, and that
+    /// is the only legitimate one, a version that framed its message with nothing.
+    /// Pin present and this member absent: the version pinned a wrapper and the
+    /// read could not vouch for it, either because the pinned version is no longer
+    /// in the store or because it never left draft. Neither of those two is
+    /// reachable through a legitimate path, since publishing required the pin to
+    /// resolve to a published layout version, the layout lifecycle never walks
+    /// back, and nothing deletes a layout version. The read records both at error
+    /// level, which is where the two are told apart from each other.
+    /// </remarks>
     public HistoricalLayoutVersion? Layout { get; init; }
+}
+
+/// <summary>
+/// The layout reference a template version declared, copied off the version row
+/// and resolved against nothing. It answers whether the message was framed at
+/// all; <see cref="HistoricalLayoutVersion"/> is what answers for the content of
+/// the frame.
+/// </summary>
+public sealed record HistoricalLayoutPin
+{
+    public required string LayoutKey { get; init; }
+
+    /// <summary>Layout version number this template version pinned.</summary>
+    public required int Version { get; init; }
 }
 
 /// <summary>The layout version a template version pinned, as it was published.</summary>

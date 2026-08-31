@@ -66,7 +66,8 @@ internal sealed class HistoricalCatalog(
             return VersionNotFound(key, version);
         }
 
-        HistoricalLayoutVersion? layout = await FindPinnedLayoutAsync(key, historical, cancellationToken);
+        (HistoricalLayoutPin? pin, HistoricalLayoutVersion? layout) =
+            await ReadPinnedLayoutAsync(key, historical, cancellationToken);
         return Result.Success(new HistoricalTemplateVersion
         {
             Application = template.Application,
@@ -82,6 +83,7 @@ internal sealed class HistoricalCatalog(
             ContentHash = historical.ContentHash,
             PublishedAt = historical.PublishedAt,
             RolledBackFromVersion = historical.RolledBackFrom,
+            LayoutPin = pin,
             Layout = layout,
         });
     }
@@ -108,48 +110,63 @@ internal sealed class HistoricalCatalog(
     private static bool IsPublishedOrSuperseded(LayoutVersionStatus status)
         => status is LayoutVersionStatus.Published or LayoutVersionStatus.Superseded;
 
-    private async Task<HistoricalLayoutVersion?> FindPinnedLayoutAsync(
+    /// <summary>
+    /// Reads the layout side of the answer as two facts instead of one. The pin
+    /// is what the version declared and it travels whether or not it resolves;
+    /// the layout is what the pin resolved to and it travels only when this
+    /// surface can vouch for it. Collapsing the two into a single omission made
+    /// "this message was framed by nothing" and "this message was framed and the
+    /// hash of the frame is unknown" read the same way, which is a wrong answer
+    /// to a compliance question and not a partial one.
+    /// </summary>
+    private async Task<(HistoricalLayoutPin? Pin, HistoricalLayoutVersion? Layout)> ReadPinnedLayoutAsync(
         TemplateKey key,
         TemplateVersion version,
         CancellationToken cancellationToken)
     {
+        // The one legitimate absence on this axis: nothing was pinned, so there
+        // is no pin to declare and no layout to resolve.
         if (version.LayoutKey is not string layoutKey)
         {
-            return null;
+            return (null, null);
         }
 
         var pinned = version.LayoutVersion!.Value;
+        var pin = new HistoricalLayoutPin { LayoutKey = layoutKey, Version = pinned };
         LayoutVersion? layout = await dbContext.LayoutVersions
             .AsNoTracking()
             .WhereLayoutKey(LayoutKey.Trusted(layoutKey))
             .FirstOrDefaultAsync(candidate => candidate.Version == pinned, cancellationToken);
 
-        // A pin that no longer resolves is itself evidence: the answer omits
-        // the layout instead of inventing a hash for it.
+        // A pin that no longer resolves is itself evidence: the answer declares
+        // the pin and omits the layout instead of inventing a hash for it.
+        // Nothing deletes a layout version through this module, so the row was
+        // taken out from outside it, and the log is what says so.
         if (layout is null)
         {
-            return null;
+            logger.PinnedLayoutVersionMissing(layoutKey, pinned, key.Value, version.Version);
+            return (pin, null);
         }
 
         // A pinned layout that never left draft could not have wrapped the
         // message either, since publishing this version required the pin to
-        // resolve to a published layout version. It leaves the same omission a
-        // pin that no longer resolves leaves, and the log is what keeps the two
-        // apart while the omission itself stays silent about which one it is.
+        // resolve to a published layout version. It leaves the same shape a pin
+        // that no longer resolves leaves, pin declared and layout omitted, and
+        // the log is what keeps the two apart.
         if (!IsPublishedOrSuperseded(layout.Status))
         {
             logger.PinnedLayoutVersionWithheld(
                 layoutKey, layout.Version, key.Value, version.Version, layout.Status.Canonical());
-            return null;
+            return (pin, null);
         }
 
-        return new HistoricalLayoutVersion
+        return (pin, new HistoricalLayoutVersion
         {
             LayoutKey = layoutKey,
             Version = layout.Version,
             VersionStatus = layout.Status.Canonical(),
             ContentHash = layout.ContentHash,
             PublishedAt = layout.PublishedAt,
-        };
+        });
     }
 }

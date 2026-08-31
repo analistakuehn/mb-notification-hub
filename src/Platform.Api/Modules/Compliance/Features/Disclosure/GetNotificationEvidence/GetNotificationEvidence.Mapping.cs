@@ -93,22 +93,41 @@ internal static partial class GetNotificationEvidence
         UndisclosedEvidenceKeys = evaluation.UndisclosedEvidenceKeys,
     };
 
-    private static TemplateVersionView ToTemplate(HistoricalTemplateVersion version) => new()
+    /// <summary>
+    /// Projects the historical version member by member. The pin and the
+    /// resolved layout are carried as two members and never folded into one:
+    /// the catalog omits the layout both for a version that pinned nothing and
+    /// for one whose pin it could not vouch for, and only the pin separates a
+    /// message that went out framed by nothing from one whose frame this answer
+    /// cannot name a hash for.
+    /// </summary>
+    internal static TemplateVersionView ToTemplate(HistoricalTemplateVersion version)
     {
-        Application = version.Application,
-        TemplateKey = version.TemplateKey,
-        Version = version.Version,
-        VersionStatus = version.VersionStatus,
-        TemplateStatus = version.TemplateStatus,
-        Class = version.Class,
-        OwnerTeam = version.OwnerTeam,
-        Purpose = version.Purpose,
-        LegalBasis = version.LegalBasis,
-        SensitiveVariables = version.SensitiveVariables,
-        ContentHash = version.ContentHash,
-        PublishedAt = version.PublishedAt,
-        RolledBackFromVersion = version.RolledBackFromVersion,
-        Layout = version.Layout is null ? null : ToLayout(version.Layout),
+        ArgumentNullException.ThrowIfNull(version);
+        return new TemplateVersionView
+        {
+            Application = version.Application,
+            TemplateKey = version.TemplateKey,
+            Version = version.Version,
+            VersionStatus = version.VersionStatus,
+            TemplateStatus = version.TemplateStatus,
+            Class = version.Class,
+            OwnerTeam = version.OwnerTeam,
+            Purpose = version.Purpose,
+            LegalBasis = version.LegalBasis,
+            SensitiveVariables = version.SensitiveVariables,
+            ContentHash = version.ContentHash,
+            PublishedAt = version.PublishedAt,
+            RolledBackFromVersion = version.RolledBackFromVersion,
+            LayoutPin = version.LayoutPin is null ? null : ToLayoutPin(version.LayoutPin),
+            Layout = version.Layout is null ? null : ToLayout(version.Layout),
+        };
+    }
+
+    private static LayoutPinView ToLayoutPin(HistoricalLayoutPin pin) => new()
+    {
+        LayoutKey = pin.LayoutKey,
+        Version = pin.Version,
     };
 
     private static LayoutVersionView ToLayout(HistoricalLayoutVersion layout) => new()

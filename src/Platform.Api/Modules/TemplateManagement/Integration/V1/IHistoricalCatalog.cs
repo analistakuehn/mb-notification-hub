@@ -18,7 +18,9 @@ public interface IHistoricalCatalog
     /// template or version fails as not found, and so does a version that never
     /// left draft: it shipped nothing, so it is not part of what an old
     /// notification can be reconstructed from. The pinned layout follows the
-    /// same rule and is omitted when it does not meet it.
+    /// same rule and is omitted when it does not meet it, while the pin the
+    /// version declared travels either way, so the caller can tell a version
+    /// that pinned nothing from one whose pin this read withheld.
     /// </summary>
     Task<Result<HistoricalTemplateVersion>> FindTemplateVersionAsync(
         string application,

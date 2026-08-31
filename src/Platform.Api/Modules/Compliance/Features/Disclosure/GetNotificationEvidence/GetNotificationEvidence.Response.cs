@@ -335,8 +335,34 @@ internal static partial class GetNotificationEvidence
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? RolledBackFromVersion { get; init; }
 
+        /// <summary>
+        /// The layout reference the version declared, present whenever it
+        /// declared one and whether or not <see cref="Layout"/> resolved. Its
+        /// absence is the one way this block states that the message went out
+        /// framed by nothing; a pin here with no <see cref="Layout"/> states
+        /// that it was framed and that this answer cannot vouch for the frame.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public LayoutPinView? LayoutPin { get; init; }
+
+        /// <summary>
+        /// The pinned layout with its own canonical hash. Absent when the
+        /// version pinned none, and absent as well when the catalog withheld
+        /// the one it pinned, which is why the pin above travels separately:
+        /// without it the two read alike, and an auditor concludes the message
+        /// carried no wrapper when the truth may be that it carried one whose
+        /// hash nobody can produce.
+        /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public LayoutVersionView? Layout { get; init; }
+    }
+
+    /// <summary>The layout reference the version declared, key and number, resolved against nothing.</summary>
+    internal sealed record LayoutPinView
+    {
+        public required string LayoutKey { get; init; }
+
+        public required int Version { get; init; }
     }
 
     internal sealed record LayoutVersionView
