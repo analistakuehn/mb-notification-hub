@@ -1074,5 +1074,63 @@ e as duas respostas pertencem ao mesmo registro.
   integração. Testes de cache local não substituem o comprovante de rollout com
   várias instâncias para `t0 + 10 s`.
 
+## Leitura do plano admitido: três estados, e o que segue sem tratamento
+
+**O que colapsava.** A leitura devolvia o mesmo nulo por três causas: coluna
+ausente ou vazia, documento que não faz parse e canal fora do vocabulário. O
+chamador único cai no plano publicado para o nulo, e para o documento ilegível
+isso é exatamente o que o plano armazenado existe para impedir. Medido sobre as
+funções puras do próprio handler: plano admitido `sms, email` após falha em
+`sms` vai para `email`; plano publicado `sms, push` vai para `push`. **Com
+documento ilegível a notificação avança para `push`**, um canal que a admissão
+já havia removido.
+
+**A leitura passa a devolver três casos distinguíveis por asserção**, e o
+chamador decide explicitamente. O comportamento de produção **não mudou**: o
+documento ilegível continua seguindo pelo plano publicado. Tratá-lo como falha
+operacional é decisão separada e **não foi tomada**. O que existe agora é
+testemunha, onde antes não havia sinal nenhum.
+
+**A testemunha carrega a palavra crua recusada, nunca o erro formatado.** O
+formatado é o codec da fronteira HTTP do módulo dono do vocabulário e separa
+campos com caractere de controle: levá-lo para a trilha vazaria o caractere e o
+codec de erro de um módulo para o log de outro.
+
+**Array vazio e nulo literal colapsam em ausência, de propósito.** Nenhum
+produtor emite os dois, porque o plano só é gravado depois de a regra de seleção
+de canal rejeitar a requisição cujo conjunto sobrevivente ficou vazio. Um quarto
+caso para documento que ninguém escreve acrescentaria um braço que nenhum teste
+exercita honestamente. A colapsagem está asserida, então um produtor que passe a
+escrever um deles chega como mudança de teste e não como silêncio.
+
+**A projeção do passo armazenado fica, e não é duplicação de vocabulário.**
+Medido: hoje a forma dela coincide byte a byte com a do passo publicado, então
+removê-la não mudaria a coluna agora; o que muda é a evolução. Com a projeção,
+um membro opcional novo no contrato publicado não alcança a coluna; sem ela,
+alcança, e um nulo entra na coluna de linhas que nunca o tiveram. É a fronteira
+que desacopla a forma da coluna da evolução do contrato, e removê-la trocaria um
+acoplamento por outro. A forma armazenada tem teste literal, porque é lida por
+linhas gravadas muito antes de qualquer mudança que a altere.
+
+## Canal configurado no papel `dispatcher`: normalizar uma vez, comparar canônico
+
+Havia **duas** comparações sensíveis à caixa, e o reparo de uma linha teria
+trocado uma falha ruim por outra pior. Medido antes de consertar, com `Channels`
+iguais a `EMAIL` e `sms`: a instância recusava subir dizendo que o canal não
+possui adapter hospedado, o que é falso. Com apenas a guarda tolerante, o mesmo
+caso deixa de lançar e devolve **uma fila só**, `dispatch-sms-auth`: a contagem
+fica em um, a recusa por lista vazia não dispara e o dispatcher **sobe saudável
+drenando SMS e ignorando em silêncio o canal que o operador configurou**.
+Falhar fechado com diagnóstico errado é ruim; subir aberto e calado é pior. A
+regra: normalizar uma vez na porta tolerante do vocabulário e comparar canônico
+contra canônico daí em diante.
+
+**Lacuna medida e não fechada.** As três constantes do canal `push` passaram a
+derivar do vocabulário, e duas têm oráculo: apontar a da regra de seleção para
+outro canal mata dois testes dela, e a da escrita de despacho mata dois testes
+de entrega por aceitação. A do estágio `Route` **não tem oráculo**: apontá-la
+para outro canal deixa verdes a suíte unitária inteira, a coleção do pipeline e
+o cenário fim a fim de push para SMS. Fechar isso é trabalho à parte.
+
 Atualize este arquivo na mesma alteração que modificar o limite do módulo, a
 invariante transacional, o contrato de idempotência ou as regras de PII.

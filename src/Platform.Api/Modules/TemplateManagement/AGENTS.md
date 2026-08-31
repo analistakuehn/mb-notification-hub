@@ -1356,4 +1356,46 @@ implícito.
 irmãos o usam direto. O serviço `redis` do `compose.yaml` fica pelo mesmo
 motivo; saiu só a variável de ambiente deste módulo.
 
+## Serialização do vocabulário de canal: o que a ida e volta fecha e o que não
+
+**O estado anterior, medido e não argumentado.** `Channel` se escrevia como
+objeto envelope, `{"value":"email"}`, e não voltava de jeito nenhum: ler um de
+volta lançava `NotSupportedException`, porque o tipo não tem construtor sem
+parâmetro nem construtor público. Era essa a causa de os consumidores
+projetarem a palavra à mão na ida e na volta.
+
+**A decisão: o conversor fica `internal`.** Medido: `internal` compila e opera
+igual, e público acrescenta um tipo à superfície publicada deste módulo sem que
+nenhum consumidor precise nomeá-lo, porque o atributo no próprio vocabulário o
+aplica onde quer que o tipo seja serializado. **Nenhum dos testes de
+arquitetura percebe esse acréscimo**, então a contenção tem de ser a decisão, e
+não o portão.
+
+**O oráculo é ida e volta byte a byte, e ele é necessário e insuficiente.**
+Igualdade estrutural de `ClassPolicyDefinition` não serve: o tipo é referência
+sem igualdade por valor por decisão documentada, porque a identidade dele é o
+hash do conteúdo publicado. A ida e volta, porém, compara o serializador contra
+ele mesmo, e fica verde sobre documento que a autoria recusaria. Por isso o
+teste tem um segundo braço, que submete o documento produzido ao parser
+canônico e assere a **recusa**.
+
+**Assimetria de contrato declaradamente aberta.** As duas formas de duração já
+coexistiam antes do conversor e não são regressão dele: o documento de política
+soletra duração como número inteiro de segundos seguido de `s`, e o serializador
+escreve a forma de intervalo do framework, `00:10:00`. A consequência que
+importa é que **este caminho nunca autora documento de política**: a autoria
+corre pelo documento do operador e pelo parser manual, que produz o relatório de
+checagens por campo que um serializador não produz. O segundo braço do oráculo
+existe para impedir que as duas formas sejam confundidas, e ele fica vermelho no
+dia em que alguém as reconciliar, nomeando a decisão em vez de escondê-la.
+
+**Completude do vocabulário é afirmação separada da serialização.** Um conversor
+serializa o vocabulário e não diz nada sobre a completude dele: acrescentar um
+canal ao conjunto fechado dava 0 erros, 0 avisos e 0 vermelhos, com ou sem
+conversor. Dois portões fecham isso, e cada um reprova sozinho: a lista
+publicada tem de conter todo canal que o tipo declara, lido por reflexão e não
+por lista à mão; e o vocabulário menos os canais de ponto de contato é
+exatamente `push`, que está fora de propósito porque o roteamento dele vive em
+token de dispositivo. O recorte é derivado e verificado, **nunca apagado**.
+
 Update this file in the same change that alters the module boundary, public contracts, ubiquitous language, or non-negotiable security rules.
