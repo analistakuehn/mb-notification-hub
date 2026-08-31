@@ -23,6 +23,7 @@ public static class ValidationCheckNames
     public const string UrlAllowlist = "url-allowlist";
     public const string AuthenticationSmsLinks = "authentication-sms-links";
     public const string SensitiveVariables = "sensitive-variables";
+    public const string SensitiveVariablesRetained = "sensitive-variables-retained";
     public const string ChannelLimits = "channel-limits";
     public const string DefaultLocale = "default-locale";
     public const string LayoutReference = "layout-reference";
@@ -129,11 +130,19 @@ public static partial class TemplateValidation
         }
     }
 
+    /// <remarks>
+    /// <c>sensitiveVariablesInForce</c> carries what the version currently in
+    /// force declares sensitive, when there is one. Only the callers that
+    /// decide whether this version replaces it can read that, so they supply
+    /// it, and the report can then say that publishing would drop a protection
+    /// the template already has.
+    /// </remarks>
     public static ValidationReport Validate(
         Template template,
         TemplateVersion version,
         IReadOnlyList<ContentAnalysis> analyses,
-        LayoutReferenceFacts? layoutReference = null)
+        LayoutReferenceFacts? layoutReference = null,
+        IReadOnlyList<string>? sensitiveVariablesInForce = null)
     {
         ArgumentNullException.ThrowIfNull(template);
         ArgumentNullException.ThrowIfNull(version);
@@ -160,6 +169,7 @@ public static partial class TemplateValidation
         AddUrlChecks(checks, template, version, declarations, analyses, layoutReference);
         AddAuthenticationSmsChecks(checks, template, version, declarations, analyses, layoutReference);
         AddSensitiveVariableChecks(checks, version);
+        AddSensitiveVariableRetentionChecks(checks, version, sensitiveVariablesInForce);
         AddChannelLimitChecks(checks, version, layoutReference);
         AddDefaultLocaleChecks(checks, template, version);
         AddLayoutReferenceChecks(checks, version, layoutReference);
@@ -698,6 +708,57 @@ public static partial class TemplateValidation
             checks.Add(Passed(
                 ValidationCheckNames.SensitiveVariables,
                 "Every sensitive variable is declared by the schema and none appears in a URL position."));
+        }
+    }
+
+    /// <summary>
+    /// Refuses a version that stops declaring a name the version in force
+    /// declares. Whether a template accepts ingestion over the bus is read off
+    /// the published declaration, so a version that drops a name silently
+    /// reopens that door for the whole template, and the render stops masking
+    /// the value on every channel at the same moment. Neither effect appears
+    /// anywhere in the report unless a check says so.
+    /// <para>
+    /// It answers nothing on a first publication, where there is no version in
+    /// force and therefore nothing to regress from. What is missing there is a
+    /// name nobody declared, which no check of this catalog can find: only a
+    /// person reading the content can.
+    /// </para>
+    /// <para>
+    /// Adding names is always allowed, and so is removing one in the same act
+    /// that removes the variable: this compares declarations and never content,
+    /// because a declaration is what the runtime reads.
+    /// </para>
+    /// </summary>
+    private static void AddSensitiveVariableRetentionChecks(
+        List<ValidationCheck> checks,
+        TemplateVersion version,
+        IReadOnlyList<string>? sensitiveVariablesInForce)
+    {
+        // Mirrors the layout-reference check: the rule exists only when there
+        // is something to compare against.
+        if (sensitiveVariablesInForce is null)
+        {
+            return;
+        }
+
+        var declared = new HashSet<string>(version.SensitiveVariables, StringComparer.Ordinal);
+        var before = checks.Count;
+        foreach (var variable in sensitiveVariablesInForce.Where(variable => !declared.Contains(variable)))
+        {
+            checks.Add(Failed(
+                ValidationCheckNames.SensitiveVariablesRetained,
+                $"Sensitive variable '{variable}' is declared by the version in force and dropped by this one. "
+                + "Publishing it would stop the render from masking that value and reopen bus ingestion "
+                + "for this template.",
+                null));
+        }
+
+        if (checks.Count == before)
+        {
+            checks.Add(Passed(
+                ValidationCheckNames.SensitiveVariablesRetained,
+                "This version keeps every sensitive variable the version in force declares."));
         }
     }
 

@@ -82,12 +82,24 @@ internal static partial class RollbackTemplate
 
             TemplateVersion published = rollback.Value!;
 
+            // Loaded before the validation, for the same reason publication
+            // loads it there: a rollback is a publication, and an older version
+            // is exactly the shape that declares less than the one in force.
+            TemplateVersion? current = await dbContext.TemplateVersions
+                .WhereTemplateKey(key.Value!)
+                .Where(candidate => candidate.Status == TemplateVersionStatus.Published)
+                .FirstOrDefaultAsync(cancellationToken);
+
             // Same validation catalog as publish: template metadata or the
             // catalog itself may have changed since the source went out.
             LayoutReferenceFacts? layoutReference =
                 await dbContext.LoadLayoutReferenceAsync(published, cancellationToken);
             ValidationReport report = TemplateValidation.Validate(
-                template, published, analyzer.Analyze(published), layoutReference);
+                template,
+                published,
+                analyzer.Analyze(published),
+                layoutReference,
+                current?.SensitiveVariables);
             if (!report.Passed)
             {
                 var failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);
@@ -102,10 +114,6 @@ internal static partial class RollbackTemplate
                     $"The rollback clone of version {source.Version} produced a different content hash."));
             }
 
-            TemplateVersion? current = await dbContext.TemplateVersions
-                .WhereTemplateKey(key.Value!)
-                .Where(candidate => candidate.Status == TemplateVersionStatus.Published)
-                .FirstOrDefaultAsync(cancellationToken);
             if (current is not null)
             {
                 Result superseded = current.Supersede();

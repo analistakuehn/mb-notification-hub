@@ -47,13 +47,27 @@ internal static partial class ValidateTemplateVersion
                     $"Template '{templateKey.Value!.Value}' has no version {versionNumber}."));
             }
 
+            // The version in force, read here for the same reason the
+            // publication reads it: a dry run that answered without it would
+            // report green on a version publication then refuses, and the
+            // author would meet the refusal only at the door.
+            TemplateVersion? current = await dbContext.TemplateVersions
+                .AsNoTracking()
+                .WhereTemplateKey(templateKey.Value!)
+                .Where(candidate => candidate.Status == TemplateVersionStatus.Published)
+                .FirstOrDefaultAsync(cancellationToken);
+
             // The report is the value this use case produces: running the
             // validation succeeds even when checks fail, so failed checks
             // travel in the response, never in the error string.
             LayoutReferenceFacts? layoutReference =
                 await dbContext.LoadLayoutReferenceAsync(version, cancellationToken);
             ValidationReport report = TemplateValidation.Validate(
-                template, version, analyzer.Analyze(version), layoutReference);
+                template,
+                version,
+                analyzer.Analyze(version),
+                layoutReference,
+                current?.SensitiveVariables);
             var failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);
             logger.VersionValidated(version.TemplateKey.Value, version.Version, report.Passed, failed);
             return Result.Success(Response.From(report));

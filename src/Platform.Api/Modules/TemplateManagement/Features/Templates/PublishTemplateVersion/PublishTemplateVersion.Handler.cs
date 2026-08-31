@@ -69,12 +69,25 @@ internal static partial class PublishTemplateVersion
                 return eligibility.AsFailure<Outcome>();
             }
 
+            // Loaded before the validation and not after it: the catalog has to
+            // read what this publication would replace, or a version that drops
+            // a sensitive declaration passes and reopens bus ingestion for the
+            // template without a word in the report.
+            TemplateVersion? current = await dbContext.TemplateVersions
+                .WhereTemplateKey(templateKey.Value!)
+                .Where(candidate => candidate.Status == TemplateVersionStatus.Published)
+                .FirstOrDefaultAsync(cancellationToken);
+
             // Same validation catalog the authoring endpoints expose: a version
             // only publishes after passing it again, in full, right now.
             LayoutReferenceFacts? layoutReference =
                 await dbContext.LoadLayoutReferenceAsync(version, cancellationToken);
             ValidationReport report = TemplateValidation.Validate(
-                template, version, analyzer.Analyze(version), layoutReference);
+                template,
+                version,
+                analyzer.Analyze(version),
+                layoutReference,
+                current?.SensitiveVariables);
             if (!report.Passed)
             {
                 var failed = report.Checks.Count(check => check.Status == ValidationCheckStatuses.Failed);
@@ -87,11 +100,6 @@ internal static partial class PublishTemplateVersion
             {
                 return integrity.AsFailure<Outcome>();
             }
-
-            TemplateVersion? current = await dbContext.TemplateVersions
-                .WhereTemplateKey(templateKey.Value!)
-                .Where(candidate => candidate.Status == TemplateVersionStatus.Published)
-                .FirstOrDefaultAsync(cancellationToken);
 
             DateTimeOffset now = timeProvider.GetUtcNow();
             Result published = version.Publish(publisher, now);
