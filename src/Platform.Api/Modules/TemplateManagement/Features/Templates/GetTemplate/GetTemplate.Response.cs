@@ -31,8 +31,6 @@ internal static partial class GetTemplate
 
         public required IReadOnlyList<string> LinkDomainsAllowed { get; init; }
 
-        public required IReadOnlyList<string> SensitiveVariables { get; init; }
-
         /// <summary>
         /// One window of the version history, oldest first. It carries the whole
         /// history only while <see cref="VersionsTruncated"/> is false.
@@ -65,7 +63,6 @@ internal static partial class GetTemplate
             Status = template.Status.Canonical(),
             DefaultLocale = template.DefaultLocale?.Value,
             LinkDomainsAllowed = template.LinkDomainsAllowed,
-            SensitiveVariables = template.SensitiveVariables,
             Versions = versions,
             VersionsTruncated = versionsTruncated,
             VersionsNextCursor = versionsNextCursor,

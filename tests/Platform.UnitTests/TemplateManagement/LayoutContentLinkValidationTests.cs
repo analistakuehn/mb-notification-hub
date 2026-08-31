@@ -235,7 +235,6 @@ public sealed class LayoutContentLinkValidationTests
             LegalBasis = "execucao-de-contrato",
             DefaultLocale = PtBr,
             LinkDomainsAllowed = linkDomains ?? [],
-            SensitiveVariables = [],
         }).Value!;
 
     private static TemplateVersion DraftPinningLayout(

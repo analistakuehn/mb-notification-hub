@@ -49,11 +49,11 @@ internal static class DispatchApi
             purpose,
             legalBasis = "execucao-de-contrato",
             defaultLocale = "pt-BR",
-            sensitiveVariables,
         });
         created.EnsureSuccessStatusCode();
 
-        var version = await PublishVersionAsync(fixture, key, "Use o código {{ code }} para entrar.");
+        var version = await PublishVersionAsync(
+            fixture, key, "Use o código {{ code }} para entrar.", sensitiveVariables);
         return (key, version);
     }
 
@@ -61,11 +61,17 @@ internal static class DispatchApi
     /// Opens a draft over an existing template, fills the email and push
     /// content with the given phrasing and publishes it. A second call over
     /// the same key is how a test moves the published content forward.
+    /// <para>
+    /// The sensitive declaration travels with every call because it belongs to
+    /// the version: a draft opened blank declares nothing, and publishing it
+    /// would drop a declaration the previous version carried.
+    /// </para>
     /// </summary>
     internal static async Task<int> PublishVersionAsync(
         CorePipelineFixture fixture,
         string key,
-        string phrase)
+        string phrase,
+        string[]? sensitiveVariables = null)
     {
         HttpClient author = fixture.CreateAuthorClient("template-author");
         HttpClient publisher = fixture.CreatePublisherClient("template-publisher");
@@ -81,12 +87,17 @@ internal static class DispatchApi
             subject = "Seu código",
             body = phrase,
         }, etag);
-        await TemplateApi.PutSchemaAsync(author, key, version, new
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
             properties = new { code = new { type = "string" } },
             required = RequiredCode,
         }, etag);
+        if (sensitiveVariables is not null)
+        {
+            await TemplateApi.PutSensitiveVariablesAsync(author, key, version, sensitiveVariables, etag);
+        }
+
         await TemplateApi.PublishAsync(publisher, key, version);
         return version;
     }

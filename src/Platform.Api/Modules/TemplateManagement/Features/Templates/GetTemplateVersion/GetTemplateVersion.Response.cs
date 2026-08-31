@@ -37,6 +37,9 @@ internal static partial class GetTemplateVersion
 
         public JsonElement? VariablesSchema { get; init; }
 
+        /// <summary>Variable names this version declares as carrying sensitive data.</summary>
+        public required IReadOnlyList<string> SensitiveVariables { get; init; }
+
         public required IReadOnlyList<ContentEntry> Contents { get; init; }
 
         /// <summary>Travels in the ETag response header, never in the body.</summary>
@@ -55,6 +58,7 @@ internal static partial class GetTemplateVersion
             LayoutKey = version.LayoutKey,
             LayoutVersion = version.LayoutVersion,
             VariablesSchema = JsonProjections.ParseOrNull(version.VariablesSchemaJson),
+            SensitiveVariables = version.SensitiveVariables,
             Contents = version.Contents
                 .Select(content => new ContentEntry(
                     content.Channel.Value,

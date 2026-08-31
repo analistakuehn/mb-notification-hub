@@ -5,7 +5,7 @@ using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Http;
 
 namespace NotificationHub.Api.Modules.TemplateManagement.Features.Templates;
 
-internal static partial class PutTemplateVersionVariablesSchema
+internal static partial class PutTemplateVersionSensitiveVariables
 {
     internal sealed record ContentEntry(
         string Channel,

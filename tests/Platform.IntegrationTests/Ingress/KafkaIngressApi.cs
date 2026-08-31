@@ -38,7 +38,6 @@ internal static class KafkaIngressApi
             purpose = "transacional",
             legalBasis = "execucao-de-contrato",
             defaultLocale = "pt-BR",
-            sensitiveVariables,
         });
         created.EnsureSuccessStatusCode();
 
@@ -48,12 +47,17 @@ internal static class KafkaIngressApi
             subject = "Sua operação",
             body = "Operação confirmada com o código {{ code }}.",
         }, etag);
-        await TemplateApi.PutSchemaAsync(author, key, version, new
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
             properties = new { code = new { type = "string" } },
             required = RequiredCode,
         }, etag);
+        if (sensitiveVariables is not null)
+        {
+            await TemplateApi.PutSensitiveVariablesAsync(author, key, version, sensitiveVariables, etag);
+        }
+
         await TemplateApi.PublishAsync(publisher, key, version);
         return (key, version);
     }

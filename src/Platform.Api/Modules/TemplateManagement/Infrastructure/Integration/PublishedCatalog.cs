@@ -103,7 +103,7 @@ internal sealed class PublishedCatalog(
             OwnerTeam = template.OwnerTeam,
             Purpose = template.Purpose,
             LegalBasis = template.LegalBasis,
-            SensitiveVariables = [.. template.SensitiveVariables],
+            SensitiveVariables = [.. version.SensitiveVariables],
             ChannelsWithContent = version.Contents
                 .Select(content => content.Channel)
                 .Distinct()

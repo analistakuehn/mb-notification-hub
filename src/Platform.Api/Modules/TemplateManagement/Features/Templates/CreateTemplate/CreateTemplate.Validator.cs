@@ -23,9 +23,6 @@ internal static partial class CreateTemplate
             RuleForEach(command => command.LinkDomainsAllowed)
                 .NotEmpty()
                 .MaximumLength(Template.MaxLinkDomainLength);
-            RuleForEach(command => command.SensitiveVariables)
-                .NotEmpty()
-                .MaximumLength(Template.MaxVariableNameLength);
         }
     }
 }

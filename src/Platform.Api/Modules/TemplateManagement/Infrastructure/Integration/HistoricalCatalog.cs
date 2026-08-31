@@ -78,7 +78,7 @@ internal sealed class HistoricalCatalog(
             OwnerTeam = template.OwnerTeam,
             Purpose = template.Purpose,
             LegalBasis = template.LegalBasis,
-            SensitiveVariables = [.. template.SensitiveVariables],
+            SensitiveVariables = [.. historical.SensitiveVariables],
             ContentHash = historical.ContentHash,
             PublishedAt = historical.PublishedAt,
             RolledBackFromVersion = historical.RolledBackFrom,

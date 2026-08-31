@@ -77,7 +77,8 @@ internal sealed class PublishedTemplateRenderer(
             return context.AsFailure<PublishedTemplateContext, PublishedTemplateRender>();
         }
 
-        (Template template, TemplateVersion version) = context.Value!;
+        PublishedTemplateContext published = context.Value!;
+        (Template template, TemplateVersion version) = published;
         var channelContents = version.Contents
             .Where(content => content.Channel == channel.Value)
             .ToList();
@@ -124,7 +125,7 @@ internal sealed class PublishedTemplateRenderer(
             content.Channel.Value,
             resolved.Value);
         Result<RenderedForm> full = await RenderFormAsync(
-            template,
+            published,
             identity,
             content,
             request.Variables,
@@ -153,7 +154,7 @@ internal sealed class PublishedTemplateRenderer(
         if (request.IncludeMaskedForm)
         {
             Result<RenderedForm> maskedForm = await RenderMaskedFormAsync(
-                template, identity, content, request.Variables, wrapper.Value, full.Value!, cancellationToken);
+                published, identity, content, request.Variables, wrapper.Value, full.Value!, cancellationToken);
             if (maskedForm.IsFailure)
             {
                 return maskedForm.AsFailure<RenderedForm, PublishedTemplateRender>();
@@ -186,7 +187,7 @@ internal sealed class PublishedTemplateRenderer(
     /// </para>
     /// </summary>
     private async Task<Result<RenderedForm>> RenderMaskedFormAsync(
-        Template template,
+        PublishedTemplateContext published,
         RenderIdentity identity,
         TemplateContent content,
         JsonElement? variables,
@@ -194,7 +195,8 @@ internal sealed class PublishedTemplateRenderer(
         RenderedForm full,
         CancellationToken cancellationToken)
     {
-        SensitiveValueMask.Outcome masked = VariableMasking.Mask(variables, template.SensitiveVariables);
+        SensitiveValueMask.Outcome masked = VariableMasking.Mask(
+            variables, published.Version.SensitiveVariables);
         if (!masked.Changed)
         {
             return Result.Success(full);
@@ -208,7 +210,7 @@ internal sealed class PublishedTemplateRenderer(
         // it replaces whenever that value is short, so this form can be larger
         // than the message, and it is not the message anyway.
         return await RenderFormAsync(
-            template,
+            published,
             identity,
             content,
             masked.Value,
@@ -218,7 +220,7 @@ internal sealed class PublishedTemplateRenderer(
     }
 
     private async Task<Result<RenderedForm>> RenderFormAsync(
-        Template template,
+        PublishedTemplateContext published,
         RenderIdentity identity,
         TemplateContent content,
         JsonElement? variables,
@@ -291,7 +293,7 @@ internal sealed class PublishedTemplateRenderer(
         // here: the consuming module compares the whole error text against the
         // word.
         Result<RenderedOutput> output = RenderedOutputPolicy.Apply(
-            template,
+            published.Template,
             content.Channel,
             new RenderedFields(subject.Value, wrappedBody, wrappedBodyText),
             RefusalShape.Bare,

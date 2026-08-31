@@ -69,6 +69,10 @@ internal sealed class TemplateVersionConfiguration : IEntityTypeConfiguration<Te
             .HasField("_editors")
             .HasColumnName("editors");
 
+        builder.PrimitiveCollection(version => version.SensitiveVariables)
+            .HasField("_sensitiveVariables")
+            .HasColumnName("sensitive_variables");
+
         builder.Property(version => version.EntityTag)
             .HasColumnName("etag")
             .HasMaxLength(64)

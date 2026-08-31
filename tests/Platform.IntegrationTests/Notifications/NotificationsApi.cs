@@ -101,7 +101,6 @@ internal static class NotificationsApi
             purpose,
             legalBasis = "execucao-de-contrato",
             defaultLocale = "pt-BR",
-            sensitiveVariables,
         });
         created.EnsureSuccessStatusCode();
 
@@ -112,7 +111,7 @@ internal static class NotificationsApi
             body = "<p>Pedido {{ orderId }} atualizado.</p>",
             bodyText = "Pedido {{ orderId }} atualizado.",
         }, etag);
-        await TemplateApi.PutSchemaAsync(author, key, version, new
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
             properties = new
@@ -122,6 +121,11 @@ internal static class NotificationsApi
             },
             required = RequiredOrderId,
         }, etag);
+        if (sensitiveVariables is not null)
+        {
+            await TemplateApi.PutSensitiveVariablesAsync(author, key, version, sensitiveVariables, etag);
+        }
+
         await TemplateApi.PublishAsync(publisher, key, version);
         return (key, version);
     }

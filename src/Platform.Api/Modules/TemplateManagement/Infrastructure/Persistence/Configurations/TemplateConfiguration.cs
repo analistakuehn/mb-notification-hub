@@ -52,10 +52,6 @@ internal sealed class TemplateConfiguration : IEntityTypeConfiguration<Template>
             .HasField("_linkDomainsAllowed")
             .HasColumnName("link_domains_allowed");
 
-        builder.PrimitiveCollection(template => template.SensitiveVariables)
-            .HasField("_sensitiveVariables")
-            .HasColumnName("sensitive_variables");
-
         builder.Property(template => template.Status)
             .HasColumnName("status")
             .HasMaxLength(20)

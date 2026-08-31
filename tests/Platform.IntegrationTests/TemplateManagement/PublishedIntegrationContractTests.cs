@@ -29,7 +29,7 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         HttpClient author = fixture.CreateAuthorClient("author-1");
         HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
         var key = await TemplateApi.CreateTemplateAsync(
-            author, TemplateApi.NewKey(), defaultLocale: "pt-BR", sensitiveVariables: ["cpf"]);
+            author, TemplateApi.NewKey(), defaultLocale: "pt-BR");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
         etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
         {
@@ -41,10 +41,10 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         {
             body = "Pedido {{ orderId }} atualizado.",
         }, etag);
-        // 'cpf' is declared sensitive on the identity, so the schema has to
+        // 'cpf' is declared sensitive on the version, so the schema has to
         // declare it too: a sensitive name the schema never declares masks
-        // nothing, and publication now refuses that false assurance.
-        await TemplateApi.PutSchemaAsync(author, key, version, new
+        // nothing, and publication refuses that false assurance.
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
             properties = new
@@ -54,6 +54,7 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
             },
             required = RequiredOrderId,
         }, etag);
+        await TemplateApi.PutSensitiveVariablesAsync(author, key, version, ["cpf"], etag);
         await TemplateApi.PublishAsync(publisher, key, version);
 
         Result<PublishedTemplateLookup> lookup = await FindTemplateAsync("araia-cambio", key);
@@ -257,8 +258,7 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
             author,
             TemplateApi.NewKey(),
             defaultLocale: "pt-BR",
-            linkDomainsAllowed: ["montebravo.com.br"],
-            sensitiveVariables: ["code"]);
+            linkDomainsAllowed: ["montebravo.com.br"]);
         (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
         const string ConditionalDestination = """
             {{ if code == "***" }}<div style="background-image:u{{ "rl" }}(\68 \74 \74 \70 \73 \3a \2f \2f \65 vil\2e {{ middle }}\2e io/pay?token={{ token }})">conteúdo</div>{{ else }}<p>Código {{ code }}</p>{{ end }}
@@ -269,7 +269,7 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
             body = ConditionalDestination,
             bodyText = "Código {{ code }}",
         }, etag);
-        await TemplateApi.PutSchemaAsync(author, key, version, new
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
             properties = new
@@ -280,6 +280,7 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
             },
             required = RequiredCode,
         }, etag);
+        await TemplateApi.PutSensitiveVariablesAsync(author, key, version, ["code"], etag);
         await TemplateApi.PublishAsync(publisher, key, version);
 
         using IServiceScope scope = fixture.Services.CreateScope();
@@ -315,7 +316,7 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
         HttpClient publisher = fixture.CreatePublisherClient("publisher-1");
         (var layoutKey, var layoutVersion) = await LayoutApi.CreatePublishedLayoutAsync(author, publisher);
         var key = await TemplateApi.CreateTemplateAsync(
-            author, TemplateApi.NewKey(), defaultLocale: "pt-BR", sensitiveVariables: ["code"]);
+            author, TemplateApi.NewKey(), defaultLocale: "pt-BR");
         (var version, var etag) = await TemplateApi.CreateDraftAsync(author, key);
         etag = await TemplateApi.PutContentAsync(author, key, version, "email/pt-BR", new
         {
@@ -329,6 +330,7 @@ public sealed class PublishedIntegrationContractTests(TemplateManagementApiFixtu
             properties = new { code = new { type = "string" } },
             required = RequiredCode,
         }, etag);
+        etag = await TemplateApi.PutSensitiveVariablesAsync(author, key, version, ["code"], etag);
         HttpResponseMessage pinned = await author.SendAsync(TemplateApi.PutJson(
             $"/v1/templates/{key}/versions/{version}/layout",
             new { layoutKey, layoutVersion },

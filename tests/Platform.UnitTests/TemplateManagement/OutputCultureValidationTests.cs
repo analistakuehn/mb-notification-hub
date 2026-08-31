@@ -191,7 +191,6 @@ public sealed class OutputCultureValidationTests
             LegalBasis = "execucao-de-contrato",
             DefaultLocale = PtBr,
             LinkDomainsAllowed = [],
-            SensitiveVariables = [],
         };
 
     private static TemplateVersion TemplateDraft(string body)

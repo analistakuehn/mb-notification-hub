@@ -159,7 +159,7 @@ public static partial class TemplateValidation
 
         AddUrlChecks(checks, template, version, declarations, analyses, layoutReference);
         AddAuthenticationSmsChecks(checks, template, version, declarations, analyses, layoutReference);
-        AddSensitiveVariableChecks(checks, template, version);
+        AddSensitiveVariableChecks(checks, version);
         AddChannelLimitChecks(checks, version, layoutReference);
         AddDefaultLocaleChecks(checks, template, version);
         AddLayoutReferenceChecks(checks, version, layoutReference);
@@ -666,18 +666,18 @@ public static partial class TemplateValidation
         }
     }
 
-    private static void AddSensitiveVariableChecks(List<ValidationCheck> checks, Template template, TemplateVersion version)
+    private static void AddSensitiveVariableChecks(List<ValidationCheck> checks, TemplateVersion version)
     {
-        if (template.SensitiveVariables.Count == 0)
+        if (version.SensitiveVariables.Count == 0)
         {
-            checks.Add(Passed(ValidationCheckNames.SensitiveVariables, "The template declares no sensitive variable."));
+            checks.Add(Passed(ValidationCheckNames.SensitiveVariables, "The version declares no sensitive variable."));
             return;
         }
 
         var before = checks.Count;
-        var sensitive = new HashSet<string>(template.SensitiveVariables, StringComparer.Ordinal);
+        var sensitive = new HashSet<string>(version.SensitiveVariables, StringComparer.Ordinal);
 
-        AddSensitiveVariableDeclarationChecks(checks, template, version);
+        AddSensitiveVariableDeclarationChecks(checks, version);
 
         foreach (TemplateContent content in version.Contents)
         {
@@ -718,11 +718,10 @@ public static partial class TemplateValidation
     /// </summary>
     private static void AddSensitiveVariableDeclarationChecks(
         List<ValidationCheck> checks,
-        Template template,
         TemplateVersion version)
     {
         if (!VariablesSchema.TryUndeclaredNames(
-            version.VariablesSchemaJson, template.SensitiveVariables, out IReadOnlyList<string> undeclared))
+            version.VariablesSchemaJson, version.SensitiveVariables, out IReadOnlyList<string> undeclared))
         {
             // The schema itself is unusable, which `variables-schema` already
             // reports. Naming it twice would only crowd the report.

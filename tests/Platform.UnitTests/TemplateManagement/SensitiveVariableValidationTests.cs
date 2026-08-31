@@ -128,7 +128,7 @@ public sealed class SensitiveVariableValidationTests
     }
 
     [Fact]
-    public void A_template_declaring_no_sensitive_variable_passes()
+    public void A_version_declaring_no_sensitive_variable_passes()
     {
         ValidationCheck check = Run(sensitive: [], body: "Olá, tudo bem?");
 
@@ -203,7 +203,6 @@ public sealed class SensitiveVariableValidationTests
             LegalBasis = "execucao-de-contrato",
             DefaultLocale = Locale.Create("pt-BR").Value,
             LinkDomainsAllowed = ["exemplo.com"],
-            SensitiveVariables = sensitive,
         }).Value!;
 
         var version = TemplateVersion.CreateDraft(Key, 1, "author-1", DateTimeOffset.UtcNow);
@@ -216,6 +215,13 @@ public sealed class SensitiveVariableValidationTests
                 null),
             "author-1").IsSuccess.ShouldBeTrue();
         version.SetVariablesSchema(schema, "author-1").IsSuccess.ShouldBeTrue();
+        version.SetSensitiveVariables(sensitive, "author-1").IsSuccess.ShouldBeTrue();
+
+        // Without this, every case that asserts `Passed` is satisfied by a
+        // version that declares nothing: the check answers `Passed` on an
+        // empty declaration, so emptying the arrangement leaves five of these
+        // green. Measured, not supposed.
+        version.SensitiveVariables.ShouldBe(sensitive);
 
         ValidationReport report = TemplateValidation.Validate(template, version, [
             new ContentAnalysis(

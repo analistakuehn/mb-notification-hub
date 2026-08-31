@@ -243,7 +243,6 @@ public sealed class AuthenticationSmsLinkValidationTests
             LegalBasis = "execucao-de-contrato",
             DefaultLocale = Locale.Create("pt-BR").Value,
             LinkDomainsAllowed = linkDomains,
-            SensitiveVariables = [],
         };
 
     private static TemplateVersion MakeVersion(

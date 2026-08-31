@@ -15,8 +15,5 @@ internal static partial class CreateTemplate
 
         /// <summary>Domains links and URL variables may point at. Absent or empty means no links allowed.</summary>
         public IReadOnlyList<string>? LinkDomainsAllowed { get; init; }
-
-        /// <summary>Variable names whose values carry sensitive data.</summary>
-        public IReadOnlyList<string>? SensitiveVariables { get; init; }
     }
 }

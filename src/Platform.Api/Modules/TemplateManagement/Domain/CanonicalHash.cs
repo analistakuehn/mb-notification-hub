@@ -16,6 +16,11 @@ internal static class CanonicalHash
 {
     private const char RecordSeparator = (char)0x1E;
 
+    // Separates the names inside the sensitive-variable field. A name is
+    // letters, digits, underscores and dots by construction, so no name can
+    // carry this character and no pair of names can forge a third one.
+    private const char UnitSeparator = (char)0x1F;
+
     internal static string OfFields(params string?[] fields)
         => Hash(AppendFields(new StringBuilder(), fields).ToString());
 
@@ -30,15 +35,22 @@ internal static class CanonicalHash
         string? canonicalVariablesSchema,
         string? layoutKey,
         int? layoutVersion,
+        IReadOnlyList<string> sensitiveVariables,
         IEnumerable<TemplateContent> contents)
     {
         var builder = new StringBuilder();
+        var sensitive = CanonicalSensitiveVariables(sensitiveVariables);
 
         // The layout fields join the header record only when a layout is
         // pinned, so versions without one keep their historical hash bytes.
+        // The sensitive-variable field is not treated that way: it is always
+        // present, empty included, so a version that declares nothing is
+        // distinguishable from one that never carried the field at all. The
+        // exemption above exists to preserve bytes already written, and no
+        // stored version predates this field.
         if (layoutKey is null)
         {
-            AppendFields(builder, canonicalVariablesSchema).Append(RecordSeparator);
+            AppendFields(builder, canonicalVariablesSchema, sensitive).Append(RecordSeparator);
         }
         else
         {
@@ -46,7 +58,8 @@ internal static class CanonicalHash
                 builder,
                 canonicalVariablesSchema,
                 layoutKey,
-                layoutVersion!.Value.ToString(CultureInfo.InvariantCulture)).Append(RecordSeparator);
+                layoutVersion!.Value.ToString(CultureInfo.InvariantCulture),
+                sensitive).Append(RecordSeparator);
         }
 
         IOrderedEnumerable<TemplateContent> ordered = contents
@@ -84,6 +97,18 @@ internal static class CanonicalHash
 
         return Hash(builder.ToString());
     }
+
+    /// <summary>
+    /// The declared sensitive names as one field. Sorted, because the mask and
+    /// the publication check both read the declaration as a set: two versions
+    /// that name the same variables must hash alike however the author typed
+    /// the order, exactly as the content entries below are ordered rather than
+    /// hashed as written.
+    /// </summary>
+    private static string CanonicalSensitiveVariables(IReadOnlyList<string> sensitiveVariables)
+        => string.Join(
+            UnitSeparator,
+            sensitiveVariables.OrderBy(variable => variable, StringComparer.Ordinal));
 
     private static StringBuilder AppendFields(StringBuilder builder, params string?[] fields)
     {

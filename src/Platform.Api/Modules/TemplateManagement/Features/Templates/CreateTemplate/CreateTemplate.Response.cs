@@ -24,8 +24,6 @@ internal static partial class CreateTemplate
 
         public required IReadOnlyList<string> LinkDomainsAllowed { get; init; }
 
-        public required IReadOnlyList<string> SensitiveVariables { get; init; }
-
         internal static Response From(Template template) => new()
         {
             Key = template.Key.Value,
@@ -37,7 +35,6 @@ internal static partial class CreateTemplate
             Status = template.Status.Canonical(),
             DefaultLocale = template.DefaultLocale?.Value,
             LinkDomainsAllowed = template.LinkDomainsAllowed,
-            SensitiveVariables = template.SensitiveVariables,
         };
     }
 }

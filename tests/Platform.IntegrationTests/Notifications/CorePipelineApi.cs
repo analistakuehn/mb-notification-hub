@@ -45,7 +45,6 @@ internal static class CorePipelineApi
             purpose,
             legalBasis,
             defaultLocale = "pt-BR",
-            sensitiveVariables,
         });
         created.EnsureSuccessStatusCode();
 
@@ -59,12 +58,17 @@ internal static class CorePipelineApi
         {
             body = "Código de acesso: {{ code }}.",
         }, etag);
-        await TemplateApi.PutSchemaAsync(author, key, version, new
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
             properties = new { code = new { type = "string" } },
             required = RequiredCode,
         }, etag);
+        if (sensitiveVariables is not null)
+        {
+            await TemplateApi.PutSensitiveVariablesAsync(author, key, version, sensitiveVariables, etag);
+        }
+
         await TemplateApi.PublishAsync(publisher, key, version);
         return (key, version);
     }

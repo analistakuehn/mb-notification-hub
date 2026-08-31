@@ -56,7 +56,6 @@ internal static partial class CreateTemplate
                 LegalBasis = command.LegalBasis,
                 DefaultLocale = defaultLocale,
                 LinkDomainsAllowed = command.LinkDomainsAllowed ?? [],
-                SensitiveVariables = command.SensitiveVariables ?? [],
             });
             if (template.IsFailure)
             {

@@ -32,6 +32,7 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         services.AddScoped<PutTemplateVersionContent.Handler>();
         services.AddScoped<PutTemplateVersionVariablesSchema.Handler>();
         services.AddScoped<PutTemplateVersionLayout.Handler>();
+        services.AddScoped<PutTemplateVersionSensitiveVariables.Handler>();
         services.AddScoped<PublishTemplateVersion.Handler>();
         services.AddScoped<DeprecateTemplate.Handler>();
         services.AddScoped<DisableTemplate.Handler>();
@@ -97,6 +98,7 @@ public sealed class TemplateManagementModule : IModule, IEndpointModule
         ValidateTemplateVersion.MapEndpoint(templates);
         RenderTemplateVersion.MapEndpoint(templates);
         PutTemplateVersionLayout.MapEndpoint(templates);
+        PutTemplateVersionSensitiveVariables.MapEndpoint(templates);
         DiffTemplateVersions.MapEndpoint(templates);
 
         RouteGroupBuilder layouts = app.MapGroup("/v1/layouts");

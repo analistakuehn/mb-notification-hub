@@ -4,12 +4,21 @@ using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 namespace NotificationHub.UnitTests.TemplateManagement;
 
 /// <summary>
-/// Born green, and it is the fence the rest of this work stands on. Refusing a
-/// payload that does not transcode moved where the canonical form is produced;
-/// it must not have moved a single byte of what the form produces. Every hash
-/// here is pinned to the value the aggregates answered before that move: a
-/// hash that shifts turns every published version into an integrity failure,
-/// which would declare tampering in bulk over content nobody touched.
+/// The fence the rest of this work stands on: every hash is a literal, so a
+/// change that moves a byte of the canonical form has to say so here instead
+/// of passing unnoticed. A hash that shifts turns every stored version into an
+/// integrity failure, which would declare tampering in bulk over content
+/// nobody touched.
+/// <para>
+/// The version hashes were re-pinned once, on purpose, when the declaration of
+/// which variables carry sensitive data moved onto the version and into the
+/// canonical form. That field is written unconditionally, empty included, so
+/// no version keeps its previous bytes and none can: an empty declaration and
+/// an absent field must not be the same document. The class-policy hashes did
+/// not move, because that form never carried the field. The window for this is
+/// closed by the first stored row that has to survive a redeploy; from then on
+/// a shift here is a defect, not a decision.
+/// </para>
 /// </summary>
 public sealed class ContentHashNeutralityTests
 {
@@ -27,8 +36,8 @@ public sealed class ContentHashNeutralityTests
 
     /// <summary>
     /// A schema that is legal JSON and not an object. The door refuses it, and
-    /// a row written before the door existed still has to hash to what it
-    /// always hashed to, or verifying it would report tampering.
+    /// a row written before the door existed still has to hash to the pinned
+    /// value, or verifying it would report tampering.
     /// </summary>
     internal const string NonObjectSchema = "\"texto\"";
 
@@ -64,32 +73,32 @@ public sealed class ContentHashNeutralityTests
     ];
 
     /// <summary>
-    /// The hash each corpus entry produced before the refusal moved. The values
-    /// are literals and not a recomputation on purpose: a test that recomputes
-    /// both sides with the same code cannot tell that the code changed.
+    /// The hash each corpus entry produces. The values are literals and not a
+    /// recomputation on purpose: a test that recomputes both sides with the
+    /// same code cannot tell that the code changed.
     /// </summary>
     private static readonly Dictionary<string, string> Pinned = new(StringComparer.Ordinal)
     {
-        ["exponent"] = "c787e4b2cdbdb45f54b3c88a1376c6fa02e281f9545691cdb6b680ad8bffd85b",
-        ["trailing-zeros"] = "0b5de60f0b47fe9ea3db92645795c746b03b6dd701688edaeff25c72057a9447",
-        ["decimal-zero"] = "2b70dbb1ad6d89a10daa59456b2ae8b87db747d31747083466c7bcb06b653213",
-        ["negative-zero"] = "e0586be3b42e424a9509b7a18b0c2212e57b66d3a51ff670f0ddae503510ad46",
-        ["reordered-keys"] = "2ab0164b5d4bd10bced2beb302dae14f812636889286fb23750be6bffa7c36c9",
-        ["sorted-keys"] = "2ab0164b5d4bd10bced2beb302dae14f812636889286fb23750be6bffa7c36c9",
-        ["paired-surrogate-escape"] = "cd889df9425936a9f1fa0c36f6fa6435ff5a20e76cfbcb8983a36bd4d96fe9e4",
-        ["literal-emoji"] = "cd889df9425936a9f1fa0c36f6fa6435ff5a20e76cfbcb8983a36bd4d96fe9e4",
-        ["escaped-accent"] = "06bf2fe8ef343cd0665be20a6479cc3a3bec08b0f1053672a7cd38439194049d",
-        ["literal-accent"] = "06bf2fe8ef343cd0665be20a6479cc3a3bec08b0f1053672a7cd38439194049d",
-        ["nested"] = "e2d5ccf3e035e081a50f561d77b0b959af025d5154d055d5843d59a6e9f351f3",
-        ["at-the-ceiling"] = "64786502d65d30e210e959b68d141af2668f56a93eb03a2f608b06fa3c01a230",
-        ["non-object"] = "2b21c9fcd440807da5db1416d1eb7403afba15f790f533307a3c8dd3a4d72507",
-        ["no-schema"] = "e112db8d6d1a9710c0fc13ef6bb416e41814d46980165c2181c08bba43a33e23",
+        ["exponent"] = "856b77fcd141cf23a95ac425eaec327456bb2ad5d1c3239eeb6267386f911dba",
+        ["trailing-zeros"] = "78131c9a88ac24590acf59abd2e5e893de83abd4aa78d32d62d6da5998e6b033",
+        ["decimal-zero"] = "f7dd659ede3a21bed7d9c6598e6b3cb96c16427414cff0347b3f3e1a2853d6ad",
+        ["negative-zero"] = "49ad555d135f2dbfb5ec8aefacc753d1f376ecb23ec9ee406fc7d972282d874f",
+        ["reordered-keys"] = "be7ff915b37884d3e8d90cedc11ee818e9c40f3801c1258b6a172527a4fc5591",
+        ["sorted-keys"] = "be7ff915b37884d3e8d90cedc11ee818e9c40f3801c1258b6a172527a4fc5591",
+        ["paired-surrogate-escape"] = "813cbdff80cf683d3e400e8de673863ecc7fae8ae35d56a3d60b1a48d48bc2e5",
+        ["literal-emoji"] = "813cbdff80cf683d3e400e8de673863ecc7fae8ae35d56a3d60b1a48d48bc2e5",
+        ["escaped-accent"] = "72063a337bd8561cf333d6a8914bb5a0a6b93b029ebeface56baae04a1b75d44",
+        ["literal-accent"] = "72063a337bd8561cf333d6a8914bb5a0a6b93b029ebeface56baae04a1b75d44",
+        ["nested"] = "4a8da638c8cc77d8b3a48c5398bf3682462717716d70ae3bca9e363d703b6873",
+        ["at-the-ceiling"] = "9a41e93ebd073141eb504d2597c5df59c7c935e7a90dccf6599ff6de397b0bf7",
+        ["non-object"] = "1b8998c0fd8091c1935db41abc5a94fefd09de826936884dc0180228d3c3e132",
+        ["no-schema"] = "9a189e9ad7b97c16defdb639e86aee17a5475394fd73ade94ee0f9bc59bb81e0",
         ["policy-plain"] = "be13f2fa16c8b1c919e26f5ec7c0806fcf7bd4867d2d4df36ea09a3da98628ef",
         ["policy-reordered"] = "be13f2fa16c8b1c919e26f5ec7c0806fcf7bd4867d2d4df36ea09a3da98628ef",
     };
 
     [Fact]
-    public void Every_schema_the_aggregate_admits_hashes_to_the_byte_it_always_hashed_to()
+    public void Every_schema_the_aggregate_admits_hashes_to_the_byte_it_is_pinned_to()
     {
         Dictionary<string, string> actual = new(StringComparer.Ordinal);
         foreach ((var name, var schema) in Schemas)

@@ -533,10 +533,11 @@ public sealed class TemplateValidationTests
     [Fact]
     public void A_sensitive_variable_in_a_url_position_fails()
     {
-        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"], sensitiveVariables: ["cpf"]);
+        Template template = MakeTemplate(linkDomains: ["montebravo.com.br"]);
         TemplateVersion version = MakeVersion(
             ("email", "pt-BR", "Oi", "Documento https://montebravo.com.br/consulta?doc={{ cpf }}", "texto"));
         SetSchema(version, """{ "type": "object", "properties": { "cpf": { "type": "string" } } }""");
+        SetSensitive(version, "cpf");
 
         ValidationReport report = TemplateValidation.Validate(template, version, []);
 
@@ -549,9 +550,10 @@ public sealed class TemplateValidationTests
     [Fact]
     public void A_sensitive_variable_outside_a_url_position_passes()
     {
-        Template template = MakeTemplate(sensitiveVariables: ["cpf"]);
+        Template template = MakeTemplate();
         TemplateVersion version = MakeVersion(("sms", "pt-BR", null, "Documento final {{ cpf }}", null));
         SetSchema(version, """{ "type": "object", "properties": { "cpf": { "type": "string" } } }""");
+        SetSensitive(version, "cpf");
 
         ValidationReport report = TemplateValidation.Validate(template, version, []);
 
@@ -646,8 +648,7 @@ public sealed class TemplateValidationTests
     private static Template MakeTemplate(
         NotificationClass @class = NotificationClass.Transactional,
         string? defaultLocale = "pt-BR",
-        IReadOnlyList<string>? linkDomains = null,
-        IReadOnlyList<string>? sensitiveVariables = null)
+        IReadOnlyList<string>? linkDomains = null)
         => Template.Create(Key, new TemplateMetadata
         {
             Application = "araia-cambio",
@@ -657,8 +658,10 @@ public sealed class TemplateValidationTests
             LegalBasis = "execucao-de-contrato",
             DefaultLocale = defaultLocale is null ? null : Locale.Create(defaultLocale).Value,
             LinkDomainsAllowed = linkDomains ?? [],
-            SensitiveVariables = sensitiveVariables ?? [],
         }).Value!;
+
+    private static void SetSensitive(TemplateVersion version, params string[] variables)
+        => version.SetSensitiveVariables(variables, "author-1").IsSuccess.ShouldBeTrue();
 
     private static TemplateVersion MakeVersion(
         params (string Channel, string Locale, string? Subject, string Body, string? BodyText)[] contents)

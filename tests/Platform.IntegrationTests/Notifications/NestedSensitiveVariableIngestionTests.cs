@@ -120,7 +120,6 @@ public sealed class NestedSensitiveVariableIngestionTests(NotificationsApiFixtur
             purpose = "order-updates",
             legalBasis = "execucao-de-contrato",
             defaultLocale = "pt-BR",
-            sensitiveVariables,
         });
         created.EnsureSuccessStatusCode();
 
@@ -131,7 +130,7 @@ public sealed class NestedSensitiveVariableIngestionTests(NotificationsApiFixtur
             body = "<p>Pedido {{ orderId }} de {{ cliente.nome }}.</p>",
             bodyText = "Pedido {{ orderId }} de {{ cliente.nome }}.",
         }, etag);
-        await TemplateApi.PutSchemaAsync(author, key, version, new
+        etag = await TemplateApi.PutSchemaAsync(author, key, version, new
         {
             type = "object",
             properties = new
@@ -150,6 +149,7 @@ public sealed class NestedSensitiveVariableIngestionTests(NotificationsApiFixtur
             },
             required = RequiredOrderId,
         }, etag);
+        await TemplateApi.PutSensitiveVariablesAsync(author, key, version, sensitiveVariables, etag);
         await TemplateApi.PublishAsync(publisher, key, version);
         return key;
     }

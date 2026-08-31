@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
@@ -10,8 +11,16 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Domain;
 /// <see cref="ContentHash"/> covers the canonical content of the whole version and
 /// is refreshed on every edit; <see cref="EntityTag"/> backs optimistic concurrency
 /// through HTTP entity tags.
+/// <para>
+/// The names that carry sensitive data are declared here rather than on the
+/// identity, because the declaration decides what the render masks and what the
+/// trail stores in clear. Living on the version puts it inside the hash the
+/// approval covers, so a second person approves the exact list, and it can be
+/// corrected by the same act that corrects everything else: a new draft,
+/// edited, published by somebody who did not write it.
+/// </para>
 /// </summary>
-public sealed class TemplateVersion
+public sealed partial class TemplateVersion
 {
     /// <summary>
     /// Characters a content subject may carry. The number comes from the mail
@@ -35,9 +44,15 @@ public sealed class TemplateVersion
     /// </summary>
     public const int MaxSchemaLength = 64_000;
 
+    /// <summary>Names a version may declare as carrying sensitive data.</summary>
+    public const int MaxSensitiveVariables = 100;
+
+    public const int MaxVariableNameLength = 100;
+
     private readonly string _templateKey;
     private readonly List<TemplateContent> _contents = [];
     private readonly List<string> _editors = [];
+    private readonly List<string> _sensitiveVariables = [];
 
     private TemplateVersion(TemplateKey templateKey, int version, string createdBy, DateTimeOffset createdAt)
     {
@@ -46,7 +61,7 @@ public sealed class TemplateVersion
         Status = TemplateVersionStatus.Draft;
         CreatedBy = createdBy;
         CreatedAt = createdAt;
-        ContentHash = CanonicalHash.OfVersion(null, null, null, _contents);
+        ContentHash = CanonicalHash.OfVersion(null, null, null, _sensitiveVariables, _contents);
         EntityTag = NewEntityTag();
     }
 
@@ -90,6 +105,9 @@ public sealed class TemplateVersion
 
     public IReadOnlyList<string> Editors => _editors;
 
+    /// <summary>Variable names whose values carry sensitive data and must never sit in a URL position.</summary>
+    public IReadOnlyList<string> SensitiveVariables => _sensitiveVariables;
+
     public static TemplateVersion CreateDraft(TemplateKey templateKey, int version, string createdBy, DateTimeOffset createdAt)
     {
         ArgumentNullException.ThrowIfNull(templateKey);
@@ -121,6 +139,7 @@ public sealed class TemplateVersion
         draft.VariablesSchemaJson = source.VariablesSchemaJson;
         draft.LayoutKey = source.LayoutKey;
         draft.LayoutVersion = source.LayoutVersion;
+        draft._sensitiveVariables.AddRange(source._sensitiveVariables);
         foreach (TemplateContent content in source._contents)
         {
             draft._contents.Add(new TemplateContent(
@@ -132,7 +151,11 @@ public sealed class TemplateVersion
         }
 
         draft.ContentHash = CanonicalHash.OfVersion(
-            canonicalSchema, draft.LayoutKey, draft.LayoutVersion, draft._contents);
+            canonicalSchema,
+            draft.LayoutKey,
+            draft.LayoutVersion,
+            draft._sensitiveVariables,
+            draft._contents);
         return Result.Success(draft);
     }
 
@@ -158,6 +181,7 @@ public sealed class TemplateVersion
             RolledBackFrom = state.RolledBackFrom,
         };
         version._editors.AddRange(state.Editors);
+        version._sensitiveVariables.AddRange(state.SensitiveVariables);
         foreach (TemplateContentState content in state.Contents)
         {
             version._contents.Add(new TemplateContent(
@@ -190,7 +214,11 @@ public sealed class TemplateVersion
         }
 
         version.ContentHash = CanonicalHash.OfVersion(
-            canonicalSchema, version.LayoutKey, version.LayoutVersion, version._contents);
+            canonicalSchema,
+            version.LayoutKey,
+            version.LayoutVersion,
+            version._sensitiveVariables,
+            version._contents);
         return version;
     }
 
@@ -309,7 +337,7 @@ public sealed class TemplateVersion
 
         return string.Equals(
             ContentHash,
-            CanonicalHash.OfVersion(canonicalSchema, LayoutKey, LayoutVersion, _contents),
+            CanonicalHash.OfVersion(canonicalSchema, LayoutKey, LayoutVersion, _sensitiveVariables, _contents),
             StringComparison.Ordinal)
             ? Result.Success()
             : Result.BusinessRuleViolation(DomainError.Format(
@@ -453,6 +481,88 @@ public sealed class TemplateVersion
         return Result.Success();
     }
 
+    /// <summary>
+    /// Declares which variables of this version carry sensitive data. It is an
+    /// edit like any other: only a draft accepts it, the editor is recorded,
+    /// and the hash is refreshed, so the declaration reaches publication under
+    /// the same four eyes and the same approval as the content it protects.
+    /// <para>
+    /// Whether every declared name resolves through the variables schema is
+    /// the job of the sensitive-variable validation check, not of this edit:
+    /// an author may declare the names and write the schema in either order
+    /// inside the same draft.
+    /// </para>
+    /// </summary>
+    public Result SetSensitiveVariables(IReadOnlyList<string> variables, string editor)
+    {
+        ArgumentNullException.ThrowIfNull(variables);
+        ArgumentException.ThrowIfNullOrWhiteSpace(editor);
+
+        Result guard = EnsureDraft("the sensitive variables");
+        if (guard.IsFailure)
+        {
+            return guard;
+        }
+
+        Result<List<string>> normalized = NormalizeSensitiveVariables(variables);
+        if (normalized.IsFailure)
+        {
+            return new Result(false, normalized.ErrorKind, normalized.Error);
+        }
+
+        // Read before mutating: an edit applied and then unable to rehash
+        // would leave the version holding a hash that vouches for a
+        // declaration it no longer has.
+        if (!TryReadStoredSchema(out var canonicalSchema))
+        {
+            return StoredContentUnreadable(Version);
+        }
+
+        _sensitiveVariables.Clear();
+        _sensitiveVariables.AddRange(normalized.Value!);
+        RegisterEdit(editor, canonicalSchema);
+        return Result.Success();
+    }
+
+    private static Result<List<string>> NormalizeSensitiveVariables(IReadOnlyList<string> variables)
+    {
+        if (variables.Count > MaxSensitiveVariables)
+        {
+            return Result.ValidationError<List<string>>(DomainError.Format(
+                ErrorCodes.InvalidRequest,
+                $"At most {MaxSensitiveVariables} sensitive variables are allowed."));
+        }
+
+        List<string> normalized = [];
+        foreach (var variable in variables)
+        {
+            var candidate = variable?.Trim() ?? string.Empty;
+            if (candidate.Length == 0
+                || candidate.Length > MaxVariableNameLength
+                || !VariableNamePattern().IsMatch(candidate))
+            {
+                return Result.ValidationError<List<string>>(DomainError.Format(
+                    ErrorCodes.InvalidRequest,
+                    "Each sensitive variable must be a template variable path: dot-separated "
+                    + "segments of letters, digits and underscores, none starting with a digit."));
+            }
+
+            if (!normalized.Contains(candidate, StringComparer.Ordinal))
+            {
+                normalized.Add(candidate);
+            }
+        }
+
+        return Result.Success(normalized);
+    }
+
+    // A sensitive name addresses either a variable at any depth (one segment)
+    // or an absolute path from the payload root (several). Every segment stays
+    // ASCII, where ordinal comparison and Unicode normalization coincide, so
+    // the publication check and the mask can never read the same name apart.
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")]
+    private static partial Regex VariableNamePattern();
+
     private Result EnsureDraft(string editTarget)
         => Status == TemplateVersionStatus.Draft
             ? Result.Success()
@@ -475,7 +585,8 @@ public sealed class TemplateVersion
             _editors.Add(editor);
         }
 
-        ContentHash = CanonicalHash.OfVersion(canonicalSchema, LayoutKey, LayoutVersion, _contents);
+        ContentHash = CanonicalHash.OfVersion(
+            canonicalSchema, LayoutKey, LayoutVersion, _sensitiveVariables, _contents);
         EntityTag = NewEntityTag();
     }
 
@@ -541,6 +652,8 @@ internal sealed record TemplateVersionState
     public string? ContentHash { get; init; }
 
     public IReadOnlyList<string> Editors { get; init; } = [];
+
+    public IReadOnlyList<string> SensitiveVariables { get; init; } = [];
 
     public IReadOnlyList<TemplateContentState> Contents { get; init; } = [];
 }

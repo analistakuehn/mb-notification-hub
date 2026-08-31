@@ -15,8 +15,7 @@ internal static class TemplateApi
         string @class = "transactional",
         string ownerTeam = "growth-squad",
         string? defaultLocale = null,
-        string[]? linkDomainsAllowed = null,
-        string[]? sensitiveVariables = null)
+        string[]? linkDomainsAllowed = null)
         => new
         {
             key,
@@ -27,23 +26,20 @@ internal static class TemplateApi
             legalBasis = "execucao-de-contrato",
             defaultLocale,
             linkDomainsAllowed,
-            sensitiveVariables,
         };
 
     internal static async Task<string> CreateTemplateAsync(
         HttpClient client,
         string key,
         string? defaultLocale = null,
-        string[]? linkDomainsAllowed = null,
-        string[]? sensitiveVariables = null)
+        string[]? linkDomainsAllowed = null)
     {
         HttpResponseMessage response = await client.PostAsJsonAsync(
             "/v1/templates",
             TemplateBody(
                 key,
                 defaultLocale: defaultLocale,
-                linkDomainsAllowed: linkDomainsAllowed,
-                sensitiveVariables: sensitiveVariables));
+                linkDomainsAllowed: linkDomainsAllowed));
         response.EnsureSuccessStatusCode();
         return key;
     }
@@ -66,6 +62,27 @@ internal static class TemplateApi
     {
         HttpResponseMessage response = await client.SendAsync(PutJson(
             $"/v1/templates/{key}/versions/{version}/content/{channelLocalePath}", content, etag));
+        response.EnsureSuccessStatusCode();
+        return response.Headers.ETag!.ToString();
+    }
+
+    /// <summary>
+    /// Declares which variables of the draft carry sensitive data. The
+    /// declaration belongs to the version, so it travels through the draft
+    /// like the content and the schema and reaches publication under the same
+    /// four eyes.
+    /// </summary>
+    internal static async Task<string> PutSensitiveVariablesAsync(
+        HttpClient client,
+        string key,
+        int version,
+        string[] sensitiveVariables,
+        string etag)
+    {
+        HttpResponseMessage response = await client.SendAsync(PutJson(
+            $"/v1/templates/{key}/versions/{version}/sensitive-variables",
+            new { sensitiveVariables },
+            etag));
         response.EnsureSuccessStatusCode();
         return response.Headers.ETag!.ToString();
     }
