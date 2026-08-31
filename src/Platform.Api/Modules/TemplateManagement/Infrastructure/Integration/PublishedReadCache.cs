@@ -17,8 +17,11 @@ namespace NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Integrat
 /// the renders run in the workers.
 /// </summary>
 /// <remarks>
-/// Each family owns a store with its own budget, so pointer traffic can never
-/// push a pinned layout out of memory. At the ceiling the store refuses the
+/// There are two stores, and only two: pointers and immutable per-version
+/// values. They own separate budgets, so pointer traffic can never push a
+/// pinned layout out of memory. Every decision-carrying key family shares the
+/// single pointer budget, so read "family" here as "store", never as "key
+/// prefix": the four prefixes do not get a budget each. At the ceiling the store refuses the
 /// arriving entry and schedules a compaction that frees a slice of the budget:
 /// a burst of distinct keys costs a slice of the working set instead of all of
 /// it, and the entries that survive keep answering while the slice is freed.

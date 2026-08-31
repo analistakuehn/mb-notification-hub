@@ -234,10 +234,43 @@
   version rollback, layout disable, layout deprecation, and class policy
   publication) drops the pointers it invalidates, in the process that
   committed it, right after the commit. Every other process keeps answering
-  the previous value until its own pointer expires, so a stop command reaches
-  the fleet within 60 seconds and never sooner. Treat that bound as the
-  contract of this surface: a control that has to stop traffic faster does not
-  belong behind these pointers.
+  the previous value until its own pointer expires.
+- The bound is 60 seconds counted from the last pointer write in that process,
+  plus the published read that was already in flight when the command
+  committed, and that excess has no ceiling. Measured: median 0.228 ms, p90
+  0.406 ms, and 30 seconds under thread-pool starvation, so the typical bound
+  is 60.0002 seconds and the pathological one is near 90. The earlier wording,
+  "within 60 seconds and never sooner", was measured false in the dangerous
+  direction. The generation fence neither fixes this nor can: it closes the
+  in-process race between an in-flight load and a local invalidation, and a
+  worker has no local invalidation to fence, because the invalidating handlers
+  are composed only by the API host.
+- This bound governs the READ, never the traffic. Between the render decision
+  and the actual send sits the dispatch queue, which these pointers do not
+  govern: the dispatch processor depends on no published contract of this
+  module and re-evaluates only the kill switch gate. A message rendered under
+  a 59 second pointer and dispatched much later goes out regardless. Tightening
+  this window therefore buys nothing for stopping traffic, and a control that
+  has to stop traffic belongs at dispatch, where the kill switch already acts.
+  The kill switch scopes producer, application and channel, and not template,
+  so the fastest per-template stop today is this surface and the fastest lever
+  of any kind is coarser than one template.
+- One budget, not four. The pointer store holds 4096 entries for all
+  decision-carrying key families together, and a hot template occupies two of
+  them, while class policies and layout identities eat from the same budget.
+  Measured: 1800 hot templates answer 0.45 percent of reads from the store and
+  2200 answer 7.65 percent, so 7 percent more working set buys 15 times more
+  queries, and the knee sits below 2048 hot templates. Each render-context miss
+  costs two sequential round trips. Nothing witnesses the crossing: the
+  counters are test-only, metrics are refused by the standing posture, and no
+  log fires, so the system crosses that cliff in silence.
+- One measured exception, recorded and deliberately not fixed: the framework
+  store answers with an entry that failed the expiry check while that entry is
+  being replaced. The width is instruction-scale and the value is always the
+  immediately previous round, so it does not move the bound above. It does
+  falsify the absolute phrasing "an entry never answers after the window".
+  Working around it would take a layer of our own over the framework type,
+  which is disproportionate for that width.
 - The historical read is not memoized at all, and never as a current pointer.
   It reads the store for the version it was named, and a version does not move
   once it leaves draft, so a lifecycle transition has nothing to invalidate
@@ -259,10 +292,13 @@
   a new member on a payload that is already memoized and a new consumer of the
   loader that already exists; an inventory at member level would be
   intractable and was not attempted. The rules make the surface declarable;
-  they do not make the decision safe. What this pair does not cover at all is
-  the correctness of the bound stated above, which is under its own work: what
-  changed with the rules is the encapsulation of the pointer read and the
-  witness that a process which did not run a command converges.
+  they do not make the decision safe. What changed with the rules is the
+  encapsulation of the pointer read and the witness that a process which did
+  not run a command converges. The bound stated above was corrected in the
+  same batch and no longer claims sixty seconds flat, but correcting the
+  sentence is not shortening the window: no rule here makes a stop reach the
+  fleet any sooner, and none of them can, because the excess comes from a read
+  that was already in flight and a worker has no local invalidation to fence.
 
 ## The historical read answers for published and superseded only
 
