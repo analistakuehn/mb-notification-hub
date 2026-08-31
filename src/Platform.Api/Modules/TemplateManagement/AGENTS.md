@@ -244,6 +244,25 @@
   there. Memoizing it behind a pointer would produce the exact defect the two
   contracts exist to keep apart: the answer about a past notification would
   start following the current publication.
+- Every memoized key carries the prefix of its family, and the key families of
+  the published reads are: `template:`, the published decision metadata of one
+  template identity; `render-context:`, the published context the render and
+  the variables validation share; `policy:`, the published class policy of one
+  application and class; `layout-identity:`, the status and the default locale
+  of a layout, which is its mutable half; and `layout-version:`, a pinned
+  layout version, the one family that never expires and is never invalidated,
+  because a published version does not move.
+- Two inventory rules hold that surface declarable, and each closes exactly
+  one thing: a new key family that the line above does not name, and a new
+  type touching the key builder that the inventory in the architecture tests
+  does not declare. What they do not close, and what stays human judgment, is
+  a new member on a payload that is already memoized and a new consumer of the
+  loader that already exists; an inventory at member level would be
+  intractable and was not attempted. The rules make the surface declarable;
+  they do not make the decision safe. What this pair does not cover at all is
+  the correctness of the bound stated above, which is under its own work: what
+  changed with the rules is the encapsulation of the pointer read and the
+  witness that a process which did not run a command converges.
 
 ## The historical read answers for published and superseded only
 
