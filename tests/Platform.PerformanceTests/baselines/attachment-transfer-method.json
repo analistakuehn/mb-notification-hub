@@ -1,0 +1,54 @@
+{
+  "FormatVersion": 1,
+  "RecordedAtUtc": "2026-08-31T20:13:55.5647834\u002B00:00",
+  "RecordedOn": "DESKTOP-PCIF06A / 22 n\u00FAcleos / .NET 10.0.10",
+  "PayloadUtf8Bytes": 4194304,
+  "EnvelopeBytes": 1024,
+  "OperationsPerArm": 12,
+  "ConfiguredConcurrency": 2,
+  "ExpectedDigest": "6DD6C702058556CA7BDFD95418FB6D1890517B8BFB59A456CEDD3E4F26B1CF0E",
+  "Arms": [
+    {
+      "ArmId": "buffer",
+      "AllocatedBytesPerOperation": 4198243,
+      "CpuMillisecondsPerOperation": 5.208333333333333,
+      "LatencyP95Milliseconds": 5.8775,
+      "ThroughputBytesPerSecond": 1148073376.0843587,
+      "HeapDeltaBytes": 8400264,
+      "WorkingSetDeltaBytes": 22470656,
+      "Generation0CollectionsPerOperation": 0.25,
+      "Generation1CollectionsPerOperation": 0.25,
+      "Generation2CollectionsPerOperation": 0.25,
+      "LogicalFileReadBytes": null,
+      "LogicalFileWrittenBytes": null
+    },
+    {
+      "ArmId": "streaming",
+      "AllocatedBytesPerOperation": 590,
+      "CpuMillisecondsPerOperation": 3.90625,
+      "LatencyP95Milliseconds": 4.1031,
+      "ThroughputBytesPerSecond": 2174965913.50931,
+      "HeapDeltaBytes": 8224,
+      "WorkingSetDeltaBytes": -24576,
+      "Generation0CollectionsPerOperation": 0,
+      "Generation1CollectionsPerOperation": 0,
+      "Generation2CollectionsPerOperation": 0,
+      "LogicalFileReadBytes": null,
+      "LogicalFileWrittenBytes": null
+    },
+    {
+      "ArmId": "spool",
+      "AllocatedBytesPerOperation": 132814,
+      "CpuMillisecondsPerOperation": 10.416666666666666,
+      "LatencyP95Milliseconds": 26.3961,
+      "ThroughputBytesPerSecond": 369273452.23879284,
+      "HeapDeltaBytes": 1609624,
+      "WorkingSetDeltaBytes": 1458176,
+      "Generation0CollectionsPerOperation": 0,
+      "Generation1CollectionsPerOperation": 0,
+      "Generation2CollectionsPerOperation": 0,
+      "LogicalFileReadBytes": 50343936,
+      "LogicalFileWrittenBytes": 50343936
+    }
+  ]
+}

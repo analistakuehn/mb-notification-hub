@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text;
 using NotificationHub.PerformanceTests.Contention;
+using NotificationHub.PerformanceTests.Gate;
 using NotificationHub.PerformanceTests.Instrumentation;
+using NotificationHub.PerformanceTests.ProviderTransfer;
 using NotificationHub.PerformanceTests.Scenarios;
 
 namespace NotificationHub.PerformanceTests.Reporting;
@@ -30,6 +32,218 @@ internal static class ReportRenderer
         Verdict(text, outcome);
         return text.ToString();
     }
+
+    internal static string Render(AttachmentTransferOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        var text = new StringBuilder();
+        text.AppendLine("=======================================================================");
+        text.AppendLine(" Comparação de transferência de anexos");
+        text.AppendLine("=======================================================================");
+        text.AppendLine(Culture, $" Gerado em      : {outcome.RecordedAtUtc}");
+        text.AppendLine(Culture, $" Host           : {outcome.Host} ({outcome.Processors} CPUs)");
+        text.AppendLine(Culture, $" Runtime        : {outcome.Runtime}");
+        text.AppendLine(Culture, $" Payload UTF-8  : {outcome.PayloadUtf8Bytes:N0} bytes");
+        text.AppendLine(Culture, $" Envelope       : {outcome.EnvelopeBytes:N0} bytes");
+        text.AppendLine(Culture, $" Perfil         : {outcome.OperationsPerArm:N0} operações por braço, concorrência {outcome.ConfiguredConcurrency:N0}");
+        text.AppendLine(Culture, $" Digest esperado: {outcome.ExpectedDigest}");
+        text.AppendLine();
+        text.AppendLine("-- Medições por braço -------------------------------------------------");
+        text.AppendLine(" braço       p50/p95/p99 (ms)       MiB/s   aloc./op   CPU (ms)  GC 0/1/2   concorrência  backlog");
+        foreach (AttachmentTransferArm arm in outcome.Arms)
+        {
+            text.AppendLine(
+                Culture,
+                $" {arm.ArmId,-10} {arm.LatencyP50Milliseconds,6:0.000}/{arm.LatencyP95Milliseconds,6:0.000}/{arm.LatencyP99Milliseconds,-6:0.000} "
+                + $"{arm.ThroughputBytesPerSecond / (1_024 * 1_024),9:0.00} "
+                + $"{arm.AllocatedBytes / arm.Operations,10:N0} {arm.CpuMilliseconds,10:0.000} "
+                + $"{arm.Generation0Collections}/{arm.Generation1Collections}/{arm.Generation2Collections,-5} "
+                + $"{arm.PeakConcurrency,5}/{arm.ConfiguredConcurrency,-5} {arm.InitialBacklog,7:N0}");
+            text.AppendLine(
+                Culture,
+                $"   heap {arm.HeapBytesBefore:N0} -> {arm.HeapBytesAfter:N0} ({Delta(arm.HeapBytesAfter - arm.HeapBytesBefore)}); "
+                + $"working set {arm.WorkingSetBytesBefore:N0} -> {arm.WorkingSetBytesAfter:N0} ({Delta(arm.WorkingSetBytesAfter - arm.WorkingSetBytesBefore)})");
+            text.AppendLine(
+                Culture,
+                $"   IO lógico de arquivo: leitura {ApplicableBytes(arm.LogicalFileReadBytes)}, escrita {ApplicableBytes(arm.LogicalFileWrittenBytes)}; "
+                + $"temporários criados {arm.TemporaryFilesCreated:N0}, residuais {arm.TemporaryFilesRemaining:N0}, raiz removida {(arm.TemporaryRootRemoved ? "sim" : "não")}");
+            text.AppendLine(
+                Culture,
+                $"   digest {(arm.DigestsEqual ? "igual" : "DIVERGENTE")}; valores observados: {string.Join(", ", arm.ObservedDigests)}");
+        }
+
+        AttachmentTransferArm buffer = outcome.Arms.Single(arm =>
+            string.Equals(arm.ArmId, AttachmentTransferMethodScenario.BufferArm, StringComparison.Ordinal));
+        text.AppendLine();
+        text.AppendLine("-- Razões na mesma rodada, com buffer = 1,000 -------------------------");
+        text.AppendLine(" braço       alocação/op   latência p95   vazão");
+        foreach (AttachmentTransferArm arm in outcome.Arms)
+        {
+            text.AppendLine(
+                Culture,
+                $" {arm.ArmId,-10} {Ratio(arm.AllocatedBytes / (double)arm.Operations, buffer.AllocatedBytes / (double)buffer.Operations),11:0.000} "
+                + $"{Ratio(arm.LatencyP95Milliseconds, buffer.LatencyP95Milliseconds),14:0.000} "
+                + $"{Ratio(arm.ThroughputBytesPerSecond, buffer.ThroughputBytesPerSecond),8:0.000}");
+        }
+
+        text.AppendLine();
+        text.AppendLine(" Heap, working set, alocação, coleções e CPU pertencem ao processo durante cada braço.");
+        text.AppendLine(" Heap e working set são fotografias antes e depois; os demais são deltas do intervalo.");
+        text.AppendLine(" IO informa bytes lógicos de arquivo; ele não simula contadores físicos do sistema operacional.");
+        return text.ToString();
+    }
+    internal static string Render(ProviderTransferOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        var text = new StringBuilder();
+        text.AppendLine("=======================================================================");
+        text.AppendLine(" Transferência ao provedor com trabalho funcional equivalente");
+        text.AppendLine("=======================================================================");
+        text.AppendLine(Culture, $" Gerado em       : {outcome.RecordedAtUtc}");
+        text.AppendLine(Culture, $" Host            : {outcome.Host} ({outcome.Processors} CPUs)");
+        text.AppendLine(Culture, $" Runtime         : {outcome.Runtime}");
+        text.AppendLine(
+            Culture,
+            $" GC do servidor  : {Answer(outcome.ServerGarbageCollection)}, "
+            + $"{outcome.GarbageCollectorHeapCount} heap(s), modo {outcome.GarbageCollectorLatencyMode}");
+        text.AppendLine(
+            Culture,
+            $" Perfil do corpus: {outcome.ProfileId}, conteúdo {outcome.ContentShape}");
+        text.AppendLine(
+            Culture,
+            $" Anexos          : {outcome.AttachmentCount:N0} de {outcome.AttachmentBytes:N0} bytes, "
+            + $"{outcome.TotalRawAttachmentBytes:N0} bytes crus somados, "
+            + $"{outcome.Base64Bytes:N0} bytes já em base64");
+        text.AppendLine(
+            Culture,
+            $" Corpo composto  : {outcome.BodyBytes:N0} bytes, teto do provedor {outcome.MessageCeilingBytes:N0}, "
+            + $"folga {outcome.MessageCeilingBytes - outcome.BodyBytes:N0}");
+        text.AppendLine(
+            Culture,
+            $" Fonte           : blocos de {outcome.SourceChunkBytes:N0} bytes, "
+            + $"latência de {outcome.SourceLatencyMilliseconds:0.000} ms por bloco");
+        text.AppendLine(
+            Culture,
+            $" Perfil          : {outcome.OperationsPerArm:N0} operações por braço, "
+            + $"concorrência {outcome.ConfiguredConcurrency:N0}, "
+            + $"{(outcome.ContentLengthDeclared ? "Content-Length declarado" : "transferência chunked")}");
+        text.AppendLine(Culture, $" Digest da fonte : {outcome.SourceContentSha256}");
+        text.AppendLine(Culture, $" Corpos iguais   : {Answer(outcome.ArmsAgreeOnBody)}");
+        text.AppendLine();
+        text.AppendLine("-- Evidência funcional por braço -------------------------------------");
+        foreach (ProviderTransferArm arm in outcome.Arms)
+        {
+            text.AppendLine(
+                Culture,
+                $" {arm.ArmId,-10} chamadas {arm.ProviderCalls,5:N0}, aceitas {arm.AcceptedCalls,5:N0}, "
+                + $"corpo capturado {arm.CapturedBodyBytes:N0} bytes, digests distintos {arm.DistinctCapturedDigests}");
+            text.AppendLine(
+                Culture,
+                $"   corpo {arm.CapturedBodySha256}; "
+                + $"{(arm.ChunkedObserved ? "chunked observado no duplo" : "Content-Length observado no duplo")}");
+            foreach (ProviderTransferAttachmentCheck check in arm.Attachments)
+            {
+                text.AppendLine(
+                    Culture,
+                    $"   anexo {check.Order}: {check.FileName} ({check.ContentType}), "
+                    + $"{check.SourceBytes:N0} bytes na fonte, {check.Base64Bytes:N0} em base64, "
+                    + $"{check.DecodedBytes:N0} decodificados; digest {Answer(check.DigestMatchesSource)}, "
+                    + $"metadados {Answer(check.MetadataMatches)}");
+            }
+
+            text.AppendLine(
+                Culture,
+                $"   temporários criados {arm.TemporaryFilesCreated:N0}, residuais {arm.TemporaryFilesRemaining:N0}, "
+                + $"raiz removida {Answer(arm.TemporaryRootRemoved)}, leituras abertas {arm.OpenSourceStreams:N0}");
+        }
+
+        text.AppendLine();
+        text.AppendLine("-- Custo por braço ---------------------------------------------------");
+        text.AppendLine(" braço       p50/p95/máx (ms)        MiB/s   aloc./op   CPU (ms)  GC 0/1/2   concorrência");
+        foreach (ProviderTransferArm arm in outcome.Arms)
+        {
+            text.AppendLine(
+                Culture,
+                $" {arm.ArmId,-10} {arm.LatencyP50Milliseconds,6:0.000}/{arm.LatencyP95Milliseconds,6:0.000}/"
+                + $"{arm.LatencyMaxMilliseconds,-7:0.000} "
+                + $"{arm.ThroughputBytesPerSecond / (1_024 * 1_024),9:0.00} "
+                + $"{arm.AllocatedBytesPerOperation,10:N0} {arm.CpuMilliseconds,10:0.000} "
+                + $"{arm.Generation0Collections}/{arm.Generation1Collections}/{arm.Generation2Collections,-5} "
+                + $"{arm.PeakConcurrency,5}/{arm.ConfiguredConcurrency,-5}");
+            text.AppendLine(
+                Culture,
+                $"   pico de heap {arm.PeakHeapBytes:N0} bytes, pico de working set "
+                + $"{arm.PeakWorkingSetBytes:N0} bytes, {arm.ResidencySamples:N0} amostras de residência; "
+                + $"pausa de coleta {arm.CollectionPauseMilliseconds:0.000} ms");
+        }
+
+        ProviderTransferArm? reference = outcome.Arms.FirstOrDefault(arm =>
+            string.Equals(arm.ArmId, ProviderTransferArms.BufferArm, StringComparison.Ordinal));
+        if (reference is not null)
+        {
+            text.AppendLine();
+            text.AppendLine("-- Razões na mesma rodada, com buffer = 1,000 ------------------------");
+            text.AppendLine(" braço        alocação   máx. latência     vazão   pico heap   pico WS");
+            foreach (ProviderTransferArm arm in outcome.Arms)
+            {
+                text.AppendLine(
+                    Culture,
+                    $" {arm.ArmId,-10} "
+                    + $"{Ratio(arm.AllocatedBytesPerOperation, reference.AllocatedBytesPerOperation),9:0.0000} "
+                    + $"{Ratio(arm.LatencyMaxMilliseconds, reference.LatencyMaxMilliseconds),15:0.000} "
+                    + $"{Ratio(arm.ThroughputBytesPerSecond, reference.ThroughputBytesPerSecond),9:0.000} "
+                    + $"{Ratio(arm.PeakHeapBytes, reference.PeakHeapBytes),11:0.000} "
+                    + $"{Ratio(arm.PeakWorkingSetBytes, reference.PeakWorkingSetBytes),9:0.000}");
+            }
+
+            text.AppendLine(
+                " Só a razão de alocação é comparada com a referência. Máxima latência, vazão e pico de heap");
+            text.AppendLine(
+                " ficam registrados e não julgados: em rodadas isoladas da mesma célula eles variaram por");
+            text.AppendLine(
+                " fatores de 67,7, 19,6 e 8,1, e uma faixa que aceite isso não recusa regressão nenhuma.");
+        }
+
+        text.AppendLine();
+        text.AppendLine("-- Orçamento derivado do alvo, por envio -----------------------------");
+        text.AppendLine(
+            Culture,
+            $" Teto por envio  : {ProviderTransferBudget.PerSendMemoryBudgetBytes:N0} bytes "
+            + $"({ProviderTransferBudget.TransferPathMemoryBytes:N0} por réplica dividido por "
+            + $"{ProviderTransferBudget.SendsInFlightPerReplica} envios em voo)");
+        text.AppendLine(
+            Culture,
+            $" Teto afim       : {ProviderTransferBudget.AllocationConstantBytes:N0} bytes mais "
+            + $"{ProviderTransferBudget.AllocationBytesPerRawByte:0.###} por byte cru, o que dá "
+            + $"{ProviderTransferBudget.AllocationCeilingBytes(outcome.TotalRawAttachmentBytes):N0} bytes aqui");
+        text.AppendLine(" braço       aloc./op      contra o orçamento      contra o teto afim");
+        foreach (ProviderTransferArm arm in outcome.Arms)
+        {
+            text.AppendLine(
+                Culture,
+                $" {arm.ArmId,-10} {arm.AllocatedBytesPerOperation,12:N0} "
+                + $"{Answer(arm.AllocatedBytesPerOperation <= ProviderTransferBudget.PerSendMemoryBudgetBytes),12} "
+                + $"{Answer(arm.AllocatedBytesPerOperation <= ProviderTransferBudget.AllocationCeilingBytes(outcome.TotalRawAttachmentBytes)),23}");
+        }
+
+        text.AppendLine();
+        text.AppendLine(" O percentil 99 só é reportado a partir de mil amostras; abaixo disso ele é o máximo.");
+        text.AppendLine(" O duplo do provedor roda neste mesmo processo: a CPU dele entra na do braço.");
+        text.AppendLine(" As passagens medidas usam captura por digest; só a passagem de verificação decodifica.");
+        text.AppendLine(" A rodada não promove método nenhum: ela produz a evidência que a decisão vai ler.");
+        return text.ToString();
+    }
+
+    private static string Answer(bool value) => value ? "sim" : "NÃO";
+
+    private static string ApplicableBytes(long? bytes)
+        => bytes.HasValue ? bytes.Value.ToString("N0", Culture) + " bytes" : "não aplicável";
+
+    private static string Delta(long value)
+        => (value > 0 ? "+" : string.Empty) + value.ToString("N0", Culture) + " bytes";
+
+    private static double Ratio(double numerator, double denominator)
+        => denominator > 0 ? numerator / denominator : double.NaN;
 
     private static void Header(StringBuilder text, ProbeOutcome outcome)
     {

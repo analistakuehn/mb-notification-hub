@@ -1,0 +1,28 @@
+{
+  "evaluated_at": "2026-08-31T20:27:40Z",
+  "evaluator_role": "dotnet-specialist-performance-runtime",
+  "candidate_fingerprint": "sha256:E0E26D3016BE99972D184866A32FECDAADFB21730CB068C5F9DEA0EA7905D1D4",
+  "evidence_row": "quality-attachment-transfer-runner",
+  "verdict": "refute",
+  "trigger": "performance-runtime",
+  "oracle_observed": "A rodada normal executa três braços, preserva o digest, aprova o gate e remove os temporários. Cancelamento ou falha no Parallel.For ignora a remoção posterior da raiz de spool.",
+  "commands": [
+    {
+      "command": "dotnet build tests/Platform.PerformanceTests/Platform.PerformanceTests.csproj --no-restore",
+      "exit_status": 0,
+      "result": "zero-warnings;zero-errors"
+    },
+    {
+      "command": "dotnet run --project tests/Platform.PerformanceTests/Platform.PerformanceTests.csproj --no-build -- --mode attachment-transfer",
+      "exit_status": 0,
+      "result": "three-arms;digest-equal;zero-residuals;gate-pass"
+    }
+  ],
+  "evidence_refs": [
+    "tests/Platform.PerformanceTests/Scenarios/AttachmentTransferMethodScenario.cs:85",
+    "tests/Platform.PerformanceTests/Scenarios/AttachmentTransferMethodScenario.cs:116",
+    "tests/Platform.PerformanceTests/Scenarios/AttachmentTransferMethodScenario.cs:150"
+  ],
+  "finding": "A raiz do spool é criada antes do Parallel.For, mas sua remoção não está em um finally que envolva a execução. Cancelamento ou falha pode deixar diretório temporário residual.",
+  "residual_uncertainty": null
+}

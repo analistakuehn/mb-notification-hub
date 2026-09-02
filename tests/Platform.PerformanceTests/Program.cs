@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using NotificationHub.PerformanceTests.Contention;
 using NotificationHub.PerformanceTests.Gate;
@@ -81,6 +83,16 @@ internal static class Program
         if (settings.Mode is ProbeMode.Parse)
         {
             return await RunParseMemoizationAsync(settings, stopping.Token);
+        }
+
+        if (settings.Mode is ProbeMode.AttachmentTransfer)
+        {
+            return await RunAttachmentTransferAsync(settings, stopping.Token);
+        }
+
+        if (settings.Mode is ProbeMode.ProviderTransfer)
+        {
+            return await RunProviderTransferAsync(settings, stopping.Token);
         }
 
         var started = Stopwatch.GetTimestamp();
@@ -481,6 +493,243 @@ internal static class Program
             fallback,
             ingestion,
             null);
+    }
+
+    /// <summary>
+    /// Runs the three attachment-transfer shapes over the same bytes and
+    /// compares their within-run ratios with a versioned run.
+    /// </summary>
+    private static async Task<int> RunAttachmentTransferAsync(
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        AttachmentTransferOutcome outcome = AttachmentTransferMethodScenario.Run(
+            settings.AttachmentCorpusBytes,
+            settings.AttachmentEnvelopeBytes,
+            settings.AttachmentRepeats,
+            settings.AttachmentConcurrency,
+            settings.AttachmentArms,
+            Report,
+            cancellationToken);
+        Console.WriteLine();
+        Console.WriteLine(ReportRenderer.Render(outcome));
+
+        if (settings.ReportPath is not null)
+        {
+            var directory = Path.GetDirectoryName(settings.ReportPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await File.WriteAllTextAsync(
+                settings.ReportPath,
+                JsonSerializer.Serialize(outcome, ReportOptions),
+                cancellationToken);
+            Report($"Relatório em JSON: {settings.ReportPath}");
+        }
+
+        if (settings.UpdateBaseline)
+        {
+            AttachmentTransferMethodBaseline recorded = AttachmentTransferMethodBaseline.From(
+                outcome,
+                $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
+            await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
+            Report($"Linha de base gravada em {settings.BaselinePath}.");
+            return ExitPass;
+        }
+
+        if (!File.Exists(settings.BaselinePath))
+        {
+            Console.Error.WriteLine(
+                $"Não existe linha de base em {settings.BaselinePath}; grave uma com --update-baseline.");
+            return ExitRefused;
+        }
+
+        AttachmentTransferMethodBaseline baseline = await AttachmentTransferMethodBaseline.LoadAsync(
+            settings.BaselinePath,
+            cancellationToken);
+        GateOutcome gate = AttachmentTransferMethodGate.Evaluate(baseline, outcome, settings.Tolerance);
+        Console.WriteLine();
+        Console.WriteLine("-- Portão relativo da transferência de anexos -------------------------");
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $" Linha de base de {baseline.RecordedAtUtc} em {baseline.RecordedOn}, "
+            + $"tolerância {gate.Tolerance:P0}."));
+        foreach (GateCheck check in gate.Checks)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $" {check.Metric,-52} referência {check.Reference,11:0.000}  "
+                + $"medido {check.Measured,11:0.000}  limite {check.Limit,11:0.000}  "
+                + $"{(check.Passes ? "passa" : "REPROVA")}"));
+        }
+
+        Console.WriteLine();
+        if (gate.Passes)
+        {
+            Console.WriteLine(
+                " Portão aprovado: os três braços preservaram corpus, digest, limpeza e razões versionadas.");
+            return ExitPass;
+        }
+
+        Console.Error.WriteLine(
+            " Portão reprovado: a comparação divergiu da referência ou violou uma invariante da rodada.");
+        return ExitGateFailed;
+    }
+
+    /// <summary>
+    /// Runs the three transfer methods against a provider double, each doing
+    /// the work a real send does, and grades the run against the ratified
+    /// envelope, the budget the deployment target implies and the versioned
+    /// reference.
+    /// <para>
+    /// Nothing here refuses a run for the collector it happened under. A run
+    /// under the wrong collector, or with the wrong number of heaps, is a red
+    /// line of the gate: a refusal would take the place of the check and the
+    /// check would never be seen failing.
+    /// </para>
+    /// </summary>
+    private static async Task<int> RunProviderTransferAsync(
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (settings.UpdateBaseline)
+        {
+            return await RecordProviderTransferBaselineAsync(settings, cancellationToken);
+        }
+
+        var profile = new ProviderTransferProfile(
+            settings.ProviderProfileId,
+            settings.ProviderAttachmentBytes,
+            settings.ProviderAttachmentCount,
+            settings.ProviderContentShape,
+            settings.ProviderSourceChunkBytes,
+            settings.ProviderSourceLatency,
+            settings.ProviderRepeats,
+            settings.ProviderConcurrency,
+            settings.ProviderContentLength);
+        ProviderTransferOutcome outcome = await ProviderTransferScenario.RunAsync(
+            profile, settings.ProviderArms, Report, cancellationToken);
+        Console.WriteLine();
+        Console.WriteLine(ReportRenderer.Render(outcome));
+        await WriteReportAsync(settings.ReportPath, outcome, cancellationToken);
+
+        if (!File.Exists(settings.BaselinePath))
+        {
+            IReadOnlyList<GateCheck> absolute = ProviderTransferInvariants.Checks(
+                outcome, settings.ProviderCandidateArm);
+            PrintProviderTransferChecks(absolute, $"sem referência em {settings.BaselinePath}");
+            if (absolute.All(check => check.Passes))
+            {
+                Console.WriteLine(
+                    " Rodada válida e dentro do orçamento. Ainda não existe referência: grave uma a partir de "
+                    + "relatórios de rodadas isoladas com --update-baseline --provider-baseline-from.");
+                return ExitPass;
+            }
+
+            Console.Error.WriteLine(" Rodada reprovada antes de qualquer comparação com referência.");
+            return ExitGateFailed;
+        }
+
+        ProviderTransferBaseline baseline = await ProviderTransferBaseline.LoadAsync(
+            settings.BaselinePath, cancellationToken);
+        GateOutcome gate = ProviderTransferGate.Evaluate(baseline, outcome, settings.ProviderCandidateArm);
+        PrintProviderTransferChecks(
+            gate.Checks,
+            $"referência de {baseline.RecordedAtUtc} em {baseline.RecordedOn}");
+        if (gate.Passes)
+        {
+            Console.WriteLine(
+                " Portão aprovado: os braços enviaram a mesma mensagem, o candidato coube no orçamento "
+                + "derivado do alvo e as razões acompanharam a referência.");
+            return ExitPass;
+        }
+
+        Console.Error.WriteLine(" Portão reprovado: veja as linhas marcadas acima.");
+        return ExitGateFailed;
+    }
+
+    /// <summary>
+    /// Records the reference of the provider-transfer comparison from reports
+    /// of runs that already happened. It measures nothing itself, on purpose:
+    /// a reference written by the process that then compares against it grades
+    /// its own luck, and one taken from a single run grades the luck of that
+    /// run.
+    /// </summary>
+    private static async Task<int> RecordProviderTransferBaselineAsync(
+        ProbeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var runs = new List<ProviderTransferOutcome>(settings.ProviderBaselineReports.Count);
+        foreach (var path in settings.ProviderBaselineReports)
+        {
+            if (!File.Exists(path))
+            {
+                Console.Error.WriteLine($"O relatório {path} não existe.");
+                return ExitRefused;
+            }
+
+            var text = await File.ReadAllTextAsync(path, cancellationToken);
+            ProviderTransferOutcome run = JsonSerializer.Deserialize<ProviderTransferOutcome>(text, ReportOptions)
+                ?? throw new InvalidOperationException($"O relatório {path} está vazio.");
+            runs.Add(run);
+            Report(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Recibo: {path}, perfil {run.ProfileId}, concorrência {run.ConfiguredConcurrency}, "
+                + $"gravado em {run.RecordedAtUtc}, sha256 {Digest(text)}."));
+        }
+
+        ProviderTransferBaseline baseline = ProviderTransferBaseline.From(
+            runs,
+            settings.ProviderBaselineReports,
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{runs[0].Host} / {runs[0].Processors} núcleos / .NET {runs[0].Runtime} / "
+                + $"{runs[0].GarbageCollectorHeapCount} heap(s) de servidor"));
+        await baseline.SaveAsync(settings.BaselinePath, cancellationToken);
+        Report($"Linha de base gravada em {settings.BaselinePath}, com {baseline.Cells.Count} célula(s).");
+        return ExitPass;
+    }
+
+    private static void PrintProviderTransferChecks(IReadOnlyList<GateCheck> checks, string header)
+    {
+        Console.WriteLine();
+        Console.WriteLine("-- Portão fechado da transferência ao provedor ------------------------");
+        Console.WriteLine($" {header}");
+        foreach (GateCheck check in checks)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $" {check.Metric,-58} medido {check.Measured,16:0.###}  limite {check.Limit,16:0.###}  "
+                + $"{(check.Passes ? "passa" : "REPROVA")}"));
+        }
+
+        Console.WriteLine();
+    }
+
+    private static string Digest(string text)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    private static async Task WriteReportAsync(
+        string? reportPath,
+        ProviderTransferOutcome outcome,
+        CancellationToken cancellationToken)
+    {
+        if (reportPath is null)
+        {
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(reportPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        await File.WriteAllTextAsync(
+            reportPath, JsonSerializer.Serialize(outcome, ReportOptions), cancellationToken);
+        Report($"Relatório em JSON: {reportPath}");
     }
 
     /// <summary>

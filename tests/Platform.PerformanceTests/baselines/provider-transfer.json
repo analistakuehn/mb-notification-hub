@@ -1,0 +1,419 @@
+{
+  "FormatVersion": 1,
+  "RecordedAtUtc": "2026-09-02T04:19:08.9723859\u002B00:00",
+  "RecordedOn": "DESKTOP-PCIF06A / 22 n\u00FAcleos / .NET 10.0.10 / 1 heap(s) de servidor",
+  "ServerGarbageCollection": true,
+  "GarbageCollectorHeapCount": 1,
+  "SourceReports": [
+    "C:/t9/matrix/adversarial-c1-p1.json",
+    "C:/t9/matrix/adversarial-c1-p2.json",
+    "C:/t9/matrix/adversarial-c1-p3.json",
+    "C:/t9/matrix/adversarial-c8-p1.json",
+    "C:/t9/matrix/adversarial-c8-p2.json",
+    "C:/t9/matrix/adversarial-c8-p3.json",
+    "C:/t9/matrix/floor-c1-p1.json",
+    "C:/t9/matrix/floor-c1-p2.json",
+    "C:/t9/matrix/floor-c1-p3.json",
+    "C:/t9/matrix/floor-c8-p1.json",
+    "C:/t9/matrix/floor-c8-p2.json",
+    "C:/t9/matrix/floor-c8-p3.json",
+    "C:/t9/matrix/fragmented-c1-p1.json",
+    "C:/t9/matrix/fragmented-c1-p2.json",
+    "C:/t9/matrix/fragmented-c1-p3.json",
+    "C:/t9/matrix/fragmented-c8-p1.json",
+    "C:/t9/matrix/fragmented-c8-p2.json",
+    "C:/t9/matrix/fragmented-c8-p3.json",
+    "C:/t9/matrix/max-single-c1-p1.json",
+    "C:/t9/matrix/max-single-c1-p2.json",
+    "C:/t9/matrix/max-single-c1-p3.json",
+    "C:/t9/matrix/max-single-c8-p1.json",
+    "C:/t9/matrix/max-single-c8-p2.json",
+    "C:/t9/matrix/max-single-c8-p3.json"
+  ],
+  "Cells": [
+    {
+      "ProfileId": "adversarial",
+      "AttachmentBytes": 7340032,
+      "AttachmentCount": 1,
+      "ContentShape": "Escapable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 1,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "B8A1A21AA3B961BE1B28E74A85083A39C40393BE73992D6DE216853EA4E3191B",
+      "BodyBytes": 9787227,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 17575875.88,
+          "LatencyMaxMilliseconds": 163.4997,
+          "ThroughputBytesPerSecond": 107850493.59134491
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.0016697008083954574,
+          "ThroughputRatio": 1.2405075227257414,
+          "MaxLatencyRatio": 0.5869460310936351,
+          "PeakHeapRatio": 0.40834685991792813,
+          "PeakWorkingSetRatio": 0.6527154839093451,
+          "AllocatedBytesPerOperation": 29346.4,
+          "LatencyMaxMilliseconds": 95.9655,
+          "ThroughputBytesPerSecond": 136785213.3848054
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.005922963546835053,
+          "ThroughputRatio": 0.7059247904181101,
+          "MaxLatencyRatio": 1.0330854052037437,
+          "PeakHeapRatio": 0.25619895065174436,
+          "PeakWorkingSetRatio": 0.6412451444012836,
+          "AllocatedBytesPerOperation": 104101.08,
+          "LatencyMaxMilliseconds": 166.1924,
+          "ThroughputBytesPerSecond": 77816424.61015399
+        }
+      ]
+    },
+    {
+      "ProfileId": "adversarial",
+      "AttachmentBytes": 7340032,
+      "AttachmentCount": 1,
+      "ContentShape": "Escapable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 8,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "B8A1A21AA3B961BE1B28E74A85083A39C40393BE73992D6DE216853EA4E3191B",
+      "BodyBytes": 9787227,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 18950809.96,
+          "LatencyMaxMilliseconds": 1334.4487,
+          "ThroughputBytesPerSecond": 183756977.18653807
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.0016069942847336956,
+          "ThroughputRatio": 1.9018068090169455,
+          "MaxLatencyRatio": 0.2403301078565253,
+          "PeakHeapRatio": 0.44530247230799,
+          "PeakWorkingSetRatio": 0.7924357972459511,
+          "AllocatedBytesPerOperation": 30446.16,
+          "LatencyMaxMilliseconds": 315.2371,
+          "ThroughputBytesPerSecond": 345784972.0644762
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.00500233394773592,
+          "ThroughputRatio": 0.9583921939197775,
+          "MaxLatencyRatio": 0.4256771354342809,
+          "PeakHeapRatio": 0.37443796749746067,
+          "PeakWorkingSetRatio": 0.7750093948393233,
+          "AllocatedBytesPerOperation": 94798.28,
+          "LatencyMaxMilliseconds": 568.0443,
+          "ThroughputBytesPerSecond": 176111252.5138727
+        }
+      ]
+    },
+    {
+      "ProfileId": "floor",
+      "AttachmentBytes": 262144,
+      "AttachmentCount": 1,
+      "ContentShape": "Readable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 1,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "7494E669056129CD58B8C9EA0FC78900612622DFB458194A26B7961479ADE5E9",
+      "BodyBytes": 350043,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 641899.8,
+          "LatencyMaxMilliseconds": 24.1728,
+          "ThroughputBytesPerSecond": 69556019.84567018
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.029609294160864358,
+          "ThroughputRatio": 1.0780827398575656,
+          "MaxLatencyRatio": 0.27340233651045803,
+          "PeakHeapRatio": 0.898825759290803,
+          "PeakWorkingSetRatio": 1.0495713535895492,
+          "AllocatedBytesPerOperation": 19006.2,
+          "LatencyMaxMilliseconds": 6.6089,
+          "ThroughputBytesPerSecond": 72284290.16512349
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.13870740313726307,
+          "ThroughputRatio": 0.29467815957513926,
+          "MaxLatencyRatio": 1.168325555996823,
+          "PeakHeapRatio": 2.0388376874905347,
+          "PeakWorkingSetRatio": 1.364639254321279,
+          "AllocatedBytesPerOperation": 89013.24,
+          "LatencyMaxMilliseconds": 28.2417,
+          "ThroughputBytesPerSecond": 20235247.476880673
+        }
+      ]
+    },
+    {
+      "ProfileId": "floor",
+      "AttachmentBytes": 262144,
+      "AttachmentCount": 1,
+      "ContentShape": "Readable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 8,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "7494E669056129CD58B8C9EA0FC78900612622DFB458194A26B7961479ADE5E9",
+      "BodyBytes": 350043,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 689297.84,
+          "LatencyMaxMilliseconds": 32.3421,
+          "ThroughputBytesPerSecond": 269385795.03105825
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.03791040459375297,
+          "ThroughputRatio": 1.221914529700334,
+          "MaxLatencyRatio": 0.6034396839866303,
+          "PeakHeapRatio": 0.6572226752736972,
+          "PeakWorkingSetRatio": 0.9822840349352209,
+          "AllocatedBytesPerOperation": 26143.72,
+          "LatencyMaxMilliseconds": 19.8592,
+          "ThroughputBytesPerSecond": 340375154.3047063
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.12636325560744993,
+          "ThroughputRatio": 0.23241584383184466,
+          "MaxLatencyRatio": 3.784873898511091,
+          "PeakHeapRatio": 0.8944931131937017,
+          "PeakWorkingSetRatio": 1.091178558009435,
+          "AllocatedBytesPerOperation": 87119.84,
+          "LatencyMaxMilliseconds": 124.5602,
+          "ThroughputBytesPerSecond": 69523596.43888271
+        }
+      ]
+    },
+    {
+      "ProfileId": "fragmented",
+      "AttachmentBytes": 1468006,
+      "AttachmentCount": 5,
+      "ContentShape": "Readable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 1,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "DDB0BF77B41E8D0DDF183DE7BCA5FD2ABDAD1C5FC458A822743175CDC7DA5517",
+      "BodyBytes": 9787627,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 18101254.04,
+          "LatencyMaxMilliseconds": 166.6919,
+          "ThroughputBytesPerSecond": 110153113.14768586
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.001867549345060424,
+          "ThroughputRatio": 1.2718592184176332,
+          "MaxLatencyRatio": 0.6217056737609926,
+          "PeakHeapRatio": 0.45567772522682704,
+          "PeakWorkingSetRatio": 0.903679645467032,
+          "AllocatedBytesPerOperation": 33806.64,
+          "LatencyMaxMilliseconds": 103.6333,
+          "ThroughputBytesPerSecond": 136900585.5044925
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.006101532693027165,
+          "ThroughputRatio": 0.668509352042085,
+          "MaxLatencyRatio": 1.0855433525143106,
+          "PeakHeapRatio": 0.30473686139275613,
+          "PeakWorkingSetRatio": 0.7838658468981505,
+          "AllocatedBytesPerOperation": 110450.8,
+          "LatencyMaxMilliseconds": 208.0916,
+          "ThroughputBytesPerSecond": 69905782.5480841
+        }
+      ]
+    },
+    {
+      "ProfileId": "fragmented",
+      "AttachmentBytes": 1468006,
+      "AttachmentCount": 5,
+      "ContentShape": "Readable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 8,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "DDB0BF77B41E8D0DDF183DE7BCA5FD2ABDAD1C5FC458A822743175CDC7DA5517",
+      "BodyBytes": 9787627,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 20331906.6,
+          "LatencyMaxMilliseconds": 790.7444,
+          "ThroughputBytesPerSecond": 212262647.084178
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.001684444094387095,
+          "ThroughputRatio": 1.584829295134295,
+          "MaxLatencyRatio": 0.38411312176222806,
+          "PeakHeapRatio": 0.4680735361875021,
+          "PeakWorkingSetRatio": 0.8574972491747525,
+          "AllocatedBytesPerOperation": 34247.96,
+          "LatencyMaxMilliseconds": 313.2791,
+          "ThroughputBytesPerSecond": 328865850.22865665
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.004993450673153398,
+          "ThroughputRatio": 0.7882581743932846,
+          "MaxLatencyRatio": 0.7274651581471838,
+          "PeakHeapRatio": 0.400164525452587,
+          "PeakWorkingSetRatio": 0.8165389616885066,
+          "AllocatedBytesPerOperation": 100738.24,
+          "LatencyMaxMilliseconds": 575.239,
+          "ThroughputBytesPerSecond": 173005651.41810074
+        }
+      ]
+    },
+    {
+      "ProfileId": "max-single",
+      "AttachmentBytes": 7340032,
+      "AttachmentCount": 1,
+      "ContentShape": "Readable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 1,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "3BFBBB4540D32A183BE81C05EF64CF43A84E512423A353E995C1B0B6787AA42E",
+      "BodyBytes": 9787227,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 17668647.76,
+          "LatencyMaxMilliseconds": 214.9817,
+          "ThroughputBytesPerSecond": 93909381.88953374
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.0016856004151842346,
+          "ThroughputRatio": 1.6474859892443643,
+          "MaxLatencyRatio": 0.4937350267977711,
+          "PeakHeapRatio": 0.4067883987391264,
+          "PeakWorkingSetRatio": 0.6721516169310735,
+          "AllocatedBytesPerOperation": 29782.28,
+          "LatencyMaxMilliseconds": 94.4115,
+          "ThroughputBytesPerSecond": 132096986.22728865
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.0058812437832671755,
+          "ThroughputRatio": 0.8028231924535538,
+          "MaxLatencyRatio": 1.001274404151771,
+          "PeakHeapRatio": 0.059865271725605206,
+          "PeakWorkingSetRatio": 0.6251885105039806,
+          "AllocatedBytesPerOperation": 104367,
+          "LatencyMaxMilliseconds": 170.811,
+          "ThroughputBytesPerSecond": 75392629.76989543
+        }
+      ]
+    },
+    {
+      "ProfileId": "max-single",
+      "AttachmentBytes": 7340032,
+      "AttachmentCount": 1,
+      "ContentShape": "Readable",
+      "SourceChunkBytes": 65536,
+      "OperationsPerArm": 200,
+      "ConfiguredConcurrency": 8,
+      "ContentLengthDeclared": true,
+      "SourceContentSha256": "3BFBBB4540D32A183BE81C05EF64CF43A84E512423A353E995C1B0B6787AA42E",
+      "BodyBytes": 9787227,
+      "RunsMerged": 3,
+      "Arms": [
+        {
+          "ArmId": "buffer",
+          "AllocationRatio": 1,
+          "ThroughputRatio": 1,
+          "MaxLatencyRatio": 1,
+          "PeakHeapRatio": 1,
+          "PeakWorkingSetRatio": 1,
+          "AllocatedBytesPerOperation": 18946044.8,
+          "LatencyMaxMilliseconds": 581.4877,
+          "ThroughputBytesPerSecond": 230199711.78780174
+        },
+        {
+          "ArmId": "streaming",
+          "AllocationRatio": 0.0015954386938630636,
+          "ThroughputRatio": 1.4537429962968023,
+          "MaxLatencyRatio": 0.531634461055668,
+          "PeakHeapRatio": 0.43633673377341753,
+          "PeakWorkingSetRatio": 0.8264810499611631,
+          "AllocatedBytesPerOperation": 30227.76,
+          "LatencyMaxMilliseconds": 313.9598,
+          "ThroughputBytesPerSecond": 331569251.02082986
+        },
+        {
+          "ArmId": "spool",
+          "AllocationRatio": 0.005021704582900596,
+          "ThroughputRatio": 0.7681348969114167,
+          "MaxLatencyRatio": 0.922115291518634,
+          "PeakHeapRatio": 0.37488818699716003,
+          "PeakWorkingSetRatio": 0.8245602043385977,
+          "AllocatedBytesPerOperation": 95124.08,
+          "LatencyMaxMilliseconds": 579.0047,
+          "ThroughputBytesPerSecond": 177860452.7115017
+        }
+      ]
+    }
+  ]
+}

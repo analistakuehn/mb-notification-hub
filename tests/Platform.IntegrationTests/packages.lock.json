@@ -840,6 +840,13 @@
           "StackExchange.Redis": "[2.8.16, )"
         }
       },
+      "NotificationHub.PerformanceTests": {
+        "type": "Project",
+        "dependencies": {
+          "NotificationHub.Api": "[1.0.0, )",
+          "Testcontainers.PostgreSql": "[4.1.0, )"
+        }
+      },
       "NotificationHub.Platform.GoLiveChecks": {
         "type": "Project",
         "dependencies": {

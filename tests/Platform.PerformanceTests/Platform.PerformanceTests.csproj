@@ -5,7 +5,32 @@
     <RootNamespace>NotificationHub.PerformanceTests</RootNamespace>
     <AssemblyName>NotificationHub.PerformanceTests</AssemblyName>
     <OutputType>Exe</OutputType>
+
+    <!--
+      Same collector the API declares. A measurement taken under the workstation
+      collector answers about a process nobody operates: server GC gives one
+      heap and one background thread per core, which is exactly the axis an
+      allocation comparison between transfer methods lives on.
+    -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
+
+  <ItemGroup Label="Collector Topology">
+    <!--
+      One heap, because the deployment target is a container of one processor.
+      The mode alone does not describe a configuration: the server collector
+      opens one heap per core unless a count is pinned, and the same arm
+      measured against two heaps and against twenty-two answers with latencies
+      that differ by more than most regressions a gate is meant to catch. A
+      reference recorded here is only reproducible elsewhere because the count
+      travels with it.
+    -->
+    <RuntimeHostConfigurationOption Include="System.GC.HeapCount" Value="1" />
+  </ItemGroup>
+
+  <ItemGroup Label="Test Visibility">
+    <InternalsVisibleTo Include="NotificationHub.IntegrationTests" />
+  </ItemGroup>
 
   <ItemGroup Label="Project References">
     <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
@@ -23,6 +48,8 @@
     <None Include="baselines\published-read-memoization.json" />
     <None Include="baselines\published-render-cost.json" />
     <None Include="baselines\scriban-parse-memoization.json" />
+    <None Include="baselines\attachment-transfer-method.json" />
+    <None Include="baselines\provider-transfer.json" />
   </ItemGroup>
 
 </Project>

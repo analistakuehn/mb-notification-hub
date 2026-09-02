@@ -101,6 +101,133 @@ internal sealed record ProbeOutcome(
     IReadOnlyList<WebhookIngestionCost> WebhookIngestion,
     PlanBVerdict? Verdict);
 
+/// <summary>Process and logical-I/O measurements for one transfer method.</summary>
+internal sealed record AttachmentTransferArm(
+    string ArmId,
+    int PayloadUtf8Bytes,
+    int EnvelopeBytes,
+    int BytesPerOperation,
+    int Operations,
+    int ConfiguredConcurrency,
+    int PeakConcurrency,
+    int InitialBacklog,
+    string ExpectedDigest,
+    IReadOnlyList<string> ObservedDigests,
+    bool DigestsEqual,
+    long HeapBytesBefore,
+    long HeapBytesAfter,
+    long WorkingSetBytesBefore,
+    long WorkingSetBytesAfter,
+    long AllocatedBytes,
+    int Generation0Collections,
+    int Generation1Collections,
+    int Generation2Collections,
+    double CpuMilliseconds,
+    double ElapsedMilliseconds,
+    double LatencyP50Milliseconds,
+    double LatencyP95Milliseconds,
+    double LatencyP99Milliseconds,
+    double ThroughputBytesPerSecond,
+    long? LogicalFileReadBytes,
+    long? LogicalFileWrittenBytes,
+    int TemporaryFilesCreated,
+    int TemporaryFilesRemaining,
+    bool TemporaryRootRemoved);
+
+/// <summary>Everything produced by one attachment-transfer comparison.</summary>
+internal sealed record AttachmentTransferOutcome(
+    string RecordedAtUtc,
+    string Host,
+    int Processors,
+    string Runtime,
+    int PayloadUtf8Bytes,
+    int EnvelopeBytes,
+    int OperationsPerArm,
+    int ConfiguredConcurrency,
+    string ExpectedDigest,
+    IReadOnlyList<AttachmentTransferArm> Arms);
+
+/// <summary>What the provider double read back for one attachment.</summary>
+internal sealed record ProviderTransferAttachmentCheck(
+    int Order,
+    string FileName,
+    string ContentType,
+    long SourceBytes,
+    long Base64Bytes,
+    long DecodedBytes,
+    bool DigestMatchesSource,
+    bool MetadataMatches);
+
+/// <summary>Functional evidence and process cost of one transfer method.</summary>
+internal sealed record ProviderTransferArm(
+    string ArmId,
+    int Operations,
+    int ConfiguredConcurrency,
+    int PeakConcurrency,
+    int ProviderCalls,
+    int AcceptedCalls,
+    long CapturedBodyBytes,
+    long DeclaredContentLengthBytes,
+    string CapturedBodySha256,
+    int DistinctCapturedDigests,
+    bool ContentLengthDeclared,
+    bool ChunkedObserved,
+    IReadOnlyList<ProviderTransferAttachmentCheck> Attachments,
+    long PeakHeapBytes,
+    long PeakWorkingSetBytes,
+    int ResidencySamples,
+    long AllocatedBytes,
+    int Generation0Collections,
+    int Generation1Collections,
+    int Generation2Collections,
+    double CollectionPauseMilliseconds,
+    double CpuMilliseconds,
+    double ElapsedMilliseconds,
+    int LatencySamples,
+    double LatencyP50Milliseconds,
+    double LatencyP95Milliseconds,
+    double? LatencyP99Milliseconds,
+    double LatencyMaxMilliseconds,
+    double ThroughputBytesPerSecond,
+    int TemporaryFilesCreated,
+    int TemporaryFilesRemaining,
+    bool TemporaryRootRemoved,
+    int OpenSourceStreams)
+{
+    internal double AllocatedBytesPerOperation => AllocatedBytes / (double)Operations;
+
+    internal double Generation2CollectionsPerOperation => Generation2Collections / (double)Operations;
+
+    internal double CollectionPauseMillisecondsPerOperation => CollectionPauseMilliseconds / Operations;
+}
+
+/// <summary>Everything produced by one provider-transfer comparison.</summary>
+internal sealed record ProviderTransferOutcome(
+    string RecordedAtUtc,
+    string Host,
+    int Processors,
+    string Runtime,
+    bool ServerGarbageCollection,
+    int GarbageCollectorHeapCount,
+    string GarbageCollectorLatencyMode,
+    string ProfileId,
+    string ContentShape,
+    long AttachmentBytes,
+    int AttachmentCount,
+    long TotalRawAttachmentBytes,
+    long Base64Bytes,
+    long EnvelopeBytes,
+    long BodyBytes,
+    long MessageCeilingBytes,
+    int SourceChunkBytes,
+    double SourceLatencyMilliseconds,
+    int OperationsPerArm,
+    int ConfiguredConcurrency,
+    bool ContentLengthDeclared,
+    string SourceContentSha256,
+    bool ArmsAgreeOnBody,
+    IReadOnlyList<ProviderTransferArm> Arms);
+
 /// <summary>Turns the raw arm results into the checks the slice has to answer.</summary>
 internal static class ProbeAnalysis
 {

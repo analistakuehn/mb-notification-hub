@@ -1,4 +1,7 @@
 using System.Globalization;
+using NotificationHub.PerformanceTests.Gate;
+using NotificationHub.PerformanceTests.ProviderTransfer;
+using NotificationHub.PerformanceTests.Scenarios;
 
 namespace NotificationHub.PerformanceTests;
 
@@ -47,6 +50,20 @@ internal enum ProbeMode
     /// the two modes above, so it runs anywhere.
     /// </summary>
     Parse,
+
+    /// <summary>
+    /// Compares buffer, streaming and disk spool with one deterministic input.
+    /// It is entirely in process and starts no database.
+    /// </summary>
+    AttachmentTransfer,
+
+    /// <summary>
+    /// Compares the same three shapes doing the work a send actually does:
+    /// read the attachment, encode it as base64, compose the whole provider
+    /// body and push it over a socket to a double that reads it back. It needs
+    /// no database either, and it promotes nothing on its own.
+    /// </summary>
+    ProviderTransfer,
 }
 
 /// <summary>
@@ -176,6 +193,81 @@ internal sealed record ProbeSettings
     /// </summary>
     internal int ParseForms { get; private init; } = 205;
 
+    /// <summary>UTF-8 bytes transferred by every attachment arm.</summary>
+    internal int AttachmentCorpusBytes { get; private init; } = 4_194_304;
+
+    /// <summary>Envelope bytes prepended to the same corpus in every arm.</summary>
+    internal int AttachmentEnvelopeBytes { get; private init; } = 1_024;
+
+    /// <summary>Operations offered to every attachment arm.</summary>
+    internal int AttachmentRepeats { get; private init; } = 12;
+
+    /// <summary>Maximum simultaneous operations in every attachment arm.</summary>
+    internal int AttachmentConcurrency { get; private init; } = Math.Min(2, Environment.ProcessorCount);
+
+    /// <summary>The complete comparison set. Partial comparisons are refused.</summary>
+    internal IReadOnlyList<string> AttachmentArms { get; private init; } = ["buffer", "streaming", "spool"];
+
+    /// <summary>
+    /// Which corpus of the matrix the run measures. Naming a profile sets the
+    /// size, the count and the shape of the content together, because those
+    /// three are what a cell of the matrix is; setting any of them by hand
+    /// turns the run into a custom one, which the reference has no cell for.
+    /// </summary>
+    internal string ProviderProfileId { get; private init; } = ProviderTransferProfiles.MaxSingle;
+
+    /// <summary>Raw bytes of every attachment the provider run transfers.</summary>
+    internal long ProviderAttachmentBytes { get; private init; }
+        = ProviderTransferProfiles.Of(ProviderTransferProfiles.MaxSingle).AttachmentBytes;
+
+    /// <summary>Attachments per message; the ratified envelope bounds them together with their size.</summary>
+    internal int ProviderAttachmentCount { get; private init; } = 1;
+
+    /// <summary>What the attachment bytes look like, which decides whether the body checks can fail.</summary>
+    internal AttachmentContentShape ProviderContentShape { get; private init; }
+        = AttachmentContentShape.Readable;
+
+    /// <summary>Bytes the source hands over per read, which is what a remote read chunks at.</summary>
+    internal int ProviderSourceChunkBytes { get; private init; } = 64 * 1_024;
+
+    /// <summary>Pause the source takes per chunk, which is the latency of that read.</summary>
+    internal TimeSpan ProviderSourceLatency { get; private init; }
+
+    /// <summary>
+    /// Operations offered to every provider-transfer arm. Two hundred is the
+    /// floor at which the ninety-fifth percentile stops being the largest
+    /// sample under another name.
+    /// </summary>
+    internal int ProviderRepeats { get; private init; } = ProviderTransferBudget.MinimumSamplesPerArm;
+
+    /// <summary>Maximum simultaneous sends in every provider-transfer arm.</summary>
+    internal int ProviderConcurrency { get; private init; }
+        = ProviderTransferBudget.SendsInFlightPerReplica;
+
+    /// <summary>
+    /// The arm the budget is charged to. It is the candidate for promotion and
+    /// nothing else; pointing it at the buffering arm is how the budget checks
+    /// are shown to be able to fail.
+    /// </summary>
+    internal string ProviderCandidateArm { get; private init; } = ProviderTransferInvariants.DefaultCandidate;
+
+    /// <summary>
+    /// Reports of isolated runs a new reference is the median of. Recording a
+    /// reference from the run that then compares against it is
+    /// self-certification, so the two never share a process.
+    /// </summary>
+    internal IReadOnlyList<string> ProviderBaselineReports { get; private init; } = [];
+
+    /// <summary>
+    /// Whether the body declares its length or travels chunked. Both are
+    /// measurable and neither is decided here: the run records which one it
+    /// used, and the choice is taken elsewhere.
+    /// </summary>
+    internal bool ProviderContentLength { get; private init; } = true;
+
+    /// <summary>The complete comparison set. Partial comparisons are refused.</summary>
+    internal IReadOnlyList<string> ProviderArms { get; private init; } = ["buffer", "streaming", "spool"];
+
     internal static ProbeSettings Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -273,6 +365,107 @@ internal sealed record ProbeSettings
                 case "--parse-forms":
                     settings = settings with { ParseForms = Number(args, ref index) };
                     break;
+                case "--attachment-corpus-bytes":
+                    settings = settings with { AttachmentCorpusBytes = Number(args, ref index) };
+                    break;
+                case "--attachment-envelope-bytes":
+                    settings = settings with { AttachmentEnvelopeBytes = Number(args, ref index) };
+                    break;
+                case "--attachment-repeats":
+                    settings = settings with { AttachmentRepeats = Number(args, ref index) };
+                    break;
+                case "--attachment-concurrency":
+                    settings = settings with { AttachmentConcurrency = Number(args, ref index) };
+                    break;
+                case "--attachment-arms":
+                    settings = settings with
+                    {
+                        AttachmentArms =
+                        [
+                            .. Value(args, ref index)
+                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                        ],
+                    };
+                    break;
+                case "--provider-profile":
+                    {
+                        var profileId = Value(args, ref index);
+                        ProviderTransferCorpus corpus = ProviderTransferProfiles.Of(profileId);
+                        settings = settings with
+                        {
+                            ProviderProfileId = profileId,
+                            ProviderAttachmentBytes = corpus.AttachmentBytes,
+                            ProviderAttachmentCount = corpus.AttachmentCount,
+                            ProviderContentShape = corpus.ContentShape,
+                        };
+                    }
+
+                    break;
+                case "--provider-attachment-bytes":
+                    settings = settings with
+                    {
+                        ProviderAttachmentBytes = Amount(args, ref index),
+                        ProviderProfileId = ProviderTransferProfiles.Custom,
+                    };
+                    break;
+                case "--provider-attachments":
+                    settings = settings with
+                    {
+                        ProviderAttachmentCount = Number(args, ref index),
+                        ProviderProfileId = ProviderTransferProfiles.Custom,
+                    };
+                    break;
+                case "--provider-content-shape":
+                    settings = settings with
+                    {
+                        ProviderContentShape = ParseContentShape(Value(args, ref index)),
+                        ProviderProfileId = ProviderTransferProfiles.Custom,
+                    };
+                    break;
+                case "--provider-candidate":
+                    settings = settings with { ProviderCandidateArm = Value(args, ref index) };
+                    break;
+                case "--provider-baseline-from":
+                    settings = settings with
+                    {
+                        ProviderBaselineReports =
+                        [
+                            .. Value(args, ref index)
+                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                        ],
+                    };
+                    break;
+                case "--provider-source-chunk-bytes":
+                    settings = settings with { ProviderSourceChunkBytes = Number(args, ref index) };
+                    break;
+                case "--provider-source-latency-micros":
+                    settings = settings with
+                    {
+                        ProviderSourceLatency = TimeSpan.FromMicroseconds(Number(args, ref index)),
+                    };
+                    break;
+                case "--provider-repeats":
+                    settings = settings with { ProviderRepeats = Number(args, ref index) };
+                    break;
+                case "--provider-concurrency":
+                    settings = settings with { ProviderConcurrency = Number(args, ref index) };
+                    break;
+                case "--provider-transfer-encoding":
+                    settings = settings with
+                    {
+                        ProviderContentLength = ParseTransferEncoding(Value(args, ref index)),
+                    };
+                    break;
+                case "--provider-arms":
+                    settings = settings with
+                    {
+                        ProviderArms =
+                        [
+                            .. Value(args, ref index)
+                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                        ],
+                    };
+                    break;
                 case "--guard-repeats":
                     settings = settings with { GuardRepeats = Number(args, ref index) };
                     explicitRepeats = true;
@@ -321,6 +514,28 @@ internal sealed record ProbeSettings
                 // single pass grades the luck of that pass.
                 GuardRepeats = explicitRepeats ? settings.GuardRepeats : 3,
             };
+        }
+
+        if (settings.Mode is ProbeMode.AttachmentTransfer)
+        {
+            settings = settings with
+            {
+                BaselinePath = explicitBaseline
+                    ? settings.BaselinePath
+                    : BaselinePathOf("attachment-transfer-method.json"),
+            };
+            ValidateAttachmentTransfer(settings);
+        }
+
+        if (settings.Mode is ProbeMode.ProviderTransfer)
+        {
+            settings = settings with
+            {
+                BaselinePath = explicitBaseline
+                    ? settings.BaselinePath
+                    : BaselinePathOf("provider-transfer.json"),
+            };
+            ValidateProviderTransfer(settings);
         }
 
         if (settings.Mode is ProbeMode.Smoke)
@@ -380,8 +595,115 @@ internal sealed record ProbeSettings
         "memoization" => ProbeMode.Memoization,
         "render" => ProbeMode.Render,
         "parse" => ProbeMode.Parse,
+        "attachment-transfer" => ProbeMode.AttachmentTransfer,
+        "provider-transfer" => ProbeMode.ProviderTransfer,
         _ => throw new ArgumentException($"Modo desconhecido: {value}", nameof(value)),
     };
+
+    private static void ValidateAttachmentTransfer(ProbeSettings settings)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.AttachmentCorpusBytes, 1_024);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.AttachmentCorpusBytes, 536_870_912);
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.AttachmentEnvelopeBytes, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.AttachmentEnvelopeBytes, 1_048_576);
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.AttachmentRepeats, 3);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.AttachmentRepeats, 1_000);
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.AttachmentConcurrency, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.AttachmentConcurrency, 256);
+        if (settings.AttachmentConcurrency > settings.AttachmentRepeats)
+        {
+            throw new ArgumentException(
+                "A concorrência da transferência não pode exceder o número de repetições.",
+                nameof(settings));
+        }
+
+        string[] expectedArms = ["buffer", "streaming", "spool"];
+        if (settings.AttachmentArms.Count != expectedArms.Length
+            || settings.AttachmentArms.Distinct(StringComparer.Ordinal).Count() != expectedArms.Length
+            || expectedArms.Except(settings.AttachmentArms, StringComparer.Ordinal).Any())
+        {
+            throw new ArgumentException(
+                "A comparação exige exatamente os braços buffer, streaming e spool, sem duplicatas.",
+                nameof(settings));
+        }
+
+        if (settings.Tolerance <= 0 || settings.Tolerance >= 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                settings.Tolerance,
+                "A tolerância do modo attachment-transfer deve ficar entre zero e um.");
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.BaselinePath)
+            || !string.Equals(Path.GetExtension(settings.BaselinePath), ".json", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("A linha de base deve apontar para um arquivo JSON.", nameof(settings));
+        }
+    }
+
+    private static bool ParseTransferEncoding(string value) => value switch
+    {
+        "content-length" => true,
+        "chunked" => false,
+        _ => throw new ArgumentException(
+            $"Codificação de transferência desconhecida: {value}. Use content-length ou chunked.",
+            nameof(value)),
+    };
+
+    private static AttachmentContentShape ParseContentShape(string value) => value switch
+    {
+        "readable" => AttachmentContentShape.Readable,
+        "escapable" => AttachmentContentShape.Escapable,
+        _ => throw new ArgumentException(
+            $"Forma de conteúdo desconhecida: {value}. Use readable ou escapable.",
+            nameof(value)),
+    };
+
+    private static void ValidateProviderTransfer(ProbeSettings settings)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.ProviderAttachmentBytes, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.ProviderAttachmentCount, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.ProviderAttachmentCount, 32);
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.ProviderSourceChunkBytes, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.ProviderSourceChunkBytes, 8 * 1_024 * 1_024);
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.ProviderRepeats, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.ProviderRepeats, 1_000);
+        ArgumentOutOfRangeException.ThrowIfLessThan(settings.ProviderConcurrency, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(settings.ProviderConcurrency, 256);
+        if (settings.ProviderConcurrency > settings.ProviderRepeats)
+        {
+            throw new ArgumentException(
+                "A concorrência da transferência não pode exceder o número de repetições.",
+                nameof(settings));
+        }
+
+        string[] expectedArms = ["buffer", "streaming", "spool"];
+        if (settings.ProviderArms.Count != expectedArms.Length
+            || settings.ProviderArms.Distinct(StringComparer.Ordinal).Count() != expectedArms.Length
+            || expectedArms.Except(settings.ProviderArms, StringComparer.Ordinal).Any())
+        {
+            throw new ArgumentException(
+                "A comparação exige exatamente os braços buffer, streaming e spool, sem duplicatas.",
+                nameof(settings));
+        }
+
+        if (!settings.ProviderArms.Contains(settings.ProviderCandidateArm, StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                $"O candidato {settings.ProviderCandidateArm} não está entre os braços medidos.",
+                nameof(settings));
+        }
+
+        if (settings.UpdateBaseline
+            && settings.ProviderBaselineReports.Count < ProviderTransferBaseline.MinimumRunsPerCell)
+        {
+            throw new ArgumentException(
+                "A referência do modo provider-transfer é a mediana de rodadas isoladas: passe ao menos "
+                + $"{ProviderTransferBaseline.MinimumRunsPerCell} relatórios em --provider-baseline-from.",
+                nameof(settings));
+        }
+    }
 
     private static IReadOnlyList<int> ParseVolumes(string value)
         =>
@@ -401,6 +723,9 @@ internal sealed record ProbeSettings
 
     private static int Number(string[] args, ref int index)
         => int.Parse(Value(args, ref index), CultureInfo.InvariantCulture);
+
+    private static long Amount(string[] args, ref int index)
+        => long.Parse(Value(args, ref index), CultureInfo.InvariantCulture);
 
     private static double Fraction(string[] args, ref int index)
         => double.Parse(Value(args, ref index), CultureInfo.InvariantCulture);

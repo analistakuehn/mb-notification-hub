@@ -14,6 +14,20 @@
     <ProjectReference Include="..\..\tools\Platform.GoLiveChecks\Platform.GoLiveChecks.csproj" />
   </ItemGroup>
 
+  <!--
+    The performance probe is referenced, not started, so its harness types can
+    be driven by real tests. The metadata below points at the probe's own build
+    output, which is where its runtime configuration lives: the collector a
+    measurement runs under is a property of that file and of nothing else.
+  -->
+  <ItemGroup Label="Performance Harness">
+    <ProjectReference Include="..\Platform.PerformanceTests\Platform.PerformanceTests.csproj" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>PerformanceProbeDirectory</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)../Platform.PerformanceTests/bin/$(Configuration)/$(TargetFramework)/</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <ItemGroup Label="Implicit Usings">
     <Using Include="Microsoft.AspNetCore.Mvc.Testing" />
     <Using Include="Shouldly" />

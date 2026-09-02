@@ -1,0 +1,28 @@
+{
+  "evaluated_at": "2026-08-31T20:36:07Z",
+  "evaluator_role": "dotnet-specialist-performance-runtime",
+  "candidate_fingerprint": "sha256:65205038D0CBB438AF05A60FAFD379341EF3FA03C5D64C8795E31D9416F0A69F",
+  "evidence_row": "quality-attachment-transfer-runner",
+  "verdict": "confirm",
+  "trigger": "performance-runtime",
+  "oracle_observed": "O try/finally externo cobre criação, aquecimento e execução do spool. No sucesso, a ausência da raiz é confirmada antes do resultado; em falha ou cancelamento, o finally remove recursivamente e propaga falha de limpeza.",
+  "commands": [
+    {
+      "command": "dotnet build tests/Platform.PerformanceTests/Platform.PerformanceTests.csproj --no-restore",
+      "exit_status": 0,
+      "result": "zero-warnings;zero-errors"
+    },
+    {
+      "command": "dotnet run --project tests/Platform.PerformanceTests/Platform.PerformanceTests.csproj --no-build -- --mode attachment-transfer",
+      "exit_status": 0,
+      "result": "three-arms;digest-equal;zero-residuals;gate-pass"
+    }
+  ],
+  "evidence_refs": [
+    "tests/Platform.PerformanceTests/Scenarios/AttachmentTransferMethodScenario.cs:76",
+    "tests/Platform.PerformanceTests/Scenarios/AttachmentTransferMethodScenario.cs:224",
+    "tests/Platform.PerformanceTests/baselines/attachment-transfer-method.json"
+  ],
+  "finding": null,
+  "residual_uncertainty": null
+}

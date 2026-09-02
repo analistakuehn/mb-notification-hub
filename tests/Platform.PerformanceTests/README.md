@@ -141,6 +141,113 @@ passagem. O reparse foge da mediana de propósito e é somado sobre as três: um
 passagem que teve de parsear uma fonte que já tinha é falha, tenha ou não sido a
 do meio.
 
+O que custa levar um anexo ao provedor, com os três métodos fazendo o mesmo
+trabalho:
+
+```bash
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode provider-transfer
+```
+
+O modo `provider-transfer` também não toca banco. Os três braços fazem o
+trabalho de um envio de verdade: leem os bytes de uma fonte que só entrega
+adiante, em blocos e com latência configuráveis, codificam em base64, montam o
+corpo inteiro do Mail Send na forma que o adaptador de e-mail deste hub monta, e
+empurram esse corpo por um socket até um duplo do provedor. O `buffer` segura o
+anexo inteiro e a mensagem inteira na memória antes de mover um byte; o
+`streaming` não segura nenhum dos dois e escreve enquanto lê; o `spool` grava o
+corpo num arquivo temporário e manda o arquivo.
+
+O duplo é quem responde se os braços fizeram o mesmo trabalho. Ele lê o corpo
+sem guardá-lo: cada byte alimenta o digest do corpo inteiro, e cada valor longo
+é decodificado de base64 na passagem e trocado por um marcador, de modo que
+sobram algumas centenas de bytes de JSON para conferir, pese o anexo o que
+pesar. Com isso ele devolve digest, comprimento, nome, tipo e ordem de cada
+anexo, e a contagem de chamadas. O teto de tamanho do duplo é o teto documentado
+do provedor, então uma mensagem acima dele é recusada ali pelo mesmo motivo que
+seria recusada lá.
+
+Cada braço passa duas vezes. A primeira roda contra o duplo que decodifica, e é
+ela que responde sobre equivalência; as medidas rodam contra o duplo que só
+digere o corpo, porque o duplo vive neste mesmo processo e a decodificação dele
+seria cobrada do braço. O relatório diz isso em voz alta, junto com o coletor
+sob o qual a rodada correu.
+
+#### Os quatro corpora da matriz
+
+O eixo de tamanho é escolhido por `--provider-profile` e os quatro perfis cabem
+no envelope ratificado de cinco anexos e 7.340.032 bytes crus somados:
+
+| Perfil | Corpus | Por que existe |
+|---|---|---|
+| `floor` | 1 anexo de 256 KiB | piso do eixo de tamanho |
+| `max-single` | 1 anexo de 7 MiB | teto do envelope, 28 vezes o piso |
+| `fragmented` | 5 anexos de 1.468.006 bytes | mesmo total em cinco itens, o que separa custo por item de custo por byte |
+| `adversarial` | 7 MiB do padrão `FB EF BE` | conteúdo cuja base64 é só o sinal de adição |
+
+O perfil adversário não é enfeite. O corpus legível não contém um único caractere
+que o codificador JSON padrão escaparia, então sobre ele o campo do anexo mede o
+mesmo com qualquer chamada de escrita, inclusive a explorável. Sob o padrão
+`FB EF BE`, a base64 é formada só pelo sinal de adição, que o codificador padrão
+transforma em seis bytes cada, e o campo passa a medir oito vezes o conteúdo cru.
+São 3.750.000 bytes crus para alcançar o teto de 30.000.000 da mensagem, com
+conteúdo que quem envia escolhe. Por isso o compositor escreve o anexo pela
+chamada que codifica no escritor, e não pela que entrega o alfabeto ao
+codificador, e por isso o perfil adversário é o único que separa as duas.
+
+#### O portão fechado
+
+O modo grava linha de base e compara contra ela, e as duas coisas nunca
+acontecem na mesma execução. A referência é a mediana de pelo menos três
+rodadas isoladas, informadas por relatório:
+
+```bash
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode provider-transfer   --provider-profile max-single --provider-concurrency 8 --report artifacts/p1.json
+# repetido em processos separados para p2 e p3, e então
+dotnet run --project tests/Platform.PerformanceTests -c Release -- --mode provider-transfer   --update-baseline --provider-baseline-from artifacts/p1.json,artifacts/p2.json,artifacts/p3.json
+```
+
+Todo teto absoluto é constante do código do portão e nunca campo do arquivo de
+referência, porque o comando que compara é o mesmo que regrava esse arquivo. A
+referência guarda razões e configuração.
+
+O orçamento é derivado do alvo de implantação e a derivação está escrita no
+código: contêiner de 2 GiB por réplica, 200 MiB para o caminho de transferência,
+8 envios em voo, o que dá 26.214.400 bytes por envio. O teto de alocação é afim,
+com termo constante e coeficiente por byte, e é lido no piso e no máximo do
+envelope, 28 vezes distantes: um teto de valor único não distingue custo fixo de
+custo que acompanha o anexo, porque um ponto não tem inclinação.
+
+A contagem de heaps do coletor é pinada em 1 no arquivo de projeto, porque o
+alvo é um contêiner de um processador, e entra na referência e numa verificação
+de igualdade exata. O modo do coletor sozinho não descreve uma configuração.
+
+Nada aqui recusa uma rodada pelo coletor sob o qual ela correu: coletor errado e
+contagem de heaps errada são linhas vermelhas do portão. Uma recusa ocuparia o
+lugar da verificação e ninguém veria a verificação reprovar.
+
+Três razões ficam registradas e não julgadas, e o motivo é medido: em cinco
+rodadas isoladas da mesma célula, a razão de vazão variou por fator 19,6, a do
+maior tempo observado por 67,7 e a do pico de heap por 8,1. Uma faixa que aceite
+essas rodadas não recusa regressão nenhuma. A razão do pico de working set fica
+de fora pelo motivo oposto: rodadas saudáveis já chegam a 1,06 do braço de
+bufferização, e um candidato que segurasse a mensagem inteira chegaria perto do
+mesmo valor.
+
+O percentil 99 não é reportado abaixo de mil amostras. No lugar dele o relatório
+traz o maior tempo observado, com esse nome, porque é o que o estimador
+devolveria de qualquer jeito.
+
+O comprimento declarado no corpo é registrado e não julgado, e o motivo foi
+medido: quem impõe essa igualdade é o transporte. Um corpo emitido maior ou
+menor do que o comprimento que declarou não chega com divergência, ele falha
+como chamada. A afirmação de que o comprimento antecipado é exato fica sustentada
+pela verificação que compara o corpo recebido pelo duplo com a aritmética que o
+braço de streaming declara, e essa reprova sob o perfil adversário.
+
+Base64 expande três bytes em quatro, então o teto de trinta megabytes por
+mensagem é gasto pela expansão antes de ser gasto pelo anexo: 7 MiB crus já
+ocupam 9.786.712 bytes só de conteúdo codificado.
+
 Rodada de guarda por pull request, comparada contra a linha de base versionada:
 
 ```bash
@@ -172,7 +279,7 @@ do que ela escrever poderá ser apagado depois.
 
 | Opção | Default | Efeito |
 |---|---|---|
-| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega; `memoization` roda a memoização de leitura publicada, sem banco; `render` roda o custo de uma forma renderizada, sem banco; `parse` roda a memoização de parse com o catálogo quente, sem banco |
+| `--mode` | `full` | `full` roda o desenho inteiro; `smoke` roda a rodada de guarda; `relay` roda só a reivindicação do outbox; `delivery` roda os dois orçamentos do caminho de entrega; `memoization` roda a memoização de leitura publicada, sem banco; `render` roda o custo de uma forma renderizada, sem banco; `parse` roda a memoização de parse com o catálogo quente, sem banco; `provider-transfer` compara os três métodos de transferência ao provedor com trabalho funcional equivalente, sem banco |
 | `--connection-string` | contêiner | Aponta para um banco existente |
 | `--allow-trail-writes` | desligado | Autoriza escrita na trilha de um banco informado |
 | `--appenders` | 4 | Appenders concorrentes por braço |
@@ -193,6 +300,18 @@ do que ela escrever poderá ser apagado depois.
 | `--memoization-workers` | núcleos | Threads que leem uma memoização em processo ao mesmo tempo |
 | `--render-forms` | 2000 | Formas que cada braço do modo `render` mede |
 | `--parse-forms` | 205 | Formas que o modo `parse` mantém quentes, cinco fontes cada |
+| `--provider-profile` | `max-single` | `floor`, `max-single`, `fragmented` ou `adversarial`; define tamanho, quantidade e forma do conteúdo juntos |
+| `--provider-attachment-bytes` | 7340032 | Bytes crus de cada anexo; usar isto torna a rodada `custom` |
+| `--provider-attachments` | 1 | Anexos por mensagem; usar isto torna a rodada `custom` |
+| `--provider-content-shape` | `readable` | `readable` ou `escapable`; usar isto torna a rodada `custom` |
+| `--provider-candidate` | `streaming` | Braço a que o orçamento é cobrado |
+| `--provider-baseline-from` | vazio | Relatórios de rodadas isoladas de que a referência é a mediana |
+| `--provider-source-chunk-bytes` | 65536 | Bytes que a fonte entrega por leitura |
+| `--provider-source-latency-micros` | 0 | Pausa da fonte por bloco lido |
+| `--provider-repeats` | 200 | Operações oferecidas a cada braço; abaixo de 200 o percentil 95 é o máximo com outro nome |
+| `--provider-concurrency` | 8 | Envios simultâneos por braço, que é a concorrência em voo por réplica |
+| `--provider-transfer-encoding` | `content-length` | `content-length` declara o tamanho do corpo; `chunked` não |
+| `--provider-arms` | `buffer,streaming,spool` | Conjunto completo; comparação parcial é recusada |
 | `--report` | ausente | Caminho do relatório em JSON |
 
 ## O desenho
