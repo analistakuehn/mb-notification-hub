@@ -20,6 +20,44 @@ public sealed class RequestPayloadHashTests
         };
 
     [Fact]
+    public void The_minimal_request_body_has_a_stable_digest()
+    {
+        var command = new RequestNotification.Command(
+            Application: "araia-cambio",
+            RecipientId: "cus_01J5X9",
+            Class: "critical",
+            TemplateKey: "auth.otp.login",
+            TtlSeconds: 300);
+
+        RequestNotification.ComputePayloadHash(command)
+            .ShouldBe("ae72ea096493d48cfcd34578542f2249b677872c5834778919df27af34cdbdeb");
+    }
+
+    [Fact]
+    public void A_request_body_with_every_optional_member_has_a_stable_digest()
+    {
+        var command = new RequestNotification.Command(
+            Application: "araia-cambio",
+            RecipientId: "cus_01J5X9",
+            Class: "critical",
+            TemplateKey: "auth.otp.login",
+            TtlSeconds: 300)
+        {
+            Locale = "pt-BR",
+            Variables = JsonDocument.Parse(
+                """{"expiresInMinutes":5,"code":"482913"}""").RootElement.Clone(),
+            ChannelsHint = ["email", "sms"],
+            CorrelationId = "trace-7c1e",
+            Metadata = JsonDocument.Parse(
+                """{"origin":"producer","attempt":1}""").RootElement.Clone(),
+            ScheduledAt = new DateTimeOffset(2026, 8, 23, 9, 0, 0, TimeSpan.FromHours(-3)),
+        };
+
+        RequestNotification.ComputePayloadHash(command)
+            .ShouldBe("135fb9992e7260f847834935d5dff24a98664975989a3dd57962082b11f6557c");
+    }
+
+    [Fact]
     public void The_same_body_always_hashes_identically()
     {
         var first = RequestNotification.ComputePayloadHash(BaseCommand());

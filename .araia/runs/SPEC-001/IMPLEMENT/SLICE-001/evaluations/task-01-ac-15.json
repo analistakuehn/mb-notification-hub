@@ -1,0 +1,23 @@
+{
+  "evaluated_at": "2026-08-31T17:42:22Z",
+  "evaluator_role": "dotnet-engineer-independent",
+  "candidate_fingerprint": "sha256:D221A749661FF23CA9277840CF3E47C561819194087378356EB23800637F5968",
+  "evidence_row": "AC-15",
+  "verdict": "confirm",
+  "trigger": "risk:critical",
+  "oracle_observed": "Os dois SHA-256 literais correspondem independentemente à forma canônica vigente; o teste focado passou 10/10; a inversão de application/class alterou ambos os digests e reprovou somente os dois vetores dourados.",
+  "commands": [
+    "dotnet test tests/Platform.UnitTests/Platform.UnitTests.csproj --no-restore --filter FullyQualifiedName~RequestPayloadHashTests",
+    "Get-FileHash -Algorithm SHA256 -LiteralPath tests/Platform.UnitTests/Notifications/RequestPayloadHashTests.cs,src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.PayloadHash.cs",
+    "SHA-256 independente sobre os JSON canônicos literais vigente e mutante"
+  ],
+  "evidence_refs": [
+    "tests/Platform.UnitTests/Notifications/RequestPayloadHashTests.cs:23",
+    "tests/Platform.UnitTests/Notifications/RequestPayloadHashTests.cs:37",
+    "source-sha256:1F70BB44ADCA5BEE8CFC89E0054750CCF992E08D8AECDE9E9562BAF211B6D419",
+    "focused-test:exit-0;passed-10;failed-0",
+    "mutation-observation:exit-1;golden-vectors-failed-2;remaining-tests-passed-8"
+  ],
+  "finding": null,
+  "residual_uncertainty": null
+}
