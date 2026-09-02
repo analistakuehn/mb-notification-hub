@@ -1,0 +1,30 @@
+{
+  "recorded_at": "2026-08-31T18:34:10Z",
+  "status": "blocked",
+  "failure": "F-ARTIFACT",
+  "tasks": [
+    {
+      "id": "Task 3",
+      "reason": "A regra vigente está em arquivo existente não declarado nem promovível pelo write set.",
+      "required_modify_paths": [
+        "tests/Platform.ArchTests/ArchitectureTests.cs"
+      ]
+    },
+    {
+      "id": "Task 5",
+      "reason": "O PLAN permite localizar o projeto de desempenho, mas não permite editar o runner nem criar cenário, gate ou baseline.",
+      "required_modify_paths": [
+        "tests/Platform.PerformanceTests/Program.cs",
+        "tests/Platform.PerformanceTests/ProbeSettings.cs",
+        "tests/Platform.PerformanceTests/Reporting/ProbeOutcome.cs",
+        "tests/Platform.PerformanceTests/Reporting/ReportRenderer.cs"
+      ],
+      "required_create_paths": [
+        "tests/Platform.PerformanceTests/Scenarios/AttachmentTransferMethodScenario.cs",
+        "tests/Platform.PerformanceTests/Gate/AttachmentTransferMethodBaseline.cs",
+        "tests/Platform.PerformanceTests/Gate/AttachmentTransferMethodGate.cs",
+        "tests/Platform.PerformanceTests/baselines/attachment-transfer-method.json"
+      ]
+    }
+  ]
+}

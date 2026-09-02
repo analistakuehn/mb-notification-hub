@@ -36,7 +36,9 @@ public sealed class ArchitectureTests
                 "MongoDB.Driver",
                 "RabbitMQ.Client",
                 "Confluent.Kafka",
-                "StackExchange.Redis")
+                "StackExchange.Redis",
+                "Amazon",
+                "AWSSDK")
             .GetResult();
 
         result.IsSuccessful.ShouldBeTrue();

@@ -1,0 +1,23 @@
+{
+  "evaluated_at": "2026-08-31T19:53:01Z",
+  "evaluator_role": "dotnet-specialist-runtime",
+  "candidate_fingerprint": "sha256:6FC50FCF09284CA056EC9C3E74F76743C5194887981DCFE8CC65AAFC1C28A0C5",
+  "evidence_row": "quality-module-boundaries",
+  "verdict": "confirm",
+  "trigger": "provider-boundary",
+  "oracle_observed": "Amazon e AWSSDK cobrem as raízes públicas específicas da AWS nas assemblies fixadas. Mutações independentes com Amazon.SQS.Model.Message e AWSSDK.Runtime.Internal.Util.ChecksumCRTWrapper reprovaram a mesma função de adequação.",
+  "commands": [
+    {
+      "command": "dotnet test tests/Platform.ArchTests/Platform.ArchTests.csproj --no-restore --filter FullyQualifiedName~ArchitectureTests.Module_domain_must_stay_technology_free",
+      "exit_status": 0,
+      "result": "passed-1;failed-0;skipped-0"
+    }
+  ],
+  "evidence_refs": [
+    "tests/Platform.ArchTests/ArchitectureTests.cs:26",
+    "src/Platform.Api/packages.lock.json",
+    "C:/Users/vanderlei.kuehn/.nuget/packages/awssdk.core/4.0.102/lib/net8.0/AWSSDK.Core.dll"
+  ],
+  "finding": null,
+  "residual_uncertainty": "Uma versão futura do SDK que introduza outra raiz específica da AWS exigirá nova mutação e atualização da lista."
+}
