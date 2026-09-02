@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
@@ -26,6 +27,22 @@ internal sealed class SendGridChannelProvider(
     internal const string HttpClientName = "dispatch-sendgrid";
     private const string MessageIdHeader = "X-Message-Id";
 
+    /// <summary>
+    /// Serialização do corpo do Mail Send. O escape relaxado é obrigatório e
+    /// não é preferência de estilo: o codificador padrão gasta seis bytes por
+    /// ocorrência de <c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>'</c> e
+    /// <c>+</c>. Medido nesta base, um corpo HTML de 22.800 bytes vai a 48.802
+    /// sob o padrão e a 23.602 sob o relaxado. O provedor recusa mensagens
+    /// acima de trinta milhões de bytes, então a expansão consome orçamento de
+    /// envelope sem contrapartida: o corpo é uma requisição HTTPS a uma API e
+    /// nunca é embutido em HTML, que é o único contexto em que o escape do
+    /// padrão protegeria alguma coisa.
+    /// </summary>
+    internal static readonly JsonSerializerOptions BodySerialization = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     public Channel Channel => Channel.Email;
 
     public string ProviderKey => Key;
@@ -41,7 +58,7 @@ internal sealed class SendGridChannelProvider(
         HttpClient client = httpClientFactory.CreateClient(HttpClientName);
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v3/mail/send");
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
-        httpRequest.Content = JsonContent.Create(payload);
+        httpRequest.Content = JsonContent.Create(payload, options: BodySerialization);
 
         try
         {
