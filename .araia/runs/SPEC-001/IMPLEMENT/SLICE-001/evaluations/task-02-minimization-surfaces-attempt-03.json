@@ -1,0 +1,18 @@
+{
+  "evaluated_at": "2026-08-31T19:27:31Z",
+  "evaluator_role": "dotnet-specialist-security",
+  "candidate_fingerprint": "sha256:6801872063CFA54E3AEB9FFCCCC15DFAB2FC3AFB066BE78D032928D4E8880B94",
+  "evidence_row": "AC-12/quality-minimization-surfaces",
+  "verdict": "confirm",
+  "trigger": "risk:critical",
+  "oracle_observed": "A varredura principal semeia as sentinelas antes dos fluxos REST e Kafka, correlaciona as superfícies por identidades únicas e inspeciona os quatro fluxos de log. As falsificações SQS e de log atravessam os coletores reais antes de usar o mesmo AssertNoSentinels.",
+  "commands": [],
+  "evidence_refs": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/SentinelSurfaceScanTests.cs",
+    "tests/Platform.IntegrationTests/Ingress/IngressRecords.cs:42",
+    "tests/Platform.IntegrationTests/Messaging/OutboxRelayFixture.cs:139",
+    "focused-test:exit-0;passed-3;failed-0;skipped-0"
+  ],
+  "finding": null,
+  "residual_uncertainty": null
+}

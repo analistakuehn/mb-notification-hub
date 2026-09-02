@@ -1,0 +1,41 @@
+{
+  "recorded_at": "2026-08-31T18:47:06Z",
+  "task": "Task 2",
+  "status": "candidate",
+  "failure": null,
+  "changed_paths": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/SentinelSurfaceScanTests.cs"
+  ],
+  "commands": [
+    {
+      "command": "dotnet test tests/Platform.IntegrationTests/Platform.IntegrationTests.csproj --no-restore --filter FullyQualifiedName~A_sentinel_planted_in_one_collected_surface_makes_the_scan_fail",
+      "exit_code": 0,
+      "result": "1 passed"
+    },
+    {
+      "command": "dotnet test tests/Platform.IntegrationTests/Platform.IntegrationTests.csproj --no-restore --filter FullyQualifiedName~SentinelSurfaceScanTests",
+      "exit_code": 0,
+      "result": "2 passed; 0 failed; 0 skipped"
+    }
+  ],
+  "surfaces_declared": [
+    "audit",
+    "broker",
+    "dead-letter",
+    "log",
+    "outbox",
+    "queue",
+    "response"
+  ],
+  "runtime_surfaces_observed": [
+    "audit",
+    "broker",
+    "dead-letter",
+    "log",
+    "outbox",
+    "queue",
+    "response"
+  ],
+  "blocking_condition": null,
+  "residual_risk": "Uma execução intermediária encontrou timeout transitório na inicialização Docker; a repetição idêntica passou."
+}

@@ -1,0 +1,17 @@
+{
+  "evaluated_at": "2026-08-31T19:12:32Z",
+  "evaluator_role": "dotnet-specialist-security",
+  "candidate_fingerprint": "sha256:5F3F3DBA8F52E27AC97DED4E71EC40FCBD0C115B23DB3CA04AFC43F08C62FF26",
+  "evidence_row": "AC-12/quality-minimization-surfaces",
+  "verdict": "refute",
+  "trigger": "risk:critical",
+  "oracle_observed": "Fila, quatro fluxos de log e falsificação causal foram corrigidos, mas o helper de log descarta scopes e exceções separadas.",
+  "commands": [],
+  "evidence_refs": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/SentinelSurfaceScanTests.cs:380",
+    "tests/Platform.IntegrationTests/TemplateManagement/RecordingLoggerProvider.cs:25",
+    "tests/Platform.IntegrationTests/TemplateManagement/RecordingLoggerProvider.cs:40"
+  ],
+  "finding": "LogFragments varre somente Message; sentinelas em scope, state estruturado ou Exception podem escapar do oráculo.",
+  "residual_uncertainty": null
+}

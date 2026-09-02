@@ -1,0 +1,20 @@
+{
+  "evaluated_at": "2026-08-31T18:53:29Z",
+  "evaluator_role": "dotnet-specialist-security",
+  "candidate_fingerprint": "sha256:E66CA2DA225F19D34508A630FEA986D9CFA0746024F80CAD2A41094D0763EB3D",
+  "evidence_row": "AC-12/quality-minimization-surfaces",
+  "verdict": "refute",
+  "trigger": "risk:critical",
+  "oracle_observed": "O comparador detecta sentinelas nos fragmentos fornecidos, mas fila e logs não estão causalmente cobertos.",
+  "commands": [
+    "dotnet test tests/Platform.IntegrationTests/Platform.IntegrationTests.csproj --no-restore --filter FullyQualifiedName~SentinelSurfaceScanTests"
+  ],
+  "evidence_refs": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/SentinelSurfaceScanTests.cs:122",
+    "tests/Platform.IntegrationTests/AttachmentManagement/SentinelSurfaceScanTests.cs:139",
+    "tests/Platform.IntegrationTests/AttachmentManagement/SentinelSurfaceScanTests.cs:259",
+    "tests/Platform.IntegrationTests/AttachmentManagement/SentinelSurfaceScanTests.cs:283"
+  ],
+  "finding": "A fila recebe envelope sem sentinela, logs cobrem apenas Kafka e a falsificação injeta depois da coleta; o teste prova o comparador, não todos os coletores.",
+  "residual_uncertainty": "A flakiness do timeout Docker anterior não foi classificada."
+}
