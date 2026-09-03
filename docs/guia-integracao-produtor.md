@@ -32,11 +32,12 @@ para preservar compatibilidade de clientes.
 
 ### Autoridade das fontes
 
-O contrato de máquina é o documento OpenAPI publicado pela própria API, em
-`GET /openapi/v1.json`. A rota existe em todos os ambientes e exige o mesmo
-token Bearer das demais, sem papel específico: uma chamada anônima recebe
-`401`. Este guia explica o que o OpenAPI não consegue dizer: ordem das
-checagens, semântica de cada desfecho e o que cada afirmação vale.
+O documento OpenAPI publicado pela própria API, em `GET /openapi/v1.json`, é a
+superfície de descoberta do schema HTTP. A rota existe em todos os ambientes e
+exige o mesmo token Bearer das demais, sem papel específico: uma chamada
+anônima recebe `401`. Os endpoints de notificação ainda não declaram no OpenAPI
+todos os corpos e status de saída. Use este guia para ordem das checagens,
+semântica dos desfechos e comportamento de retry.
 
 O repositório ainda não publica AsyncAPI nem JSON Schema para Kafka. Até esse
 artefato existir, o contrato do barramento é o envelope e as regras documentadas
@@ -64,8 +65,9 @@ configuração do ambiente com o time de Plataforma.
 
 No REST, use OAuth 2.0 client credentials e envie o token no cabeçalho
 `Authorization: Bearer`. O token precisa conter uma identidade estável
-(`appid`, `oid` ou `sub`) e o papel exato da classe solicitada. Os papéis de
-envio não concedem leitura; consultas exigem `Notifications.Read`.
+(`appid`, `oid`, `sub` ou `NameIdentifier` mapeado) e o papel exato da classe
+solicitada. Os papéis de envio não concedem leitura; consultas exigem
+`Notifications.Read`.
 
 No Kafka, a ACL do broker controla quem publica, mas a identidade lógica que o
 hub usa vem **exclusivamente do tópico dedicado**. `source`, headers e campos do
@@ -92,13 +94,16 @@ janela, seja qual for a política publicada.
 
 Canais entregues nesta versão: `email`, `push` e `sms`. O `sms` é reservado à
 classe `critical`; liberá-lo para outra classe é mudança de política aprovada,
-não decisão de solicitação. Uma política publicada que liste `whatsapp` faz a
-notificação terminar em falha, porque não existe adaptador hospedado para esse
-canal.
+não decisão de solicitação. O vocabulário também conhece `whatsapp`, mas nenhum
+adaptador hospedado o entrega: uma tentativa roteada para esse canal fica em
+fila sem consumidor até o prazo do passo, quando existe, levar o plano ao canal
+seguinte. A seção 4.1 explica de onde vem o canal de cada tentativa.
 
 ## 2. Como pedir uma notificação
 
-### 2.1 REST: esquema e validação de `POST /v1/notifications`
+### 2.1 REST: schema e validação de `POST /v1/notifications`
+
+#### Schema da solicitação
 
 Autenticação por token Bearer. A rota exige pelo menos um dos papéis de envio,
 e a classe pedida no corpo é conferida contra o papel correspondente:
@@ -117,13 +122,13 @@ Campos do corpo:
 | `recipientId` | sim | Até 100 caracteres. Identificador opaco do destinatário, nunca CPF, e-mail ou telefone. |
 | `class` | sim | `critical`, `transactional` ou `operational`. |
 | `templateKey` | sim | Até 200 caracteres. |
-| `locale` | não | Até 20 caracteres. Aceito, **sem efeito** e fora do hash de idempotência: veja a seção 4. |
+| `locale` | não | Até 20 caracteres. Aceito, **sem efeito** e fora do hash de idempotência: veja a seção 4.2. |
 | `ttlSeconds` | sim | Inteiro maior que zero e no máximo 2.592.000 (30 dias). |
 | `variables` | não | Objeto JSON. Ausente ou `null` significa nenhuma variável. No máximo 262.144 bytes na forma compacta em UTF-8. |
-| `channelsHint` | não | Lista de no máximo 4 strings não vazias, de até 20 caracteres cada. A implementação não confere catálogo nem unicidade. Aceita e ignorada: veja a seção 4. |
+| `channelsHint` | não | Lista de no máximo 4 strings não vazias, de até 20 caracteres cada. A implementação não confere catálogo nem unicidade. Aceita e ignorada: veja a seção 4.2. |
 | `correlationId` | não | Até 200 caracteres. É por ele que a consulta agrupa uma transação de negócio. |
 | `metadata` | não | Objeto JSON. Não é persistido, mas entra no hash de idempotência. No máximo 32.768 bytes na forma compacta em UTF-8, teto menor que o de `variables` porque o campo não é renderizado nem consultado, e mesmo assim é canonicalizado a cada requisição e a cada replay. |
-| `scheduledAt` | não | ISO 8601. Aceito e **sem efeito** nesta versão: veja a seção 4. |
+| `scheduledAt` | não | ISO 8601. Aceito e **sem efeito** nesta versão: veja a seção 4.2. |
 | `attachments` | não | Lista ordenada de referências opacas. Ausente ou `null` significa sem anexos. Lista vazia, referência em branco ou duplicata ordinal produz `400 payload-invalid`. **Não use enquanto o time do hub não confirmar a habilitação da capacidade no ambiente.** |
 
 O cabeçalho `Idempotency-Key` é obrigatório, com no máximo 200 caracteres.
@@ -174,7 +179,7 @@ mesmo tempo.
 2. Token sem nenhum papel de envio: `403` com o corpo de erro padrão do
    framework, sem `type` do catálogo.
 3. Teto bruto de requisições por principal estourado: `429` com o corpo de erro
-   padrão do framework e **sem** `Retry-After` (seção 8).
+   padrão do framework e **sem** `Retry-After` (seção 9).
 4. `Idempotency-Key` ausente, em branco ou com mais de 200 caracteres:
    `400` com `type` `idempotency-key-required`.
 5. Corpo malformado ou fora das regras de forma: `400` com `type`
@@ -188,9 +193,9 @@ mesmo tempo.
    `type` `kill-switch-unavailable`.
 9. Limite de negócio estourado: `429` com `type` `recipient-rate-limited` ou
    `principal-rate-limited`, conforme a dimensão, e cabeçalho `Retry-After`
-   (seção 8).
+   (seção 9).
 10. Template recusa a solicitação: `422` com o motivo do catálogo no `type`
-   (seção 5).
+   (seção 6).
 11. Manifesto de anexos não pode ser vinculado atomicamente: `422` com `type`
     `attachments-not-claimable`.
 12. Aceite: `202`.
@@ -300,37 +305,70 @@ Um evento no barramento para um template assim é recusado com o motivo
 `sensitive-variables-on-bus`, vai para a dead letter e gera registro de
 auditoria.
 
-A razão é o meio, não a mensagem: um tópico Kafka é lido por qualquer
-consumidor com ACL de leitura e retém as mensagens por dias, enquanto uma
-chamada síncrona entrega o valor a um destinatário só e não o persiste em
-lugar nenhum do transporte. Um código de uso único parado num tópico por 24
-horas é uma exposição que nada compensa.
+A razão é o meio, não a mensagem: um tópico Kafka pode ser lido por qualquer
+consumidor com ACL e persiste registros conforme a retenção do ambiente,
+enquanto uma chamada síncrona entrega o valor a um destinatário só. Um código
+de uso único persistido no barramento amplia a exposição sem benefício.
 
 Duas consequências que o produtor precisa entender:
 
 1. **A recusa depende apenas da declaração do template, nunca do payload.** Se
-   o template declara variável sensível, todo evento para ele é recusado, mesmo
-   que aquele evento não traga a variável. É isso que torna a regra decidível
-   antes de publicar: basta saber se o template declara.
+   o template declara variável sensível, qualquer evento para ele é recusado,
+   mesmo que aquele evento não traga a variável. É isso que torna a regra
+   decidível antes de publicar: basta saber se o template declara.
 2. **A checagem roda antes da validação de variáveis.** Um evento recusado por
    essa regra nunca tem o corpo inspecionado contra o esquema, porque a
    validação produziria um relatório sobre exatamente o payload que não deve
    ser lido.
 
 Na prática: OTP e alertas de segurança com segredo continuam em REST, que de
-todo modo já precisa da resposta síncrona. O barramento serve o resto:
+qualquer forma já precisa da resposta síncrona. O barramento serve o resto:
 confirmação de operação, documento aprovado, status de pedido.
+
+### 2.4 Anexos: membro publicado, capacidade ainda não liberada
+
+`attachments` já pertence ao contrato V1 de REST e Kafka para que clientes sem
+o membro continuem compatíveis. A lista carrega referências opacas, não bytes.
+Ausente e `null` significam sem anexos. Quando presente, a lista precisa conter
+ao menos uma referência não branca, sem repetição ordinal. O hub preserva ordem,
+caixa e grafia, e esses três aspectos participam da identidade idempotente.
+
+Isso **não significa que o envio com anexos esteja liberado**. A configuração
+versionada não admite nenhum tipo de conteúdo, e o contrato de despacho ainda
+não transporta anexos ao provedor. O fluxo de gestão possui rotas de registro,
+upload e validação, mas o caminho completo ainda não sustenta onboarding de
+produtor. Até o time do hub confirmar a habilitação no ambiente:
+
+- omita `attachments` ou envie `null`;
+- não trate as rotas `/v1/attachments` como capacidade pronta para produção;
+- não use os valores configurados de quantidade máxima ou envelope agregado
+  como limites contratuais. Eles não são conferidos no aceite: o hub mede o
+  conjunto aceito e reconfere a liberação de cada anexo imediatamente antes de
+  cada envio, e um conjunto que não passa faz a tentativa falhar sem chamada ao
+  provedor, com `attachments-over-capacity` ou `attachments-withheld` em
+  `attempts[].errorCode`;
+- espere `400 payload-invalid` para uma lista malformada e
+  `422 attachments-not-claimable` quando o conjunto não puder ser vinculado;
+  no Kafka, essa última condição vai para a dead letter e não gera evento
+  `araia.notification.rejected.v1`.
+
+O vínculo, quando habilitado, é integral: referências precisam pertencer à mesma
+`application` e estar liberadas. Se uma delas falhar, nenhuma é vinculada e não
+há aceite parcial.
 
 ## 3. Idempotência
 
 **Escopo da chave**: o par `(application, idempotencyKey)`. Duas aplicações
 podem usar a mesma chave sem colidir; a mesma aplicação, não.
 
-**Janela**: 24 horas. Depois disso o registro é purgado e a mesma chave passa a
-criar uma notificação nova, de propósito.
+**Retenção**: o registro se torna elegível para remoção depois de 24 horas, e o
+purge padrão roda a cada hora. Falhas do job podem prolongar esse período. Não
+trate 24 horas como corte exato nem reutilize deliberadamente uma chave antiga;
+prefira uma chave nova para um fato de negócio novo.
 
-**Replay com o mesmo corpo**: `200` com o **mesmo** `notificationId` do aceite
-original. Nada é reprocessado, nenhum evento novo é publicado no barramento.
+**Replay REST com o mesmo corpo**: `200` com o **mesmo** `notificationId` do
+aceite original. Nada é reprocessado, nenhum evento novo é publicado no
+barramento.
 
 ```http
 HTTP/1.1 200 OK
@@ -370,12 +408,21 @@ normalizado para UTC. Consequências práticas:
 - `channelsHint` e `metadata` **entram no hash**, mesmo sendo ignorados pelo
   roteamento. Mudar qualquer um deles e repetir a chave produz `409`, não um
   replay.
+- `attachments` entra no hash como sequência. Trocar a ordem, a caixa, a grafia
+  ou uma referência e repetir a chave produz `409`. Ausência e `null` preservam
+  a forma de uma solicitação sem anexos.
 - `locale` **não entra no hash**. Duas tentativas com a mesma chave que
   diferem só no locale, inclusive uma delas sem o campo, resolvem como replay.
   Ele é a única exceção entre os campos sem efeito, e por um motivo: um campo
   que não alcança decisão nenhuma do hub não identifica a notificação, e fazer
   a retentativa que corrigiu o locale colidir com a tentativa original seria
   quebrar exatamente o caminho que a idempotência existe para proteger.
+
+No Kafka, a mesma chave continua sendo a barreira de negócio, mas não existe
+resposta síncrona. Além disso, a precedência do replay sobre o rate limit depende
+do fast path Redis: numa falta de cache, o limite pode ser avaliado antes de a
+unicidade persistida resolver a duplicata. Mantenha vazão controlada e observe
+a dead letter mesmo ao reemitir com a mesma chave.
 
 **Derive a chave do evento de negócio, nunca gere aleatória.** Uma chave
 aleatória por tentativa não protege nada: cada retentativa do seu cliente HTTP
@@ -417,26 +464,119 @@ Três decisões pertencem à política publicada e ao catálogo, não à solicit
   pelos canais com conteúdo publicado e pelos canais em que o destinatário é
   alcançável.
 
+### 4.1 De onde vem o canal
+
+A solicitação não tem campo de canal, e `channelsHint` não conta como um
+(seção 4.2). O canal de cada tentativa nasce da **política de classe**
+publicada para o par (`application`, `class`). É um documento JSON que o time
+dono da aplicação mantém e publica pela rota administrativa
+`/v1/applications/{application}/classes/{class}/policy`, fora do alcance do
+produtor. Dois campos dele respondem à pergunta:
+
+| Campo da política | O que faz | O que a publicação exige |
+|---|---|---|
+| `channelsAllowed` | Conjunto de canais elegíveis para a classe. Restringe, não ordena | Lista não vazia, sem repetição, só com canais do vocabulário |
+| `deliveryPlan` | Lista **ordenada** de passos `{ "channel", "timeout" }`. É ela que decide por qual canal a notificação sai primeiro e para qual cai em seguida | Cada passo nomeia um canal de `channelsAllowed`, uma única vez; `timeout` é opcional, no formato `<segundos>s`, entre `1s` e `86400s` |
+
+```json
+{
+  "schemaVersion": 1,
+  "channelsAllowed": ["push", "email", "sms"],
+  "deliveryPlan": [
+    { "channel": "push", "timeout": "30s" },
+    { "channel": "email", "timeout": "120s" },
+    { "channel": "sms" }
+  ],
+  "defaultTtl": "300s",
+  "dedupeWindow": "60s"
+}
+```
+
+Um canal que está em `channelsAllowed` mas não aparece em `deliveryPlan` nunca
+é tentado: o plano é derivado da lista ordenada, e o conjunto elegível só
+restringe.
+
+**Do plano publicado ao canal da primeira tentativa.** O estágio Policy parte
+de `channelsAllowed` e roda cinco regras em ordem fixa. As quatro primeiras
+podem retirar canais ou recusar a notificação; a última, `ChannelSelection`,
+cruza o que sobrou com o plano, o conteúdo e o cadastro, e devolve o plano que
+vai valer:
+
+1. `ConsentGate`: só age quando a política declara `consentPurpose`. Retira os
+   canais sem consentimento concedido para essa finalidade; se nenhum sobra,
+   recusa com `no-consent`.
+2. `SuppressionGate`: retira os canais cujos endereços do destinatário estão
+   todos suprimidos; se nenhum sobra, recusa com `channel-suppressed`.
+3. `QuietHours`: adia a notificação, sem mexer nos canais. Nunca age em
+   `critical` nem em template de finalidade `authentication`.
+4. `DedupeWindow`: recusa a repetição com `duplicate-window`, sem mexer nos
+   canais.
+5. `ChannelSelection`: mantém apenas os passos de `deliveryPlan` cujo canal
+   sobreviveu às regras anteriores, tem **conteúdo publicado na versão vigente
+   do template** e é **alcançável para o destinatário**, o que significa um
+   ponto de contato ativo daquele canal ou, para `push`, ao menos um token de
+   dispositivo registrado. Se nenhum passo sobra, recusa com `no-valid-contact`.
+
+O que sobra preserva a ordem de `deliveryPlan` e é o **plano admitido**,
+gravado com a notificação. O estágio Route toma o primeiro passo desse plano:
+o canal vira o canal da tentativa 1, o ponto de contato escolhido é o daquele
+canal (verificado antes de não verificado), e o `timeout` do passo vira o
+`fallbackDeadline` da tentativa, que a consulta devolve em
+`attempts[].fallbackDeadline`.
+
+**Do primeiro canal aos seguintes.** Quando a tentativa falha no envio ou no
+retorno do provedor, ou quando o prazo do passo vence sem veredito, o hub pede
+o próximo passo do plano admitido. Três regras valem nesse avanço:
+
+- O plano não é relido da política vigente. Republicar ou reverter a política
+  muda notificações futuras, nunca as que já foram admitidas.
+- Consentimento e supressão são relidos na hora. Um passo que ficou inelegível
+  entre a admissão e o prazo é pulado, e o plano segue para o seguinte.
+- Um passo sem `timeout` encerra o plano quando falha, mesmo que existam
+  passos depois dele, porque sem prazo não há como cobrar o passo seguinte.
+  Quem publica a política dá `timeout` a todo passo que não for o último.
+
+Um canal parado pelo controle de emergência, por aplicação ou por canal, não
+faz a notificação trocar de canal: a tentativa fica retida num registro durável
+e volta à fila quando um operador reativa o canal. Se o TTL vencer enquanto ela
+espera, a notificação expira em vez de sair.
+
+**O que o produtor precisa saber para não se surpreender.**
+
+- O vocabulário de canais é fechado: `email`, `sms`, `push` e `whatsapp`. O
+  último existe no vocabulário e no cadastro de contatos, mas não tem adaptador
+  hospedado (seção 1).
+- `sms` reservado a `critical` é regra de aprovação da política, não de código.
+  A validação da política não confere classe contra canal; o que impede `sms`
+  numa política `transactional` é o processo de publicação.
+- A política não é legível com papel de produtor: a rota de leitura exige
+  `Templates.Author`. Pergunte ao time dono da aplicação qual é o
+  `deliveryPlan` da sua classe antes de ligar a integração (seção 8).
+- O canal usado aparece só no resultado: `attempts[].channel` na consulta,
+  `lastChannel` no evento `failed` e `channel` no evento `delivered`. A
+  avaliação `ChannelSelection` aparece em `policyEvaluations[]` com resultado
+  `filter`, sem a lista de canais, que fica na trilha de auditoria.
+
+### 4.2 Campos aceitos sem efeito
+
 Três campos da solicitação são aceitos e não têm efeito nesta versão. O hub os
-valida e depois os descarta. Dois deles, `channelsHint` e `scheduledAt`, entram
-no hash de idempotência; `locale` não entra, e a seção 3 explica por quê.
+valida; `channelsHint` e `locale` não são persistidos, enquanto `scheduledAt` é
+armazenado sem dirigir o pipeline. `channelsHint` e `scheduledAt` entram no hash
+de idempotência; `locale` não entra, e a seção 3 explica por quê.
 
 **`channelsHint`**: aceito e ignorado. A ordem efetiva é a do plano da
 política. O motivo é que o hint não é persistido na aceitação, então a regra de
 seleção de canal roda sem ele. Nenhuma reordenação por solicitação existe hoje.
-*Critério de retorno*: o primeiro produtor com necessidade demonstrada de
-reordenar preferência por solicitação. Quando isso acontecer, o hint volta como
-reordenação **dentro** dos canais já permitidos, jamais como adição de canal.
-É essa promessa que fixa o teto de contagem da lista, hoje quatro itens: uma
-reordenação dentro de um conjunto fechado nunca precisa de mais entradas do que
-o conjunto tem, e além desse ponto a lista só repete canal ou nomeia canal que
-não existe. O teto acompanha o conjunto, então um quinto canal o move junto.
+A validação atual limita quantidade, tamanho e itens vazios, mas não confere
+nomes contra o catálogo nem recusa duplicatas. Não use essa tolerância para
+enviar valores próprios: ela não cria preferência e ainda altera o hash
+idempotente.
 
 **`locale`**: opcional, não persistido e fora do hash de idempotência. O locale
 de renderização vem do perfil do destinatário ou do padrão do template. Omita o
 campo sem receio, e se enviar não espere que ele mude o idioma da mensagem.
 Para influenciar o idioma, ajuste a preferência do destinatário pela rota de
-contatos (seção 7).
+contatos administrada pelo sistema de cadastro.
 
 **`scheduledAt`**: aceito, armazenado e sem efeito. A notificação é enfileirada
 imediatamente e processada assim que o pipeline a pegar. Além disso, o prazo de
@@ -451,7 +591,7 @@ solicitação.
 Consequência direta: **não use o hub para agendar**. Peça a notificação no
 instante em que ela deve sair.
 
-### 4.1 O que o SMS faz com o seu texto
+### 4.3 O que o SMS faz com o seu texto
 
 Três comportamentos do canal SMS mudam o que chega ao aparelho, e nenhum deles
 é configurável por solicitação.
@@ -478,7 +618,7 @@ Três comportamentos do canal SMS mudam o que chega ao aparelho, e nenhum deles
   código de autenticação transforma atraso de fila em notificação perdida, e um
   longo demais entrega um código depois de ele deixar de valer.
 
-## 5. Como saber o que aconteceu
+## 5. Observabilidade e acompanhamento do resultado
 
 Existem dois caminhos, e eles respondem perguntas diferentes: os eventos de
 saída avisam quando algo terminal acontece; a consulta responde sobre uma
@@ -490,10 +630,15 @@ Envelope CloudEvents 1.0, chave do registro igual ao `recipientId`, cabeçalho
 `eventType` com o tipo do evento para filtrar sem abrir o corpo. Nenhum evento
 carrega conteúdo renderizado nem dado de contato.
 
+A publicação usa outbox e entrega **ao menos uma vez**. Uma queda entre publicar
+e marcar a linha pode republicar o mesmo envelope. Deduplicate pelo `id` estável
+do CloudEvent e não dependa de ordem entre eventos. `correlationId` acompanha os
+eventos de rejeição, falha e entrega quando foi informado na solicitação.
+
 | Tipo | Quando é publicado | O que afirma |
 |---|---|---|
 | `araia.notification.rejected.v1` | A ingestão ou a política recusou | O hub recusou a solicitação, pelo motivo do catálogo canônico |
-| `araia.notification.failed.v1` | O plano de entrega se esgotou, ou a notificação expirou | A entrega não aconteceu |
+| `araia.notification.failed.v1` | O plano de entrega se esgotou, o passo seguinte não pôde ser usado, ou a notificação expirou | A entrega não aconteceu |
 | `araia.notification.delivered.v1` | O provedor confirmou a entrega, ou um push foi aceito na **última** etapa do plano | Entrega confirmada; em push sem etapa posterior, aceitação pelo provedor |
 | `araia.notification.consent_changed.v1` | O ledger de consentimento registrou uma mudança | Estado de consentimento por finalidade e canal |
 | `araia.notification.contact_suppressed.v1` | Um provedor recusou o destino de forma definitiva e o hub parou de endereçar o canal | O canal daquele destinatário deixa de ser elegível até remoção manual |
@@ -526,7 +671,7 @@ recusas do pipeline o `notificationId` está presente.
 {
   "type": "araia.notification.failed.v1",
   "data": {
-    "notificationId": "0193...",
+    "notificationId": "01931f7c-8a4b-7e2d-9c5f-0a1b2c3d4e5f",
     "lastChannel": "email",
     "reason": "http-400",
     "correlationId": "trace-9b2d7c10"
@@ -534,18 +679,26 @@ recusas do pipeline o `notificationId` está presente.
 }
 ```
 
+Quando um evento carrega `notificationId`, o valor é um UUID. A consulta por ID
+aceita apenas a forma pública `ntf_` devolvida pelo REST, e a API não publica uma
+conversão entre as duas representações. Preserve o ID público recebido no
+aceite. No caminho Kafka, use `correlationId` ou a chave de idempotência para
+correlacionar o resultado; não envie o UUID do evento para
+`GET /v1/notifications/{id}`.
+
 **Dois vocabulários que nunca se misturam.** O `reason` de `rejected` pertence
 ao catálogo fechado da seção 6. O `reason` de `failed` é **vocabulário
-aberto**: ele carrega o código que o provedor devolveu, um motivo de alvo
-inutilizável do hub como `no-active-device-token`, ou `expired` quando a
-notificação venceu antes de chegar a um canal. Valores novos aparecem sem
+aberto**: ele carrega o código que o provedor devolveu, um motivo do próprio
+hub como `no-active-device-token` para um alvo inutilizável ou `plan-exhausted`
+para um plano sem passo seguinte, ou `expired` quando a notificação venceu,
+antes de chegar a um canal ou no meio do plano. Valores novos aparecem sem
 mudança de esquema, porque quem os cunha é o provedor. Não valide
 `failed.reason` contra o catálogo, e agrupe por família de código em painel e
 alarme, nunca por enumeração fechada.
 
 Dois casos em que **nenhum evento é publicado**, e você precisa saber deles:
 
-- Corpo malformado sem `recipientId`. O contrato de saída chaveia todo evento
+- Corpo malformado sem `recipientId`. O contrato de saída chaveia cada evento
   pelo sujeito, e não há sujeito. A recusa existe na trilha e, no caminho
   Kafka, na dead letter.
 - Estouro do limite por principal. Sob a pressão que o controle existe para
@@ -567,8 +720,11 @@ sem sujeito nem listagem por `application` sozinha. Identificador malformado é
 `400` com `type` `invalid-request`; identificador bem formado e inexistente é
 `404` com corpo padrão, sem eco do valor recebido.
 
-**A consulta lê a réplica.** Logo após o `202`, uma leitura imediata pode
-devolver `404` ou um estado anterior ao mais recente.
+**A consulta pode ler uma réplica.** Quando o ambiente configurar uma conexão
+de leitura, logo após o `202` uma consulta pode devolver `404` ou um estado
+anterior ao mais recente. Sem conexão de réplica, a implementação usa o banco de
+escrita. Clientes devem tolerar consistência eventual porque a projeção do
+pipeline continua assíncrona em ambos os casos.
 
 **Janela obrigatória nas rotas de lista.** `to` assume agora, `from` assume `to`
 menos **90 dias**, e o intervalo máximo é **180 dias**. Janela invertida ou
@@ -656,6 +812,10 @@ Da tentativa saem apenas os dois hashes do conteúdo. Em canal de contato o alvo
 sai com o valor **mascarado**; em push sai a plataforma e o identificador do
 registro de dispositivo, nunca o token.
 
+A resposta também não devolve o manifesto aceito de anexos. Preserve o payload
+original e a chave de idempotência no seu domínio se precisar reconstruir a
+solicitação.
+
 ### 5.3 O que esta versão não sabe
 
 Esta é a parte que mais gera engano, então ela está escrita sem rodeio.
@@ -703,6 +863,10 @@ não é sucesso.
 **Não existe stream de mudanças de status.** Não há assinatura por evento
 enviado pelo servidor. O que existe é o tópico de saída e a consulta.
 
+**Não existe cancelamento.** A API não publica rota de cancelamento e o domínio
+não possui estado `cancelled` ou `canceled`. Depois do `202`, revogar uma
+referência de anexo também não cancela a notificação.
+
 ### 5.4 Supressão de contato
 
 Quando um provedor recusa um destino de forma definitiva, o hub para de
@@ -716,15 +880,36 @@ alcançável custa mais ao destinatário do que a mensagem extra.
 O que o produtor observa:
 
 - `araia.notification.contact_suppressed.v1` no tópico de saída, com
-  `recipientId`, `channel` e `reason`, publicado uma vez por decisão. Ele é o
-  aviso de que aquele canal daquele destinatário parou de funcionar, e serve
-  para o domínio pedir um contato novo pelo caminho de cadastro.
+  `recipientId`, `channel` e `reason`, gerado uma vez por decisão lógica. A
+  entrega física pode repetir pelo contrato ao menos uma vez. Ele é o aviso de
+  que aquele canal daquele destinatário parou de funcionar, e serve para o
+  domínio pedir um contato novo pelo caminho de cadastro.
 - `araia.notification.rejected.v1` com motivo `channel-suppressed` na próxima
   solicitação cujos canais elegíveis estejam todos suprimidos.
 
 A supressão é reversível, e a reversão é ato humano registrado: um operador com
 o papel próprio remove a supressão com justificativa, e a trilha guarda quem
 removeu. Não há reversão automática, e não há como um produtor pedir uma.
+
+### 5.5 Correlação e sinais operacionais
+
+Use três identificadores com finalidades diferentes:
+
+| Identificador | Responsável | Uso |
+|---|---|---|
+| `Idempotency-Key` ou `data.idempotencyKey` | Produtor | Identidade estável do fato de negócio e recuperação de replay |
+| `correlationId` | Produtor | Agrupamento de notificações de uma mesma transação na consulta e nos eventos |
+| `notificationId` | Hub | Consulta de uma aceitação específica |
+
+No Kafka, conserve também tópico, partição, offset e `event.id`. A trilha do hub
+registra essas coordenadas, e a dead letter as devolve nos headers. O serviço
+emite logs estruturados de aceite, replay, dead letter, pausa e retomada, mas não
+publica uma métrica própria de consumer lag. O time produtor deve monitorar:
+
+- taxa de respostas REST por status e `type`;
+- ausência prolongada de resultado para uma chave aceita;
+- volume e idade da dead letter, deduplicados pelas coordenadas de origem;
+- duplicatas e atraso no consumo de `notifications.events.v1`.
 
 ## 6. Motivos de rejeição
 
@@ -747,8 +932,8 @@ catálogo e é rejeição de negócio, porque o hub decidiu proteger o cliente.
 
 O catálogo canônico de motivos vale para o `reason` de `rejected` e para o
 `type` do problema em todas as recusas de negócio e de forma da ingestão. É um
-vocabulário fechado, e fora dele existem exatamente dois `type` só de
-protocolo, listados no fim desta seção.
+vocabulário fechado. Algumas condições de protocolo e de capacidade ficam fora
+dele; a matriz no fim desta seção mostra como cada transporte as expõe.
 
 | Motivo | O que significa | O que o produtor faz |
 |---|---|---|
@@ -766,14 +951,14 @@ protocolo, listados no fim desta seção.
 | `sensitive-variables-on-bus` | O template declara variáveis sensíveis e a solicitação veio pelo barramento | Migre a solicitação desse template para REST |
 | `no-valid-contact` | Nenhum canal sobreviveu ao cruzamento entre plano da política, canais com conteúdo publicado e canais em que o destinatário é alcançável | Não retente igual. Verifique o cadastro do destinatário; se ele estiver correto, a causa é conteúdo publicado faltando para o canal, e é assunto do time do template |
 | `no-consent` | O destinatário não consentiu com a finalidade em nenhum canal elegível | Não retente. Colete o consentimento pelo caminho de cadastro |
-| `channel-suppressed` | Todo canal elegível está suprimido: o provedor recusou o destino de forma definitiva e o hub parou de endereçá-lo | Não retente. O destino não vai passar a funcionar por insistência, e insistir gasta reputação de envio de todos os outros destinatários. A saída é o destinatário declarar um contato novo ou um operador reverter a supressão com justificativa |
+| `channel-suppressed` | Todos os canais elegíveis estão suprimidos: o provedor recusou o destino de forma definitiva e o hub parou de endereçá-lo | Não retente. O destino não vai passar a funcionar por insistência, e insistir gasta reputação de envio de todos os outros destinatários. A saída é o destinatário declarar um contato novo ou um operador reverter a supressão com justificativa |
 | `recipient-rate-limited` | O orçamento por destinatário daquela classe se esgotou | Não retente em laço. Respeite o intervalo e reavalie se o volume por cliente está correto |
 | `duplicate-window` | Uma notificação equivalente está dentro da janela de deduplicação da política | Provavelmente é duplicata legítima detectada. Se não for, revise a chave de negócio que está gerando repetição |
 | `payload-invalid` | O corpo é estruturalmente inválido, ou falha nas regras de forma | Corrija o corpo usando o dicionário `errors` da resposta. É o `type` do `400` no REST e, no Kafka, o motivo da dead letter para envelope ilegível ou sem `idempotencyKey` |
 | `event-type-unsupported` | O `type` do envelope não é o que este tópico consome | Publique com `araia.notification.requested.v1`. Só ocorre no caminho Kafka. Não confunda com `payload-invalid`: aqui o corpo pode estar perfeito e a versão do envelope é que está errada |
 | `idempotency-key-conflict` | A mesma chave chegou com corpo diferente | Escolha: se o corpo novo é o correto, use uma chave nova; se o antigo é o correto, pare de reenviar |
 | `expired` | O TTL venceu antes de a notificação alcançar um canal | Solicite de novo se o fato de negócio ainda vale. Reavalie se o `ttlSeconds` é curto demais |
-| `producer-disabled` | Declarado no vocabulário e **inalcançável nesta versão** | Nada. Ele existe para que o vocabulário não mude quando o desligamento de produtor chegar |
+| `producer-disabled` | O controle de emergência bloqueou o produtor | Pare de publicar e acione o time do hub. Não faça retry automático enquanto o bloqueio permanecer. No REST retorna `403`; no Kafka gera rejeição e dead letter |
 
 Exemplo de `422` com o relatório de verificações:
 
@@ -804,8 +989,9 @@ Alguns motivos do catálogo **não** aparecem como status HTTP, porque são
 decididos depois do aceite, no pipeline: `no-valid-contact`, `no-consent`,
 `channel-suppressed`, `duplicate-window`, `authentication-sms-link`,
 `layout-disabled`, `rendered-content-too-large`, além de
-`template-render-failed` e `expired`. Eles chegam pelo evento `rejected` e pela
-consulta.
+`template-render-failed`. Eles chegam pelo evento `rejected` e pela consulta.
+`expired` segue outro caminho: aparece como `reason` do evento
+`araia.notification.failed.v1` e como estado `expired` na consulta.
 
 **O erro de forma no REST usa o catálogo, e mantém o relatório por campo.** Um
 corpo que falha na validação recebe `payload-invalid` no `type` e a mesma lista
@@ -836,10 +1022,22 @@ a carregou. A única exceção continua sendo o corpo malformado **sem
 `recipientId`**, que não gera evento por falta de sujeito para chavear (seção
 5.1).
 
-Dois `type` de problema que existem no REST e não pertencem ao catálogo, porque
-são condições de protocolo que nunca viajam no barramento:
-`idempotency-key-required` e `principal-rate-limited`. O conjunto é fechado
-nesses dois.
+### 6.1 Condições fora do catálogo canônico
+
+Estas condições não podem aparecer como `reason` de
+`araia.notification.rejected.v1`:
+
+| Condição | REST | Kafka | Ação do produtor |
+|---|---|---|---|
+| `idempotency-key-required` | `400` | Não existe; ausência em `data` vira `payload-invalid` na dead letter | Corrija ou gere a chave determinística antes de reenviar |
+| `principal-rate-limited` | `429` com `Retry-After` | A dimensão é observada, sem rejeição | Reduza a vazão e, no REST, retente após o intervalo |
+| `kill-switch-unavailable` | `503` | Pausa transitória, sem dead letter | REST: retente com recuo exponencial e jitter. Kafka: não republique em laço; acompanhe a recuperação do hub |
+| `attachments-not-claimable` | `422` | Dead letter com o mesmo motivo | Não retente o mesmo conjunto. Enquanto anexos não forem liberados, omita o membro |
+
+`attachments-not-claimable` é deliberadamente genérico: não revela qual
+referência falhou nem se ela era inexistente, estrangeira, não liberada ou
+revogada. Também não produz evento de rejeição. Use a resposta REST ou as
+coordenadas da dead letter para o diagnóstico com o time do hub.
 
 ## 7. Dead letter
 
@@ -847,38 +1045,45 @@ Só o caminho Kafka tem dead letter. No REST a recusa é a própria resposta.
 
 ### 7.1 Dead letter de notificações: `notifications.requested.dlt`
 
-Vai para lá todo registro **permanentemente** inválido: envelope ilegível,
+Vai para lá qualquer registro **permanentemente** inválido: envelope ilegível,
 `type` de envelope não suportado, evento sem `idempotencyKey`, produtor não
-autorizado, recusa do catálogo, conflito de idempotência, estouro do orçamento
-por destinatário e recusa por variável sensível. Falha transitória nunca vai para a dead letter: nesse caso o
-consumidor para de ler a partição e aplica contrapressão, sem avançar o offset.
+autorizado ou bloqueado, recusa do catálogo, conflito de idempotência, estouro
+do orçamento por destinatário, manifesto de anexos não vinculável e recusa por
+variável sensível. Falha transitória não vai para a dead letter; a implementação
+tenta pausar a partição, com a limitação de reposicionamento descrita na seção
+2.2.
 
 Cabeçalhos de diagnóstico do registro:
 
 | Cabeçalho | Conteúdo |
 |---|---|
-| `reason` | Motivo do catálogo canônico |
+| `reason` | Motivo da recusa; normalmente canônico, com exceções de transporte como `attachments-not-claimable` |
 | `sourceTopic` | Tópico de origem |
 | `sourcePartition` | Partição de origem |
 | `sourceOffset` | Offset de origem |
 | `occurredAt` | Instante em que a recusa foi registrada |
 | `redacted` | `true` quando o corpo publicado não é cópia fiel do original |
 | `producer` | Nome lógico do produtor, quando conhecido |
-| `application` | Aplicação declarada, quando o corpo pôde ser lido |
-| `class` | Classe declarada, quando o corpo pôde ser lido |
-| `idempotencyKey` | Chave declarada, quando o corpo pôde ser lido |
-| `traceparent` | Contexto de rastreio, quando presente |
+| `application` | Aplicação declarada, somente quando a política de redação permite |
+| `class` | Classe declarada, somente quando a política de redação permite |
+| `idempotencyKey` | Chave declarada, somente quando a política de redação permite |
+| `traceparent` | Contexto de rastreio, somente quando a política de redação permite |
 
 As coordenadas de origem são o que transforma "o produtor diz que não pediu"
 numa afirmação conferível: elas apontam para o registro exato que o broker
-ainda guarda, dentro da retenção de 24 horas do tópico de entrada.
+ainda guarda, se ele estiver dentro da retenção configurada no ambiente.
 
-**Primeira regra que o produtor precisa conhecer: a recusa por variável
-sensível redige o corpo.** Para o motivo `sensitive-variables-on-bus`, e só
-para ele, o corpo publicado na dead letter substitui o objeto `variables` pela
-**lista de nomes** das variáveis sensíveis declaradas pelo template. Valores
-nunca viajam, e o cabeçalho `redacted` vem `true` para que ninguém confunda o
-registro com cópia fiel.
+**A dead letter não é sempre uma cópia do evento.** A política depende de quanto
+o hub já pôde confiar no produtor e no payload:
+
+| Motivos | Corpo na dead letter | Headers de contexto |
+|---|---|---|
+| `payload-invalid`, `event-type-unsupported`, `producer-disabled`, `producer-not-authorized` | Resumo reconstruído por lista de permissão, sem o corpo original | Omite `application`, `class`, `idempotencyKey` e `traceparent`; usa o produtor lógico como key |
+| `sensitive-variables-on-bus` | Preserva o envelope, mas troca `data.variables` pelos nomes declarados como sensíveis | Mantém o contexto permitido e marca `redacted=true` |
+| Demais recusas após confiança, inclusive `attachments-not-claimable` | Preserva o corpo original | Marca `redacted=false` |
+
+Para `sensitive-variables-on-bus`, valores nunca viajam. O cabeçalho `redacted`
+vem `true` para que ninguém confunda o registro com cópia fiel.
 
 ```json
 {
@@ -895,14 +1100,15 @@ registro com cópia fiel.
 }
 ```
 
-A razão é aritmética simples de retenção: o tópico de entrada retém 24 horas e
-a dead letter retém 14 dias. Copiar o corpo original ali moveria o segredo para
-um tópico que o guarda quatorze vezes mais, ou seja, o controle se derrotaria
-pela própria mitigação. Corpo que não puder ser interpretado perde a seção
-`data` inteira: na dúvida sobre onde estão os valores, nada vai.
+A razão é impedir que uma recusa copie material ainda não confiável ou sensível
+para outro tópico. Corpo que não puder ser interpretado perde a seção `data`
+inteira: na dúvida sobre onde estão os valores, nada vai.
 
-Nos demais motivos o corpo original é preservado e `redacted` vem `false`,
-então o reprocessamento auditado continua possível.
+A DLT também é entregue **ao menos uma vez**. Uma falha entre a publicação e a
+gravação da marca de transporte pode duplicar o registro. Deduplicate pela
+tupla `(sourceTopic, sourcePartition, sourceOffset)`. Só considere redrive
+quando `redacted=false`; um resumo ou corpo parcialmente redigido não recompõe
+o evento original. Confirme a retenção real da entrada e da DLT com a Plataforma.
 
 ### 7.2 Dead letter de contatos: `contacts.events.dlt`
 
@@ -910,7 +1116,7 @@ Este par de tópicos pertence ao time do cadastro, não ao produtor de
 notificações, mas a regra vale a pena conhecer porque ela é oposta à anterior.
 
 **Segunda regra: a dead letter de contatos não tem reprocessamento.** Ali a
-redação é incondicional, e o corpo publicado nunca é o original. Todo registro
+redação é incondicional, e o corpo publicado nunca é o original. Cada registro
 daquele tópico carrega e-mail ou telefone em claro por construção, então o que
 é publicado é um **resumo reconstruído por lista de permissão**: tipo do
 evento, origem, identificador do CloudEvent, contagem de pontos de contato e o
@@ -922,9 +1128,9 @@ continua sendo dado pessoal.
 Como o registro não é cópia fiel, **não existe redrive**. E não precisa
 existir: a semântica dessa entrada é declarativa, então a correção é o cadastro
 **reemitir o estado desejado**, que é idempotente por construção. O diagnóstico
-sai do motivo, das coordenadas e do identificador do CloudEvent, e o corpo
-original continua alcançável no tópico de entrada dentro das 24 horas de
-retenção.
+sai do motivo, das coordenadas e do identificador do CloudEvent. O corpo original
+só permanece alcançável enquanto estiver dentro da retenção configurada para o
+tópico de entrada.
 
 Motivos próprios dessa ingestão, que não se misturam com o catálogo de
 notificações: `source-not-authorized`, `payload-invalid`,
@@ -935,19 +1141,20 @@ inválido e tipo de envelope não consumido. Ainda assim são vocabulários
 separados: não valide um motivo de contato contra o catálogo de notificações
 nem o contrário, porque os dois conjuntos evoluem por decisões diferentes.
 
-## 8. Checklist de integração
+## 8. Validação da integração e checklist
 
 Antes da primeira notificação, providencie:
 
 **Identidade e papéis**
 
 - Um principal de client credentials para o seu serviço.
-- O papel de envio da classe que você vai pedir: `Notifications.Send.Critical`
-  ou `Notifications.Send.Transactional`. O papel é por classe, então um serviço
-  que pede as duas precisa das duas.
-- O token precisa carregar uma identidade estável (`appid`, `oid` ou `sub`).
-  Sem ela a ingestão responde `403`, porque não há o que gravar como
-  solicitante na trilha.
+- O papel de envio da classe que você vai pedir: `Notifications.Send.Critical`,
+  `Notifications.Send.Transactional` ou `Notifications.Send.Operational`. O
+  papel é por classe, então um serviço que pede mais de uma precisa de cada
+  concessão correspondente.
+- O token precisa carregar uma identidade estável (`appid`, `oid`, `sub` ou
+  `NameIdentifier` mapeado). Sem ela a ingestão responde `403`, porque não há o
+  que gravar como solicitante na trilha.
 - Se o seu time também vai **ler** notificações, peça `Notifications.Read`
   separadamente. Os papéis de envio não dão leitura, e hoje quem porta a
   leitura enxerga notificação de qualquer aplicação, então trate a concessão
@@ -958,12 +1165,14 @@ Antes da primeira notificação, providencie:
 
 **Registro de produtor, apenas no caminho Kafka**
 
-- ACL de escrita no tópico de entrada para o seu principal do broker.
-- Registro da tripla identidade do produtor, `application` e classes
-  permitidas. Sem ele, todo evento seu vai para a dead letter com
+- ACL de escrita no tópico exclusivo atribuído ao seu principal do broker.
+- Binding daquele tópico para um único produtor lógico no worker.
+- Registro da tripla produtor lógico, `application` e classes
+  permitidas. Sem ele, qualquer evento seu vai para a dead letter com
   `producer-not-authorized`.
-- Defina e combine o valor do cabeçalho `producer`: é ele que o hub confere
-  contra o registro.
+- Não envie header `producer`. O tópico consumido é a única autoridade para o
+  nome lógico usado pelo hub.
+- Confirme com a Plataforma a retenção, as partições e as ACLs do ambiente.
 
 **Template publicado**
 
@@ -977,6 +1186,11 @@ Antes da primeira notificação, providencie:
 - Confira que existe conteúdo publicado para os canais do plano da política.
   Falta de conteúdo por canal aparece depois como `no-valid-contact`, que é
   fácil de confundir com problema de cadastro.
+- Peça ao time dono da aplicação o `deliveryPlan` publicado para a sua classe,
+  com o `timeout` de cada passo. A rota de leitura da política exige
+  `Templates.Author`, que não é papel de produtor, e sem essa informação você
+  não sabe por qual canal a notificação sai nem quanto tempo ela espera antes
+  de cair para o seguinte (seção 4.1).
 
 **Contatos e consentimento carregados**
 
@@ -1003,6 +1217,21 @@ Antes da primeira notificação, providencie:
 - Repita com corpo diferente e confirme o `409`.
 - Consulte a notificação e confirme o estado e a tentativa.
 - Assine o tópico de saída e confirme que você recebe os eventos.
+- Reentregue um evento de saída com o mesmo `id` e confirme que seu consumidor
+  não repete o efeito.
+- No Kafka, force um payload inválido, localize a dead letter pelas coordenadas
+  de origem e confirme que seu diagnóstico tolera corpo redigido.
+
+**Anexos**
+
+- Não inclua `attachments` no teste de habilitação enquanto o time do hub não
+  confirmar a liberação de ponta a ponta no ambiente.
+- Um token que envia notificações apenas com `appid` não é suficiente para a
+  autorização atual das APIs de anexos, que resolve `oid`, `sub` ou
+  `NameIdentifier` e exige concessão exata por aplicação.
+- O ambiente local iniciado pelo compose não provisiona Kafka nem completa os
+  pré-requisitos de armazenamento e validação de anexos. Use-o para exercitar o
+  caminho REST sem anexos.
 
 ## 9. Limites e comportamento sob pressão
 
@@ -1015,6 +1244,10 @@ contatos: 600 por minuto. O estouro devolve `429` com o corpo de erro padrão do
 framework, sem `type` do catálogo e **sem `Retry-After`**. É um freio contra
 abuso automatizado, não o limite de negócio: quando ele dispara, o hub não diz
 quanto esperar, então o cliente precisa de recuo próprio.
+
+O documento OpenAPI tem teto próprio de 60 requisições por minuto. A superfície
+de gestão de anexos possui teto de 1.000 por minuto, embora a capacidade de
+envio com anexos ainda não esteja liberada.
 
 **Limites de negócio, na ingestão.** Duas dimensões, ambas por classe canônica,
 configuráveis por ambiente. A configuração vigente no repositório é:
@@ -1102,3 +1335,64 @@ banco, e não o cache. Já o limite de taxa realmente deixa de ser aplicado
 enquanto durar a indisponibilidade, e a compensação é operacional. A barreira
 de duplicata da política tem a mesma postura: em indisponibilidade ela permite
 passar, e registra na evidência que passou aberta.
+
+O controle de emergência segue a postura oposta. Se o produtor estiver
+bloqueado, o REST responde `403 producer-disabled`; se a autoridade do controle
+estiver indisponível, o REST responde `503 kill-switch-unavailable` e o Kafka
+pausa o consumo sem publicar dead letter.
+
+## 10. Compatibilidade, versionamento e descontinuação
+
+As versões aparecem na rota HTTP (`/v1`) e no tipo CloudEvents
+(`araia.notification.requested.v1` e eventos de saída `.v1`). A implementação
+aceita apenas o tipo de entrada V1 exato.
+
+Uma adição opcional pode permanecer em V1 quando a ausência preserva o
+comportamento anterior. `attachments` seguiu essa regra: ausência e `null`
+continuam significando uma solicitação sem anexos. Depois de publicado, remover
+o membro ou alterar esse significado passa a ser mudança incompatível.
+
+Mudanças incompatíveis exigem nova versão. O runtime atual não comprova
+coexistência automática de versões, e não existe janela fixa de depreciação no
+contrato. Portanto, não assuma que V1 e V2 serão consumidas em paralelo. Uma
+transição precisa publicar previamente o novo esquema, a estratégia de rollout,
+o período de convivência e o critério de retirada.
+
+Para reduzir acoplamento, clientes REST e consumidores Kafka devem ignorar
+propriedades adicionais que não usam, preservar a versão que produzem e testar
+seus serializadores contra os exemplos e o OpenAPI. O repositório ainda não
+oferece um schema de máquina para Kafka; trate qualquer mudança no envelope,
+nos campos obrigatórios, na key, nos headers ou nos motivos como revisão de
+contrato.
+
+## 11. Referências e evidências
+
+As referências abaixo sustentam as regras que mais afetam uma integração. Os
+links apontam para o arquivo, e a coluna de evidência registra as linhas
+verificadas nesta revisão.
+
+| Tema | Evidência |
+|---|---|
+| OpenAPI autenticado e rate limit | [`src/Platform.Api/Program.cs`](../src/Platform.Api/Program.cs), `src/Platform.Api/Program.cs:87`; [`OpenApiRateLimitingSetup.cs`](../src/Platform.Api/Infrastructure/RateLimiting/OpenApiRateLimitingSetup.cs), `src/Platform.Api/Infrastructure/RateLimiting/OpenApiRateLimitingSetup.cs:26` |
+| Rota REST, autorização e respostas | [`RequestNotification.Endpoint.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Endpoint.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Endpoint.cs:21` |
+| Esquema e validação da solicitação | [`RequestNotification.Command.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Command.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Command.cs:7`; [`RequestNotification.Validator.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Validator.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Validator.cs:33` |
+| Ordem de admissão, kill switch e aceite | [`RequestNotification.Admission.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Admission.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Admission.cs:84`; [`RequestNotification.Handler.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Handler.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Handler.cs:79` |
+| Idempotência e manifesto de anexos | [`RequestNotification.PayloadHash.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.PayloadHash.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.PayloadHash.cs:12`; [`ADR-0021`](ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md), `docs/ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md:93` |
+| Anexos ainda não liberados | [`appsettings.json`](../src/Platform.Api/appsettings.json), `src/Platform.Api/appsettings.json:70`; [`DispatchRequest.cs`](../src/Platform.Api/Modules/Dispatch/Integration/V1/DispatchRequest.cs), `src/Platform.Api/Modules/Dispatch/Integration/V1/DispatchRequest.cs:37` |
+| Política de classe, seleção de canal e plano admitido | [`ClassPolicyValidation.cs`](../src/Platform.Api/Modules/TemplateManagement/Domain/ClassPolicyValidation.cs), `src/Platform.Api/Modules/TemplateManagement/Domain/ClassPolicyValidation.cs:277`; [`PolicyStage.cs`](../src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/PolicyStage.cs), `src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/PolicyStage.cs:38`; [`CoreWorkerRole.cs`](../src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs), `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs:102`; [`ChannelSelectionRule.cs`](../src/Platform.Api/Modules/Notifications/Features/Pipeline/Rules/ChannelSelectionRule.cs), `src/Platform.Api/Modules/Notifications/Features/Pipeline/Rules/ChannelSelectionRule.cs:41`; [`AdmittedDeliveryPlan.cs`](../src/Platform.Api/Modules/Notifications/Domain/AdmittedDeliveryPlan.cs), `src/Platform.Api/Modules/Notifications/Domain/AdmittedDeliveryPlan.cs:29`; [`RouteStage.cs`](../src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/RouteStage.cs), `src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/RouteStage.cs:25` |
+| Fallback, avanço do plano e evento de fim | [`NotificationAttempt.cs`](../src/Platform.Api/Modules/Notifications/Domain/NotificationAttempt.cs), `src/Platform.Api/Modules/Notifications/Domain/NotificationAttempt.cs:185`; [`NotificationPlanOutcome.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Persistence/NotificationPlanOutcome.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Persistence/NotificationPlanOutcome.cs:117`; [`FallbackRequestHandler.cs`](../src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs), `src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs:305`; [`FallbackRequestHandler.cs`](../src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs), `src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs:526`; [`DispatchMessageProcessor.cs`](../src/Platform.Api/Modules/Notifications/Features/Dispatching/DispatchMessageProcessor.cs), `src/Platform.Api/Modules/Notifications/Features/Dispatching/DispatchMessageProcessor.cs:331` |
+| Leitura da política e canais hospedados | [`GetClassPolicy.Endpoint.cs`](../src/Platform.Api/Modules/TemplateManagement/Features/ClassPolicies/GetClassPolicy/GetClassPolicy.Endpoint.cs), `src/Platform.Api/Modules/TemplateManagement/Features/ClassPolicies/GetClassPolicy/GetClassPolicy.Endpoint.cs:13`; [`DispatcherWorkerRole.cs`](../src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs), `src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs:57` |
+| Revalidação de anexos antes do envio | [`AttachmentPreflight.cs`](../src/Platform.Api/Modules/Notifications/Features/Dispatching/AttachmentPreflight.cs), `src/Platform.Api/Modules/Notifications/Features/Dispatching/AttachmentPreflight.cs:72`; [`DispatchMessageProcessor.cs`](../src/Platform.Api/Modules/Notifications/Features/Dispatching/DispatchMessageProcessor.cs), `src/Platform.Api/Modules/Notifications/Features/Dispatching/DispatchMessageProcessor.cs:268`; [`AcceptedSetEnvelopeCheck.cs`](../src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Capacity/AcceptedSetEnvelopeCheck.cs), `src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Capacity/AcceptedSetEnvelopeCheck.cs:21` |
+| Identidade por tópico e bindings Kafka | [`KafkaIngressTopicMap.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Consuming/KafkaIngressTopicMap.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Consuming/KafkaIngressTopicMap.cs:90`; [`Platform.Worker/appsettings.json`](../src/Platform.Worker/appsettings.json), `src/Platform.Worker/appsettings.json:76` |
+| Binder, desfechos e settlement Kafka | [`KafkaIngressProcessor.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/KafkaIngressProcessor.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/KafkaIngressProcessor.cs:49` |
+| Retry, pausa e commit Kafka | [`KafkaConsumerService.cs`](../src/Platform.Api/Infrastructure/Messaging/Consuming/KafkaConsumerService.cs), `src/Platform.Api/Infrastructure/Messaging/Consuming/KafkaConsumerService.cs:122` |
+| Redação e diagnóstico da dead letter | [`IngressDeadLetterWriter.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Consuming/IngressDeadLetterWriter.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Consuming/IngressDeadLetterWriter.cs:60` |
+| Catálogo canônico e problemas HTTP | [`NotificationRejectionReasons.cs`](../src/Platform.Api/Modules/Notifications/Integration/V1/NotificationRejectionReasons.cs), `src/Platform.Api/Modules/Notifications/Integration/V1/NotificationRejectionReasons.cs:14`; [`IngestionProblems.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Http/IngestionProblems.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Http/IngestionProblems.cs:13` |
+| Consultas e paginação | [`NotificationQueryContract.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Http/NotificationQueryContract.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Http/NotificationQueryContract.cs:9`; [`NotificationsEfOptions.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Persistence/NotificationsEfOptions.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Persistence/NotificationsEfOptions.cs:18` |
+| Entrega ao menos uma vez dos eventos | [`IOutboxPendingStore.cs`](../src/Platform.Api/Infrastructure/Messaging/Relay/IOutboxPendingStore.cs), `src/Platform.Api/Infrastructure/Messaging/Relay/IOutboxPendingStore.cs:17`; [`CloudEventOutbox.cs`](../src/Platform.Api/Infrastructure/Messaging/CloudEventOutbox.cs), `src/Platform.Api/Infrastructure/Messaging/CloudEventOutbox.cs:48` |
+| Formato de IDs e evento de falha | [`NotificationId.cs`](../src/Platform.Api/Modules/Notifications/Domain/NotificationId.cs), `src/Platform.Api/Modules/Notifications/Domain/NotificationId.cs:22`; [`NotificationEvents.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Events/NotificationEvents.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Events/NotificationEvents.cs:36` |
+| Normalização e validade de SMS | [`SmsContentNormalizer.cs`](../src/Platform.Api/Modules/TemplateManagement/Domain/SmsContentNormalizer.cs), `src/Platform.Api/Modules/TemplateManagement/Domain/SmsContentNormalizer.cs:9`; [`DispatchSmsValidityTests.cs`](../tests/Platform.IntegrationTests/Dispatching/DispatchSmsValidityTests.cs), `tests/Platform.IntegrationTests/Dispatching/DispatchSmsValidityTests.cs:20` |
+| Feedback de provedor e reconciliação | [`DeliveryReconciliationOptions.cs`](../src/Platform.Api/Modules/Notifications/Features/DeliveryTracking/Reconciliation/DeliveryReconciliationOptions.cs), `src/Platform.Api/Modules/Notifications/Features/DeliveryTracking/Reconciliation/DeliveryReconciliationOptions.cs:14`; [`GetNotification.Response.cs`](../src/Platform.Api/Modules/Notifications/Features/History/GetNotification/GetNotification.Response.cs), `src/Platform.Api/Modules/Notifications/Features/History/GetNotification/GetNotification.Response.cs:7` |
+| Redação da dead letter de contatos | [`ContactIngestionDeadLetterWriter.cs`](../src/Platform.Api/Modules/ContactConsent/Infrastructure/Consuming/ContactIngestionDeadLetterWriter.cs), `src/Platform.Api/Modules/ContactConsent/Infrastructure/Consuming/ContactIngestionDeadLetterWriter.cs:44`; [`ContactIngestionRejectionReasons.cs`](../src/Platform.Api/Modules/ContactConsent/Integration/V1/ContactIngestionRejectionReasons.cs), `src/Platform.Api/Modules/ContactConsent/Integration/V1/ContactIngestionRejectionReasons.cs:12` |
+| Limites e degradação dos controles Redis | [`appsettings.json`](../src/Platform.Api/appsettings.json), `src/Platform.Api/appsettings.json:56`; [`IngestionRateLimiter.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/RateLimiting/IngestionRateLimiter.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/RateLimiting/IngestionRateLimiter.cs:59`; [`IdempotencyFastPath.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Idempotency/IdempotencyFastPath.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Idempotency/IdempotencyFastPath.cs:24` |
+| Bootstrap local | [`README.md`](../README.md), `README.md:22` |

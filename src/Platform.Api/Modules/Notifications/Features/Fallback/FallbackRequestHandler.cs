@@ -11,6 +11,7 @@ using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Rules;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Events;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
@@ -518,9 +519,9 @@ internal sealed class FallbackRequestHandler(
     }
 
     /// <summary>
-    /// Ends the notification in one transaction: transition, audit event and
-    /// dedupe mark together. Expiry purges the encrypted variables, because
-    /// no render will ever run again.
+    /// Ends the notification in one transaction: transition, outgoing event,
+    /// audit event and dedupe mark together. Expiry purges the encrypted
+    /// variables, because no render will ever run again.
     /// </summary>
     private async Task<MessageDisposition> SettleTerminalAsync(
         MessageEnvelope envelope,
@@ -553,6 +554,25 @@ internal sealed class FallbackRequestHandler(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+
+        // Before the audit append on purpose, as every other terminal
+        // conclusion does: the append takes the partition chain lock and holds
+        // it until the transaction ends. The event is what tells the producer
+        // the notification is over; the trail alone never leaves this hub.
+        await outboxWriter.AppendAsync(
+            transaction.GetDbTransaction(),
+            NotificationEvents.Failed(new NotificationFailed
+            {
+                RecipientId = notification.RecipientId,
+                Class = notification.Class,
+                NotificationId = notification.Id,
+                Reason = reason,
+                LastChannel = failedAttempt.Channel,
+                CorrelationId = notification.CorrelationId,
+                OccurredAt = now,
+                Traceparent = Activity.Current?.Id,
+            }),
+            cancellationToken);
         await auditTrail.AppendAsync(
             transaction.GetDbTransaction(),
             BuildAuditEntry(

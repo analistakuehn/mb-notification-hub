@@ -510,7 +510,12 @@ curta própria.
   a etapa posterior ao canal que falhou, renderiza o próximo canal e coloca a
   próxima tentativa na queue com a invariante transacional do pipeline. Uma
   próxima etapa sem conteúdo, contato ou entrada no plano falha a notificação
-  com um motivo estável. A recusa de segurança do SMS de autenticação preserva o
+  com um motivo estável. Todo fim decidido no handler (`failed` ou `expired`)
+  grava `araia.notification.failed.v1` na outbox, antes da trilha, com o mesmo
+  motivo que a trilha registra e com `lastChannel` igual ao canal da tentativa
+  que falhou; sem esse evento o produtor só descobriria o fim pela consulta,
+  enquanto os fins decididos no dispatcher e no pipeline já eram publicados. A
+  recusa de segurança do SMS de autenticação preserva o
   motivo `authentication-sms-link`, a mesma distinção que o estágio de render
   faz na ingestão: dobrá-la em falha de template registraria como defeito de
   conteúdo exatamente o caso para o qual a regra existe.

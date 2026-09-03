@@ -145,6 +145,62 @@ public sealed class DispatchEventEmissionTests(CorePipelineFixture fixture)
         envelope.Data.GetProperty("reason").GetString().ShouldNotBeNullOrEmpty();
     }
 
+    /// <summary>
+    /// The other way a plan ends: not at the dispatcher, where the verdict of
+    /// the last step concludes it, but at the Core, when the trigger of a
+    /// step with a deadline arrives and the admitted plan has no usable step
+    /// after it. Here the admission dropped e-mail because the recipient has
+    /// no address, so the only step still carries a deadline and its failure
+    /// asks the Core for a next step that does not exist. That conclusion
+    /// must reach the producer like every other one.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_plan_with_no_usable_next_step_at_the_fallback_emits_the_failure_event()
+    {
+        var application = DispatchApi.NewApplication();
+        (var templateKey, _) = await DispatchApi.CreatePublishedTemplateAsync(
+            fixture, application, "critical", "authentication");
+        await DispatchApi.CreatePublishedPolicyAsync(
+            fixture, application, "critical", ("push", "30s"), ("email", null));
+        (var recipientId, _, _) = await DispatchApi.RegisterRecipientAsync(
+            fixture, withEmail: false, deviceCount: 1);
+        await fixture.SeedProviderConfigAsync(("email", "sendgrid"), ("push", "fcm"));
+
+        await using FakeProviderServer provider = await FakeProviderServer.StartAsync();
+        provider.Handler = request => Task.FromResult(request.Path == DispatchApi.FcmTokenPath
+            ? new FakeProviderResponse(200, DispatchApi.FcmTokenBody, null)
+            : new FakeProviderResponse(400, InvalidArgumentBody, null));
+
+        Guid notificationId = await DispatchApi.AcceptAndRouteAsync(
+            fixture, application, templateKey, "critical", recipientId, "core-auth");
+
+        await using ServiceProvider dispatcher = fixture.BuildDispatcherWorkerProvider(
+            DispatchApi.ProviderSettings(provider.BaseAddress, provider.BaseAddress));
+        (await CorePipelineFixture.RunDispatchPassAsync(dispatcher, "dispatch-push-auth"))
+            .Processed.ShouldBeGreaterThanOrEqualTo(1);
+
+        // The refusal wrote the fallback trigger, not the conclusion: the step
+        // had a deadline, so the dispatcher's own path treats it as one with
+        // a successor. The Core is the one that finds out there is none.
+        (await StatusAsync(notificationId)).ShouldBe(NotificationStatuses.Dispatched);
+        (await CountBusEventsAsync(recipientId, FailedType)).ShouldBe(0);
+
+        await using ServiceProvider relay = fixture.BuildRelayProvider();
+        await CorePipelineFixture.RunRelayPassAsync(relay);
+        await using ServiceProvider core = fixture.BuildCoreWorkerProvider();
+        (await CorePipelineFixture.RunCorePassAsync(core, "core-auth"))
+            .Processed.ShouldBeGreaterThanOrEqualTo(1);
+
+        (await StatusAsync(notificationId)).ShouldBe(NotificationStatuses.Failed);
+
+        OutboxMessage published = await BusEventAsync(recipientId, FailedType);
+        published.Transport.ShouldBe(OutboxTransports.Kafka);
+        CloudEvent envelope = ParseEnvelope(published);
+        envelope.Data.GetProperty("reason").GetString().ShouldBe("plan-exhausted");
+        envelope.Data.GetProperty("lastChannel").GetString().ShouldBe("push");
+        envelope.Data.GetProperty("notificationId").GetString().ShouldBe(notificationId.ToString());
+    }
+
     private async Task<OutboxMessage> BusEventAsync(string recipientId, string eventType)
         => await fixture.QueryPlatformDbAsync(db => db.OutboxMessages
             .AsNoTracking()
