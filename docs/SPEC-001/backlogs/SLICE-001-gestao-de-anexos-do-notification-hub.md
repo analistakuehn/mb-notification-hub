@@ -385,7 +385,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 25 | Persistir o snapshot do manifesto aceito com leitor tolerante | Implementation | Senior Dev | 5 | 24h | 11, 21 | Done |
 | 26 | Ler o snapshot por pipeline, despacho e fallback | Implementation | Senior Dev | 5 | 24h | 25 | Done |
 | 27 | Implementar o preflight antes do ponto irreversível | Implementation | Senior Dev | 5 | 24h | 26 | Done |
-| 28 | Evoluir o contrato de despacho com representação neutra do conjunto | Implementation | Senior Dev | 5 | 24h | 27 | To Do |
+| 28 | Evoluir o contrato de despacho com representação neutra do conjunto | Implementation | Senior Dev | 5 | 24h | 27 | Done |
 | 29 | Implementar a submissão do conjunto integral no adaptador de e-mail | Implementation | Senior Dev | 8 | 40h | 9, 28 | To Do |
 | 30 | Produzir a evidência dos bytes submetidos | Implementation | Senior Dev | 3 | 16h | 29 | To Do |
 | 31 | Implementar roteamento e fallback com terminação explícita | Implementation | Senior Dev | 5 | 24h | 27 | To Do |
@@ -792,6 +792,13 @@ o preflight e a composição do envio.
 - **Pontos de história**: 5
 - **Estimativa**: 24h
 - **Depende de**: 27
+- **Estado**: Done em 2026-09-03.
+- **Escolha de forma, decidida por medição**: o tipo neutro publicado pelo módulo de anexos foi reusado, e não redeclarado. A fronteira já consome vocabulário publicado de outro módulo, e duas formas do mesmo conceito divergiriam no membro que nenhum consumidor sabe reconstruir. O contrafactual foi medido: com uma lista do item no lugar do conjunto publicado, o inventário de igualdade passa a listar o pedido de despacho entre os quebrados. O reuso é o que mantém o inventário reparado.
+- **Achado sobre a própria função de adequação**: ela **não distingue reuso deliberado de deriva**. Medido com uma mutação que arrasta o contrato publicado de um terceiro módulo sem registro algum: os trinta testes de arquitetura seguiram verdes. Por isso a admissão foi registrada numa regra própria, com motivo e comparação exata nos dois sentidos, de modo que alcançar uma dependência a mais reprova e registrar uma que deixou de existir também reprova.
+- **Desenho de mutação que preserva atribuição**: as três mutações de exposição usaram propriedade calculada, que entra na superfície pública sem criar campo de apoio. Com membro real, o inventário de igualdade também reprovaria e a atribuição se perderia; assim, cada uma reprovou exatamente uma regra.
+- **Sonda de instrumento**: a lista de admissões esperadas foi esvaziada e a reprovação imprimiu os cinco tipos que a caminhada realmente alcança. Sem essa sonda, um casamento seria indistinguível de uma caminhada vazia.
+- **O que os oráculos não provam**, declarado: a regra fecha por tipo e **não por valor**, então um digest, uma chave ou uma URL dentro de um membro de texto continuam invisíveis para ela, e quem os impede é a regra de valores do módulo dono; a caminhada não lê atributos nem segue tipos base e interfaces implementadas; e nada aqui toca comportamento em tempo de execução, porque é tudo regra de forma. Um oráculo foi declarado **sem falsificador de runtime possível** e não promovido, porque toda mutação do valor padrão morre no compilador antes de qualquer asserção.
+- **Risco registrado**: o tipo se chama aceito e o que ele significa neste contrato é já verificado. A diferença é fechada por documentação e não por tipo, e um adaptador que lesse o nome e concluísse que precisa revalidar criaria a segunda autoridade que a separação existe para impedir.
 - **Aceitação**: O contrato não expõe tipo de provedor nem estado interno; o inventário de igualdade de contratos é reparado ou registra a quebra.
 
 ### Tarefa 29: Implementar a submissão do conjunto integral no adaptador de e-mail

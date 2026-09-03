@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-03T20:10:00Z",
+ "updated_at": "2026-09-03T21:30:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 27,
+  "completed_tasks": 28,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,22 +23,22 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-03T20:10:00Z",
-  "task": "Task 27",
-  "checkpoint": "preflight-accepted",
+  "at": "2026-09-03T21:30:00Z",
+  "task": "Task 28",
+  "checkpoint": "dispatch-contract-accepted",
   "status": "done",
   "reason_codes": [
-   "closes-the-expired-release-gap-the-claim-deliberately-left-open",
-   "zero-provider-calls-measured-on-a-real-http-server-each-zero-paired-with-a-one",
-   "the-envelope-sum-counts-down-so-an-overflow-cannot-read-as-a-small-number",
-   "falsification-exposed-an-integration-oracle-that-two-rules-were-masking",
-   "a-silent-revert-abort-was-caught-and-the-measurement-discarded",
-   "byte-budget-returned-as-a-formulated-question-instead-of-an-invented-number"
+   "reuse-chosen-by-a-measured-counterfactual-not-by-preference",
+   "the-boundary-fitness-function-does-not-distinguish-reuse-from-drift",
+   "computed-property-mutations-kept-attribution-to-exactly-one-rule",
+   "an-instrument-probe-proved-the-walk-is-not-empty",
+   "one-oracle-declared-without-a-possible-runtime-falsifier-and-not-promoted",
+   "the-rule-closes-by-type-and-not-by-value-and-says-so"
   ]
  },
  "task": {
-  "id": "Task 27",
-  "title": "Implementar o preflight antes do ponto irreversivel",
+  "id": "Task 28",
+  "title": "Evoluir o contrato de despacho com representacao neutra do conjunto",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -182,7 +182,7 @@
   {
    "id": "Task 28",
    "title": "Evoluir o contrato de despacho com representação neutra do conjunto",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 29",
