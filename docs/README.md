@@ -27,6 +27,10 @@ Documento-mãe: *Notification Hub, design de sistema*.
 | [0015](ADR-0015-regra-de-supressao-no-estagio-policy.md) | Regra de supressão no estágio Policy | Proposta | 0011, 0012 |
 | [0016](ADR-0016-corpo-do-callback-armazenado-uma-vez.md) | Corpo do callback armazenado uma vez e referenciado pela evidência | Aceita | 0006, 0014 |
 | [0017](ADR-0017-formatacao-de-saida-invariante-e-imposta.md) | Formatação de saída invariante e imposta | Aceita | 0005, 0013 |
+| [0018](ADR-0018-claim-atomico-na-transacao-de-aceite.md) | Claim atômico na transação de aceite | Aceita, com errata de 2026-09-02 | 0006, 0008 |
+| [0019](ADR-0019-snapshot-do-manifesto-aceito.md) | Snapshot do manifesto aceito na notificação | Aceita, com errata de 2026-09-02 | 0018 |
+| [0020](ADR-0020-entrada-do-manifesto-na-forma-canonica-idempotente.md) | Entrada do manifesto na forma canônica idempotente | Substituída por ADR-0021 | 0018, 0019 |
+| [0021](ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md) | Manifesto de anexos na forma canônica do ingresso publicado | Aceita | substitui 0020; 0008, 0018, 0019 |
 
 ## Convenções
 

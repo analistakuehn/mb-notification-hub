@@ -4,7 +4,9 @@ language: pt-BR
 
 # ADR-0020: Entrada do manifesto na forma canônica idempotente
 
-**Status**: ACCEPTED
+**Status**: SUPERSEDED
+
+Substituída em 2026-09-02 pela [ADR-0021: Manifesto de anexos na forma canônica do ingresso publicado](ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md). O corpo abaixo permanece como estava no dia em que foi aceito. Leia a errata antes de usá-lo.
 
 | Campo | Valor |
 |---|---|
@@ -16,6 +18,24 @@ language: pt-BR
 | **Relacionadas** | [ADR-0018: Claim atômico na transação de aceite](ADR-0018-claim-atomico-na-transacao-de-aceite.md); [ADR-0019: Snapshot do manifesto aceito na notificação](ADR-0019-snapshot-do-manifesto-aceito.md) |
 | **Fontes** | [Especificação de desenvolvimento](SPEC-001/requirements/core/01-development-specification.md); [refinamento consolidado](SPEC-001/refinements/00-refinement-consolidated.md); [corpus contratual do manifesto](../.araia/runs/SPEC-001/IMPLEMENT/SLICE-001/experiments/task-08-contract-corpus.md); [Delivery Slice](SPEC-001/backlogs/SLICE-001-gestao-de-anexos-do-notification-hub.md) |
 | **Código afetado** | Contratos públicos V2 de ingresso; validação do comando; `RequestNotification.PayloadHash`; testes de contrato, hash e idempotência |
+
+## Errata de 2026-09-02: o enquadramento de versão foi invalidado
+
+Em 2026-09-02, o dono do produto declarou que o serviço é novo, não tem nada em produção, não existe V2 e não existe nada obsoleto. Essa decisão retirou as premissas sobre as quais este documento foi escrito. Ele não foi corrigido no corpo, porque o que foi decidido antes, e por quê, faz parte do registro. A decisão vigente é a [ADR-0021](ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md).
+
+**Não use este documento como norma.** Em particular, estas afirmações do corpo abaixo estão factualmente erradas em relação ao contrato vigente:
+
+| Trecho do corpo | Estado vigente |
+|---|---|
+| Contrato normativo, item 1: membro ausente, JSON `null` e lista vazia são recusados pelo contrato | Ausente e `null` são legais e significam ausência de anexos. Somente lista vazia, referência em branco e repetição ordinal são recusadas |
+| Contrato normativo, item 2, e direcionador 3: V1 recusa especificamente `attachments` | O membro é publicado no contrato V1, na rota vigente de ingresso, e não existe recusa nominal |
+| Resumo executivo, itens 1 e 3, e a linha de código afetado: existem contratos públicos V2 | Não existe rota V2, documento de máquina V2, tópico V2 nem tipo de evento V2 |
+| Fora do escopo: adicionar anexos aos contratos REST ou Kafka V1 | Adicionar o membro ao contrato vigente passou a ser exatamente a decisão |
+| Consequências, custos operacionais e seções de rollout, irreversibilidade e rollback | Descrevem coexistência de versões, roteamento por versão, writer V2 desabilitado e ensaio de versões mistas. Nada disso existe |
+| Invariantes: V1 permanece sem anexos, e V2 nunca é reinterpretado como V1 | Substituídas por invariantes de superfície única e de proibição de descarte silencioso do membro |
+| Irreversibilidade: digests gravados sob a forma anterior | Não existe digest persistido em produção. Os dois digests brownfield são vetores congelados em teste |
+
+**O que sobreviveu, e foi transportado sem alteração para a ADR-0021**: a decisão de incluir `attachments` na forma canônica; a posição imediatamente depois de `application`; a omissão do membro quando ausente, `null` ou vazio; a semântica ordinal sem ordenar, deduplicar ou normalizar; a ordem como parte do payload; a política de escaping; a matriz de digests literais; e a regra de que nome, tipo de mídia, comprimento e identidade do conteúdo pertencem ao snapshot liberado, não ao ingresso.
 
 ## Resumo executivo
 

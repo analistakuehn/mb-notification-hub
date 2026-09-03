@@ -17,6 +17,12 @@ language: pt-BR
 | **Fontes** | [Experimento de consistência](../.araia/runs/SPEC-001/IMPLEMENT/SLICE-001/experiments/task-07-claim-consistency.md); [Delivery Slice](SPEC-001/backlogs/SLICE-001-gestao-de-anexos-do-notification-hub.md) |
 | **Código afetado** | `AttachmentManagement.Integration.V1`; writer de ingresso de `Notifications`; testes de transação e arquitetura |
 
+## Errata de 2026-09-02: cerimônia de migração
+
+A decisão continua vigente por inteiro, e nada neste documento dependia de versão de contrato de ingresso. O `V1` de `AttachmentManagement.Integration.V1` é a versão do contrato publicado entre módulos, não a versão da superfície pública de ingresso, e permanece como está.
+
+Um único ponto envelheceu. O passo 2 do rollout prescreve publicar migrações aditivas, e a reversibilidade afirma que a reversão não desfaz migrações. Em 2026-09-02, o dono do produto decidiu esmagar todas as migrações em uma inicial, porque o serviço é novo e não tem nada em produção. Para este módulo, que ainda não possui migração alguma, aditivo e inicial descrevem o mesmo ato: o schema do claim nasce na migração inicial. A consequência detalhada, incluindo o que fica suspenso e o que continua valendo, está na errata de 2026-09-02 da [ADR-0019](ADR-0019-snapshot-do-manifesto-aceito.md).
+
 ## Resumo executivo
 
 Adotar o claim integral na mesma transação PostgreSQL que confirma notificação, snapshot, idempotência, outbox e auditoria. O módulo `Notifications` inicia e confirma a transação. O módulo `AttachmentManagement` participa por um contrato publicado que recebe a `DbTransaction`, executa seus próprios comandos sobre a conexão existente e devolve um snapshot neutro e imutável.

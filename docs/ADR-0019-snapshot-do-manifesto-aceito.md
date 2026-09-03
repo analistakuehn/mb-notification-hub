@@ -6,6 +6,8 @@ language: pt-BR
 
 **Status**: ACCEPTED
 
+A decisão continua vigente. O sequenciamento de rollout e a cerimônia de migração foram corrigidos pela errata de 2026-09-02, logo abaixo do quadro de metadados.
+
 | Campo | Valor |
 |---|---|
 | **Data** | 2026-08-31 |
@@ -16,6 +18,37 @@ language: pt-BR
 | **Relacionadas** | [ADR-0018: Claim atômico na transação de aceite](ADR-0018-claim-atomico-na-transacao-de-aceite.md) |
 | **Fontes** | [Especificação de desenvolvimento](SPEC-001/requirements/core/01-development-specification.md); [refinamento da fronteira](SPEC-001/refinements/00-refinement-consolidated.md); [corpus contratual](../.araia/runs/SPEC-001/IMPLEMENT/SLICE-001/experiments/task-08-contract-corpus.md) |
 | **Código afetado** | Linha `notifications.notification`; domínio e persistência de `Notifications`; pipeline, despacho e fallback; `NotificationEvidenceReader`, contrato `NotificationEvidence` e testes de evidência |
+
+## Errata de 2026-09-02: serviço sem produção, sem V2 e com migração inicial única
+
+Em 2026-09-02, o dono do produto declarou que o serviço é novo, não tem nada em produção, não existe V2 e não existe nada obsoleto, e que o mesmo vale para as migrações. Perguntado, decidiu esmagar todas as migrações em uma inicial, em vez de manter cadeia com migração aditiva.
+
+O corpo abaixo não foi reescrito. **A decisão continua vigente por inteiro**: local, forma persistida, schema V1 do documento, matriz de leitura com presente, ausente e ilegível, composição congelada com elegibilidade relida no preflight, escrita única no `INSERT` do aceite, imutabilidade após a criação e proibição de cópia em `notification_attempt`. Nada disso depende de versão de contrato nem de cadeia de migrações.
+
+### O que ficou errado, e como se lê agora
+
+| Trecho do corpo | Estado vigente |
+|---|---|
+| Rollout, passo 8: habilitar progressivamente somente os ingressos V2 com anexos | Não existe V2. O manifesto viaja no contrato publicado vigente, conforme a [ADR-0021](ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md) |
+| Rollout, passo 6: manter REST e Kafka V1 recusando anexos | O contrato vigente carrega o manifesto. A regra que sobrevive é outra: nenhuma superfície pode aceitar um corpo que nomeia o manifesto e prosseguir sem ele |
+| Reconciliação da Tarefa 36: cobrindo ingresso V2 | Leia como o ingresso vigente, único |
+| Matriz de combinações e a categoria leitor antigo | Não existe leitor antigo, porque não existe implantação anterior. A combinação proibida deixa de ser fase de rollout e passa a ser regra de ordenação dentro de uma implantação: nenhuma instância escreve documento não nulo antes que todas leiam |
+| Migração aditiva, coluna acrescentada e preservação de linhas anteriores | A coluna nasce junto com a tabela, na migração inicial única. Não existem linhas anteriores a preservar |
+
+### Cerimônia de migração, corrigida
+
+A cerimônia prescrita no passo 1 do rollout e na reconciliação da Tarefa 35 existe para `ALTER TABLE` sobre pai particionado com dados e tráfego. A migração inicial única cria o schema em base vazia, portanto:
+
+- **Suspenso**: a edição manual autorizada de `SET LOCAL lock_timeout = '3s'` imediatamente antes do DDL, e o ensaio de contenção com transação bloqueadora no pai e em uma partição. Criar tabela em base vazia não disputa bloqueio com ninguém.
+- **Suspenso**: o teste sobre linhas nulas anteriores à coluna. A categoria não existe.
+- **Preservado**: a coluna é anulável e criada sem valor padrão. Uma notificação sem anexos persiste SQL `NULL`, e ausência precisa continuar distinguível de documento ilegível.
+- **Preservado**: o snapshot do modelo continua gerado pela ferramenta, sem edição manual, e a aplicação precisa migrar sem recusar por mudança pendente de modelo.
+- **Preservado**: a coluna precisa existir no pai e em todas as partições, o que a migração inicial passa a garantir por construção em vez de por alcance de `ALTER TABLE`.
+- **Volta a valer integralmente** no primeiro DDL executado sobre tabela com dados em produção. A suspensão vale enquanto o schema for criado do zero, não para sempre.
+
+### Evidência que o esmagamento apaga
+
+Este documento cita, como evidência, as migrações `20260825145151_AddNotificationAdmittedPlan` e `20260825223842_StoreCallbackPayloadOnce`, por caminho e linha. O esmagamento remove esses arquivos, e as citações deixam de resolver. A afirmação que elas sustentavam sobre o precedente de `jsonb` anulável no nível da notificação continua verificável pela configuração EF e pela migração inicial. A afirmação sobre o padrão manual de `lock_timeout` como SQL explícito perde sua evidência no repositório, e precisará ser restabelecida se a regra voltar a ser necessária.
 
 ## Resumo executivo
 

@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" font-family="Segoe UI, system-ui, sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrowIndigo" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L10,4 L0,8" fill="#6366f1"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L10,4 L0,8" fill="#16a34a"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L10,4 L0,8" fill="#d97706"/>
+    </marker>
+    <style>
+      .title { font-size: 18px; font-weight: 700; fill: #1e293b; text-anchor: middle; }
+      .subtitle { font-size: 12px; fill: #64748b; text-anchor: middle; }
+      .hdr { font-size: 11px; font-weight: 700; fill: #fff; text-anchor: middle; }
+      .msg { font-size: 10px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .note { font-size: 9px; fill: #64748b; text-anchor: middle; }
+      .fail { font-size: 9px; font-weight: 600; fill: #dc2626; }
+      .blk { font-size: 10px; font-weight: 700; fill: #475569; }
+      .foot { font-size: 10px; fill: #334155; }
+    </style>
+  </defs>
+
+  <text class="title" x="480" y="30">Claim de anexos na transação de aceite: ordenação e falhas</text>
+  <text class="subtitle" x="480" y="52">Reserva idempotente fora da transação, confirmação carregada pelo commit do aceite</text>
+
+  <!-- Raias -->
+  <g filter="url(#shadow)">
+    <rect x="20" y="72" width="160" height="40" rx="8" fill="#1e1b4b"/>
+    <rect x="215" y="72" width="170" height="40" rx="8" fill="#4f46e5"/>
+    <rect x="420" y="72" width="160" height="40" rx="8" fill="#0f172a"/>
+    <rect x="612" y="72" width="156" height="40" rx="8" fill="#16a34a"/>
+    <rect x="800" y="72" width="140" height="40" rx="8" fill="#d97706"/>
+  </g>
+  <text class="hdr" x="100" y="89">Notifications</text>
+  <text class="hdr" x="100" y="103">(Ingress)</text>
+  <text class="hdr" x="300" y="97">AttachmentManagement</text>
+  <text class="hdr" x="500" y="97">Postgres (transação)</text>
+  <text class="hdr" x="690" y="97">platform.outbox</text>
+  <text class="hdr" x="870" y="97">Audit (cadeia)</text>
+
+  <!-- Bloco transacional -->
+  <rect x="45" y="258" width="890" height="322" rx="10" fill="#f1f5f9" fill-opacity="0.7" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text class="blk" x="58" y="278">BEGIN (READ COMMITTED)</text>
+  <text class="blk" x="58" y="570">COMMIT imediato</text>
+
+  <!-- Linhas de vida -->
+  <g stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4">
+    <line x1="100" y1="112" x2="100" y2="646"/>
+    <line x1="300" y1="112" x2="300" y2="646"/>
+    <line x1="500" y1="112" x2="500" y2="646"/>
+    <line x1="690" y1="112" x2="690" y2="646"/>
+    <line x1="870" y1="112" x2="870" y2="646"/>
+  </g>
+
+  <!-- 1. Reserva -->
+  <line x1="100" y1="150" x2="296" y2="150" stroke="#6366f1" stroke-width="2" marker-end="url(#arrowIndigo)"/>
+  <text class="msg" x="200" y="144">1. Reserva idempotente do conjunto integral</text>
+  <text class="note" x="200" y="166">chave = chave de idempotência; conjunto inteiro ou recusa</text>
+
+  <!-- 2. Snapshot -->
+  <line x1="300" y1="200" x2="104" y2="200" stroke="#6366f1" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowIndigo)"/>
+  <text class="msg" x="200" y="194">devolve snapshot imutável do manifesto</text>
+
+  <!-- F1 -->
+  <path d="M100,224 L108,232 L100,240 L92,232 Z" fill="#dc2626"/>
+  <text class="fail" x="118" y="235">F1: falha antes do BEGIN &#8594; reserva expira</text>
+
+  <!-- 2. INSERT notification -->
+  <line x1="100" y1="312" x2="496" y2="312" stroke="#6366f1" stroke-width="2" marker-end="url(#arrowIndigo)"/>
+  <text class="msg" x="298" y="306">2. INSERT notification (+ manifesto jsonb)</text>
+
+  <!-- 3. INSERT idempotency_key -->
+  <line x1="100" y1="352" x2="496" y2="352" stroke="#6366f1" stroke-width="2" marker-end="url(#arrowIndigo)"/>
+  <text class="msg" x="298" y="346">3. INSERT idempotency_key</text>
+
+  <!-- 4. Confirmação do claim -->
+  <line x1="100" y1="396" x2="686" y2="396" stroke="#16a34a" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text class="msg" x="393" y="390">4. APPEND confirmação do claim</text>
+  <text class="note" x="393" y="410">posição obrigatória: antes do append de auditoria</text>
+
+  <!-- F2 -->
+  <path d="M100,430 L108,438 L100,446 L92,438 Z" fill="#dc2626"/>
+  <text class="fail" x="118" y="441">F2: falha no segundo append &#8594; nada persiste</text>
+
+  <!-- 5. Mensagem de aceite -->
+  <line x1="100" y1="472" x2="686" y2="472" stroke="#16a34a" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text class="msg" x="393" y="466">5. APPEND mensagem de aceite</text>
+
+  <!-- 6. audit_event -->
+  <line x1="100" y1="512" x2="866" y2="512" stroke="#d97706" stroke-width="2" marker-end="url(#arrowAmber)"/>
+  <text class="msg" x="483" y="506">6. APPEND audit_event</text>
+  <text class="note" x="483" y="526">pg_advisory_xact_lock por ano e mês; posse até o COMMIT</text>
+
+  <!-- F3 -->
+  <path d="M100,542 L108,550 L100,558 L92,550 Z" fill="#dc2626"/>
+  <text class="fail" x="118" y="553">F3: falha no append de auditoria &#8594; nada persiste</text>
+
+  <!-- 7. Consumo -->
+  <line x1="690" y1="616" x2="304" y2="616" stroke="#16a34a" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text class="msg" x="497" y="610">7. Consumo com dedupe em processed_messages; promove reserva para claim</text>
+
+  <!-- Rodapé -->
+  <rect x="20" y="656" width="920" height="48" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+  <circle cx="42" cy="672" r="4" fill="#d97706"/>
+  <text class="foot" x="56" y="676">Órfão possível: reservado sem aceite. Converge por expiração da reserva.</text>
+  <circle cx="42" cy="692" r="4" fill="#16a34a"/>
+  <text class="foot" x="56" y="696">Órfão impossível por construção: aceito sem claim integral, porque confirmação e aceite partilham o commit.</text>
+</svg>
