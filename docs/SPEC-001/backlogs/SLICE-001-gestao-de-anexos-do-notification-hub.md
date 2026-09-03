@@ -377,13 +377,13 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 17 | Implementar a proteção contra descarte enquanto houver dependência ativa | Implementation | Senior Dev | 5 | 24h | 16 | Done |
 | 18 | Implementar a máquina de estados de validação e liberação, fechando por padrão | Implementation | Senior Dev | 8 | 40h | 16 | Done |
 | 19 | Implementar revogação, rejeição e repetição segura | Implementation | Senior Dev | 5 | 24h | 18 | Done |
-| 20 | Publicar o contrato de claim e snapshot para o módulo de notificações | Implementation | Senior Dev | 5 | 24h | 10, 19 | To Do |
-| 21 | Implementar o claim integral na transação compartilhada de aceite | Implementation | Senior Dev | 8 | 40h | 20 | To Do |
+| 20 | Publicar o contrato de claim e snapshot para o módulo de notificações | Implementation | Senior Dev | 5 | 24h | 10, 19 | Done |
+| 21 | Implementar o claim integral na transação compartilhada de aceite | Implementation | Senior Dev | 8 | 40h | 20 | Done |
 | 22 | Acrescentar o manifesto ao contrato publicado e ao validador | Implementation | Senior Dev | 3 | 16h | 12 | Done |
 | 23 | Incorporar o manifesto à forma canônica idempotente | Implementation | Senior Dev | 5 | 24h | 1, 22 | Done |
-| 24 | Implementar o leitor do barramento para o membro novo | Implementation | Senior Dev | 3 | 16h | 23 | To Do |
-| 25 | Persistir o snapshot do manifesto aceito com leitor tolerante | Implementation | Senior Dev | 5 | 24h | 11, 21 | To Do |
-| 26 | Ler o snapshot por pipeline, despacho e fallback | Implementation | Senior Dev | 5 | 24h | 25 | To Do |
+| 24 | Implementar o leitor do barramento para o membro novo | Implementation | Senior Dev | 3 | 16h | 23 | Done |
+| 25 | Persistir o snapshot do manifesto aceito com leitor tolerante | Implementation | Senior Dev | 5 | 24h | 11, 21 | Done |
+| 26 | Ler o snapshot por pipeline, despacho e fallback | Implementation | Senior Dev | 5 | 24h | 25 | In Progress |
 | 27 | Implementar o preflight antes do ponto irreversível | Implementation | Senior Dev | 5 | 24h | 26 | To Do |
 | 28 | Evoluir o contrato de despacho com representação neutra do conjunto | Implementation | Senior Dev | 5 | 24h | 27 | To Do |
 | 29 | Implementar a submissão do conjunto integral no adaptador de e-mail | Implementation | Senior Dev | 8 | 40h | 9, 28 | To Do |
@@ -640,6 +640,11 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 - **Pontos de história**: 5
 - **Estimativa**: 24h
 - **Depende de**: 10, 19
+- **Estado**: Done em 2026-09-02.
+- **Forma entregue, com o fundamento**: o item publicado carrega referência, identidade de conteúdo, nome, tipo e comprimento. A identidade de conteúdo é um **manipulador opaco que nomeia a geração**, e não um resumo dela: a prova dos bytes continua na linha de geração, o consumidor recebe um ponteiro que só este módulo resolve, e a comparação acontece deste lado da fronteira com um veredito atravessando de volta. É isso que permite congelar a composição fora do módulo mantendo a prova dentro dele. O manipulador nomeia a geração e não a concessão, de propósito, porque amarrá-lo à concessão vigente congelaria elegibilidade. Uma coluna mintada própria foi recusada, com o gatilho de reabertura escrito no tipo: ela passa a ser a resposta no dia em que um manipulador publicado precisar girar sem girar a linha que ele nomeia.
+- **Duas escolhas de forma que acompanham**: o veredito de indisponibilidade e o de não reivindicável valem zero, para que um resultado que ninguém produziu, inclusive o de um dublê não configurado, não libere o conjunto; e o desfecho do claim tem apenas duas portas, de modo que não existe construtor para uma recusa que reporte aceitação.
+- **Um oráculo próprio nasceu vazio e foi consertado**: as asserções de igualdade ligavam a sobrecarga de coleção da biblioteca de asserções, que percorre elementos e nunca pergunta ao tipo, então o falsificador passava verde. Reescritas para perguntar ao comparador por nome, o falsificador passou a reprovar, e as execuções anteriores foram descartadas.
+- **O que os oráculos não provam**, declarado: nada sobre o claim em si, porque as duas interfaces não têm implementação nem registro; nada sobre o manipulador em produção, porque ele não tem chamador; nada sobre vazamento em tempo de execução, já que a regra fecha por forma o conjunto de membros e uma cadeia de caracteres pode carregar qualquer coisa; e nada sobre a taxonomia das recusas, que é vocabulário sem exercício.
 - **Aceitação**: O contrato compila na superfície publicada; a função de adequação de fronteiras passa; o inventário de igualdade de contratos é reparado ou registra a quebra.
 
 ### Tarefa 21: Implementar o claim integral na transação compartilhada de aceite
@@ -650,6 +655,14 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 - **Pontos de história**: 8
 - **Estimativa**: 40h
 - **Depende de**: 20
+- **Estado**: Done em 2026-09-03.
+- **Forma entregue, com o fundamento**: o texto do upsert saiu do registro de dependências para um irmão que recebe a transação do chamador e monta comando sobre a conexão dela, de modo que existe um único texto para as duas escritas. O claim usa três instruções próprias sobre a mesma conexão, e nenhuma abre conexão, inicia transação ou confirma. A identidade da posse é derivada da aplicação somada à chave idempotente, e não da notificação, porque derivar da notificação quebraria a idempotência: uma retentativa após commit de resultado desconhecido cunharia identificador novo e tomaria segunda posse sobre o mesmo anexo. A ordem de travamento é canônica por referência, e não a ordem do pedido, enquanto o snapshot volta na ordem do pedido.
+- **Ordem na transação**: abrir em isolamento explícito, conferir o isolamento efetivo pelo servidor, claim, notificação e chave, fila de saída, auditoria, commit. O passo novo entrou antes do registro de auditoria, como o contrato manda.
+- **Ausência de segunda conexão, provada por três medições independentes**: as travas de relação durante o aceite pertencem a um único processo, lido de dentro da própria transação; um host com a configuração do módulo de anexos apontada para uma base inexistente continua aceitando e deixando a posse durável, com prova de que a cadeia é mesmo inutilizável; e o papel de consumo compõe o claim sem nenhuma persistência de anexos, de modo que um repositório próprio faria a resolução de dependências falhar.
+- **Matriz de falhas injetadas**: seis pontos, um por efeito da transação. Nos cinco de falha, o estado durável observado é zero notificação, zero chave, zero fila de saída e zero posse. No sexto, commit feito com resposta perdida, a repetição devolve o mesmo identificador pelas duas autoridades, com uma posse viva na versão original.
+- **O que os oráculos não provam**, declarado: o claim exige estado liberado e linha de liberação e **não confere vencimento**, portanto um anexo com liberação vencida é reivindicável hoje, e isso é elegibilidade que pertence à verificação da Tarefa 27; a leitura de isolamento da sonda não tem vermelho próprio, porque o que está falsificado é a guarda e não a leitura; a asserção de sessão única é instantânea e não enxergaria uma conexão aberta e devolvida antes da amostra; não existe oráculo de falha durante o commit; nada prova co-localização física dos participantes nem privilégio mínimo do papel; e a contenção da trava não foi medida sob carga.
+- **Extensão de escopo registrada**: a composição da superfície de claim foi escrita em `Composition/IntegrationSurfaceSetup.cs`, fora do conjunto declarado, por ser a única casa legal. Um módulo não compõe internos de outro, e o papel de consumo não pode referenciar a infraestrutura de anexos sem reprovar a função de adequação de fronteiras. A adição é de um método e não altera registro existente.
+- **Decisão de vocabulário adotada por precedente**: promover a recusa de anexo ao catálogo publicado exigiria linha no guia do produtor, que é propriedade da Tarefa 38. Foi adotado o precedente já escrito no módulo, com código exclusivo de transporte que responde na faixa de erro de negócio, grava trilha e não vira motivo de evento no barramento. Quem promover o código ao catálogo precisa da linha no guia no mesmo commit.
 - **Aceitação**: Cada ponto de injeção de falha deixa estado durável consistente; o perdedor idempotente não conserva claim nem lock; a sonda confirma `READ COMMITTED`, a posição anterior à auditoria e a ausência de segunda conexão.
 
 ### Tarefa 22: Acrescentar o manifesto ao contrato publicado e ao validador
@@ -686,6 +699,10 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 - **Pontos de história**: 3
 - **Estimativa**: 16h
 - **Depende de**: 23
+- **Estado**: Done em 2026-09-02.
+- **Forma entregue**: dezenove linhas de produção, que leem o membro no vinculador e o repassam ao comando. Nada de opções de consumo, mapa de tópicos ou papel de trabalhador mudou, porque sob a decisão vigente não existe segundo tópico nem segundo tipo de evento, então o manifesto viaja no corpo do tipo já publicado e a topologia não se move. Cinco mutações de runtime, cuja união cobre todos os trinta e dois oráculos; a que reconstrói o estado exato do defeito anterior derrubou doze de treze testes de integração.
+- **Provado além do pedido**: o manifesto entra na identidade do pedido também pelo barramento, verificado contra as duas autoridades, o caminho rápido em cache e o registro persistido. Sob a mesma chave, o corpo com manifesto é aceito e o corpo sem ele responde conflito, sobrando exatamente uma notificação.
+- **O que os oráculos não provam**, declarado: a cláusula "antes do claim" não é medida diretamente, porque o ingresso ainda não executa claim de anexo, e o que está medido é que o caminho de aceite não rodou; nada persiste o manifesto, então um pedido com manifesto é aceito e nenhum arquivo fica vinculado a nada; recusas posteriores à confiança do produtor retêm o corpo original, que contém as referências, e só a família anterior à confiança está provada livre delas; e não há execução pelo laço real do consumidor.
 - **Aceitação**: A correspondência entre tópico e type é obrigatória; solicitação sem anexos e solicitação com lista íntegra são aceitas; lista vazia, referência em branco, repetição, tipo errado ou publicação em tópico incompatível são recusados antes do hash e do claim; nenhum corpo que nomeie o manifesto é aceito sem que o manifesto seja transportado; a ordem vigente dos gates permanece inalterada.
 
 ### Tarefa 25: Persistir o snapshot do manifesto aceito com leitor tolerante
@@ -696,6 +713,12 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 - **Pontos de história**: 5
 - **Estimativa**: 24h
 - **Depende de**: 11, 21
+- **Estado**: Done em 2026-09-03, refeita do zero depois de uma primeira tentativa ter morrido sem nenhum oráculo executado.
+- **Costura escolhida, com o fundamento**: a gravação acontece dentro do escritor de ingestão, entre o claim e a inserção da notificação. É o único instante em que o conjunto aceito e uma notificação ainda não inserida coexistem: o caso de uso monta a notificação antes de qualquer transação existir e não tem contexto nem transação, e o conjunto aceito só nasce depois da abertura da transação, porque o claim roda nela. Devolver o conjunto no desfecho do escritor entregaria tarde e forçaria alteração posterior à inserção, exatamente o que a decisão proíbe.
+- **Restrição contrariada com medição, e confirmada**: a instrução era não criar migração. Foi medido que "coluna no modelo sem migração" reprova **toda** a superfície de integração no preparo da fixture, com o aviso de mudanças pendentes do mapeador, e que atualizar apenas o retrato do modelo é pior, porque silencia o aviso e deixa a coluna ausente do banco. A assimetria é real: o módulo de anexos não tem cadeia de migrações e cria o esquema do modelo, enquanto o de notificações tem vinte e sete arquivos e valida pendências. A migração gerada é descartável por construção, porque a Tarefa 35 esmaga a cadeia inteira.
+- **Evidência de captura de SQL**: a inserção do aceite nomeia a coluna e um parâmetro carrega o documento, comparado como JSON e não como texto. A transição seguinte emite exatamente uma atualização, capturada literalmente, com dois vizinhos presentes e a coluna do snapshot **ausente**. Os vizinhos estão na asserção de propósito: sem um vizinho que deve mudar, uma captura vazia satisfaria a ausência sendo afirmada.
+- **Matriz coberta**: ausência é apenas o valor nulo; presença exige envelope íntegro com itens não vazios, ordem preservada e cadeias devolvidas caractere a caractere. Os três buracos que o contrato publicado não enxerga ficam fechados por três ajustes distintos e com atribuição medida: recusa de membro adicional, exigência de membro obrigatório, que fecha também a grafia em outra caixa, e recusa de membro repetido. A recusa nunca cita o documento, provado com dado sensível plantado.
+- **O que os oráculos não provam**, declarado: que nenhuma outra transição emite atualização com a coluna, já que uma transição foi medida e o resto se apoia na guarda de mapeamento; que a atualização em massa e o SQL cru não reescrevem o valor durável, porque já foi medido que atravessam a guarda e o gatilho pertence à Tarefa 35; a recusa de membro repetido através da coluna, porque o tipo do banco colapsa nomes repetidos na escrita; e a presença da coluna em cada partição.
 - **Aceitação**: Testes unitários e integrados cobrem a matriz V1 e distinguem documento presente, ausente e ilegível; uma linha anterior à coluna continua avançando; a captura SQL comprova o snapshot no `INSERT` inicial e a ausência do snapshot em `UPDATE` posterior; alterar o snapshot depois da criação falha pela guarda do modelo antes da emissão de SQL.
 
 ### Tarefa 26: Ler o snapshot por pipeline, despacho e fallback
@@ -707,6 +730,37 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 - **Estimativa**: 24h
 - **Depende de**: 25
 - **Aceitação**: Alterar o estado do anexo entre o aceite e o fallback não muda o conjunto submetido; primeira tentativa, retry, fallback e fan-out não persistem nem transportam uma segunda autoridade do manifesto; o snapshot da notificação sobrevive ao veredito terminal.
+
+### Portão de capacidade, resolvido e parcialmente aplicado em 2026-09-03
+
+O portão de quantidade, tamanho, tipos e envelope foi resolvido por delegação do
+dono, e a parte que já estava materializada em código foi corrigida. O envelope
+por notificação e o teto por anexo são **7.340.032 bytes**, e a quantidade
+máxima é **10**. O envelope é derivado, porque é a base ratificada sob a qual a
+sonda de transferência mediu os três braços; o teto por anexo o acompanha porque
+o que limita o custo é a soma; a quantidade é escolha de produto e governa
+cardinalidade, ou seja, quantas linhas o claim trava e quantas leituras
+integrais o preflight faz.
+
+O defeito corrigido: o teto por anexo em código era 30.000.000 bytes, escolhido
+pelo implementador e **maior que o teto duro do conjunto inteiro**. Ele saiu do
+agregado e passou a vir de configuração validada na partida, onde a ausência ou
+a invalidez da seção é **falha de partida** e não recusa silenciosa, porque
+envelope ausente não pode significar zero.
+
+Medição que corrigiu a premissa do despacho: não existia oráculo registrando
+anexo entre sete mebibytes e trinta megabytes esperando aceitação. O maior
+tamanho registrado por qualquer oráculo era de dois mil e quarenta e oito bytes.
+Nada foi invalidado pelo aperto.
+
+Lacuna declarada e não promovida: o limite de corpo do upload passou a ler a
+configuração, e **nenhum teste em processo distingue isso de uma constante**,
+porque o host de teste não aplica o recurso de tamanho máximo, que é do
+servidor. A sonda foi escrita, reprovou, e foi removida em vez de promovida.
+Fechar isso exige verificação fora do processo.
+
+O envelope somado e a quantidade máxima **não têm consumidor**: quem os aplica é
+o preflight e a composição do envio.
 
 ### Tarefa 27: Implementar o preflight antes do ponto irreversível
 

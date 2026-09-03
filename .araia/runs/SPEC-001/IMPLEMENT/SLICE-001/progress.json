@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-03T01:20:00Z",
+ "updated_at": "2026-09-03T14:30:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 21,
+  "completed_tasks": 25,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,25 +23,25 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-03T01:20:00Z",
-  "task": "Task 19",
-  "checkpoint": "revocation-accepted",
+  "at": "2026-09-03T14:30:00Z",
+  "task": "Task 25",
+  "checkpoint": "accepted-snapshot-persisted",
   "status": "done",
   "reason_codes": [
-   "rejection-is-a-verdict-revocation-is-an-act-over-a-grant",
-   "revocation-got-its-own-terminal-state-and-its-own-append-only-row",
-   "the-row-names-the-exact-release-not-only-the-attachment",
-   "thirty-runtime-mutations-each-produced-red",
-   "four-public-reasons-one-per-family-fine-detail-behind-authorized-read",
-   "openapi-digest-refrozen-deliberately-with-the-reason-written-beside-it"
+   "redone-from-scratch-the-first-attempt-had-no-executed-oracle",
+   "no-migration-was-measured-unsatisfiable-and-the-constraint-was-wrong",
+   "the-notifications-context-validates-pending-changes-the-attachment-one-has-no-chain",
+   "sql-capture-asserts-the-neighbour-that-must-change-so-an-empty-capture-cannot-satisfy-it",
+   "the-envelope-defect-was-corrected-the-per-attachment-cap-exceeded-the-whole-set-ceiling",
+   "an-in-process-probe-for-the-body-limit-failed-and-was-removed-instead-of-promoted"
   ]
  },
  "task": {
-  "id": "Task 19",
-  "title": "Implementar revogação, rejeição e repetição segura",
+  "id": "Task 25",
+  "title": "Persistir o snapshot do manifesto aceito com leitor tolerante",
   "status": "done",
   "task_state": "accepted",
-  "attempt": 1
+  "attempt": 2
  },
  "tasks": [
   {
@@ -142,12 +142,12 @@
   {
    "id": "Task 20",
    "title": "Publicar o contrato de claim e snapshot para o módulo de notificações",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 21",
    "title": "Implementar o claim integral na transação compartilhada de aceite",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 22",
@@ -162,17 +162,17 @@
   {
    "id": "Task 24",
    "title": "Implementar o leitor do barramento para o membro novo",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 25",
    "title": "Persistir o snapshot do manifesto aceito com leitor tolerante",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 26",
    "title": "Ler o snapshot por pipeline, despacho e fallback",
-   "status": "pending"
+   "status": "in_progress"
   },
   {
    "id": "Task 27",
@@ -287,6 +287,19 @@
     "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentManagementApiFixture.cs"
    ],
    "reason": "O glob autorizado cobre tests/**/AttachmentManagement/**/*Tests.cs e não alcança a fixture. A decisão da mesa exige habilitar versionamento no bucket e trocar a listagem por visão corrente por listagem por versão, sem o que os oráculos de geração nascem cegos: foi medido que a listagem corrente devolve uma entrada com três versões duráveis. A alteração fica contida na fixture do módulo e não cria projeto, pacote nem instrução de esquema."
+  },
+  {
+   "approved_at": "2026-09-03T03:05:00Z",
+   "approved_by": "Usuario",
+   "decision_source": "pre-authorized-by-user",
+   "tasks": [
+    "Task 21"
+   ],
+   "path_count": 1,
+   "paths": [
+    "src/Platform.Api/Composition/IntegrationSurfaceSetup.cs"
+   ],
+   "reason": "Only legal home for composing the claim surface: a module does not compose another module's internals, and the consuming role cannot reference the attachment infrastructure without failing the boundary fitness function. One added method, no existing registration changed."
   }
  ],
  "approval": {

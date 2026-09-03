@@ -231,3 +231,90 @@ enquanto as capacidades correspondentes não existirem, um é derivado da forma 
 adotada, e o quarto é obrigação de outra tarefa. A Tarefa 18 entrega a máquina,
 as colunas enquanto são gratuitas, a porta de política que recusa por padrão, e
 os oráculos com dublê e relógio controlado.
+
+## Portão de quantidade, tamanho e envelope, resolvido por delegação em 2026-09-03
+
+Este é um **segundo portão**, distinto do da política executável, com autoridade
+somente de Produto. Ele bloqueia as partes das Tarefas 22, 27 e 29 que
+materializam validação de capacidade, preflight de envelope ou composição do
+envio, e a habilitação do aceite. O dono delegou a decisão.
+
+### O defeito que a decisão corrige
+
+O código já carrega um número que ninguém aprovou: o teto por anexo está em
+30.000.000 bytes, escolhido pelo implementador durante a criação do módulo. Ele
+é **maior que o teto duro do conjunto inteiro**, medido em 22.423.200 bytes de
+conteúdo cru somado. Um único anexo no limite atual já estoura a mensagem, e
+nenhuma verificação o impede, porque o preflight de envelope ainda não existe.
+
+A regra de negócio publicada da fatia diz, textualmente, que quantidade,
+tamanho, tipos e envelope efetivo são parâmetros aprovados por produto antes de
+aceitar anexos, e não valores escolhidos pelo implementador.
+
+### Os três valores
+
+| Parâmetro | Valor | Natureza |
+|---|---|---|
+| Envelope efetivo por notificação | **7.340.032 bytes**, isto é 7 mebibytes de conteúdo cru somado | **Derivado**, não escolhido |
+| Teto por anexo | **7.340.032 bytes**, igual ao envelope | Derivado do anterior |
+| Quantidade máxima por notificação | **10** | **Escolha de produto**, com consequência declarada |
+
+### Fundamento do envelope, que é o valor que sustenta os outros
+
+O envelope de 7 mebibytes **já foi ratificado** e é a base sobre a qual a sonda
+de transferência mediu os três métodos. Codificado, ele dá 9.786.712 bytes,
+abaixo dos 10 megabytes que o provedor recomenda nas duas leituras, e deixa
+cerca de 20 megabytes de folga contra o teto duro de 22.423.200.
+
+Adotar outro valor invalidaria a medição: a promoção do método de transferência
+foi decidida sob este envelope, e mudá-lo significaria que a comparação entre os
+braços foi feita sob condição que o produto não usa. Não é preferência, é
+preservar a validade da evidência que já existe.
+
+### Fundamento do teto por anexo
+
+Igual ao envelope, porque nada na medição força um valor menor, e um teto por
+anexo menor que o envelope seria arbitrário: ele proibiria um anexo único
+grande sem proibir a mesma quantidade de bytes distribuída em vários. O que
+limita o custo é a soma, e é a soma que está limitada.
+
+O valor respeita a recomendação do provedor, já que 7 mebibytes ficam abaixo dos
+10 megabytes sugeridos por anexo.
+
+### Fundamento da quantidade, e a honestidade sobre ela
+
+Este é o único dos três que **não é derivado**. O provedor não publica limite de
+contagem, e nenhuma medição desta fatia impõe um número.
+
+A consequência técnica que o número governa não é volume de bytes, porque a soma
+já está limitada pelo envelope. É **cardinalidade**: a quantidade determina
+quantas linhas o claim trava numa transação de aceite, e quantas leituras
+integrais o preflight faz antes do ponto irreversível. Dez mantém as duas
+grandezas pequenas e ainda permite conjuntos realistas dentro de 7 mebibytes.
+
+O valor é recalibrável em configuração, sem migração, quando houver primeira
+produção e distribuição observada. Fica registrado como escolha, e não como
+derivação.
+
+### Onde os valores moram
+
+Configuração validada na partida, no mesmo dialeto e pelo mesmo fundamento da
+decisão anterior, com a diferença de que aqui **não existe padrão que recusa
+tudo**: um envelope ausente não pode significar zero, porque isso recusaria toda
+notificação com anexo em vez de recusar o anexo. A ausência da seção é falha de
+partida, e não recusa silenciosa.
+
+### O que muda no código
+
+O teto por anexo em `Attachment.MaxSizeBytes` deixa de ser 30.000.000 e passa a
+vir da configuração. Registros que hoje seriam aceitos com um anexo entre 7
+mebibytes e 30 megabytes passam a ser recusados no registro, que é o lugar certo
+para recusar, porque é antes de o produtor gastar a transferência.
+
+Não há dado em produção, portanto a mudança não quebra item aceito.
+
+### O que continua fora desta decisão
+
+A lista de tipos admitidos continua **vazia**, como decidido no portão anterior,
+e nenhum anexo é liberado enquanto ela estiver assim. Aceitar pelo contrato não
+é entregar.
