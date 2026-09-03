@@ -76,6 +76,12 @@ public sealed class DispatcherWorkerRole : IWorkerRoleModule
         services.AddContactConsentDeviceLifecycle(configuration);
         services.AddDispatchProviderSurface(configuration);
         services.AddAttachmentReleaseCheckSurface(configuration);
+
+        // The way to the bytes, for the adapter that composes a message out of
+        // them. It is composed in this role and in no other for the same reason
+        // the two checks above are: this is the only role that reaches a
+        // provider, and content is read here and nowhere else.
+        services.AddAttachmentContentSurface(configuration);
         services.AddNotificationsPersistence(configuration);
         services.AddNotificationsKillSwitch();
         services.AddNotificationsKillSwitchHolds();

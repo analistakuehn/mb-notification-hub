@@ -15,7 +15,20 @@ namespace NotificationHub.IntegrationTests.Dispatch;
 /// </summary>
 internal static class DispatchTestServices
 {
-    public static ServiceProvider BuildProviderHost(IEnumerable<KeyValuePair<string, string?>> settings)
+    /// <summary>
+    /// The module's own provider graph, with whatever a suite has to put
+    /// beside it.
+    /// <para>
+    /// The hook exists for the surfaces an adapter consumes from another
+    /// context and this composition does not carry: the module registers its
+    /// adapters and knows nothing about who owns attachments, so a suite that
+    /// exercises a send carrying a set supplies that port itself, exactly as
+    /// the worker role does.
+    /// </para>
+    /// </summary>
+    public static ServiceProvider BuildProviderHost(
+        IEnumerable<KeyValuePair<string, string?>> settings,
+        Action<IServiceCollection>? consumedSurfaces = null)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(settings)
@@ -25,6 +38,7 @@ internal static class DispatchTestServices
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
         services.AddDispatchProviders(configuration);
+        consumedSurfaces?.Invoke(services);
         return services.BuildServiceProvider();
     }
 

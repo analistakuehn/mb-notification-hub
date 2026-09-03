@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -66,15 +67,21 @@ public sealed class FakeProviderServer : IAsyncDisposable
         RecordMax(current);
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var body = await reader.ReadToEndAsync(context.RequestAborted);
+            // Read as bytes and decoded afterwards: a body is measured in
+            // bytes, and a caller asking how large a message was cannot be
+            // answered with a count of characters.
+            using var buffer = new MemoryStream();
+            await context.Request.Body.CopyToAsync(buffer, context.RequestAborted);
+            var body = Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
             var request = new FakeProviderRequest(
                 context.Request.Method,
                 context.Request.Path.Value ?? "/",
                 context.Request.Headers.Authorization.ToString(),
                 context.Request.ContentType,
                 body,
-                context.Request.QueryString.Value ?? string.Empty);
+                context.Request.QueryString.Value ?? string.Empty,
+                buffer.Length,
+                context.Request.ContentLength);
             Requests.Enqueue(request);
 
             FakeProviderResponse response = await Handler(request);
@@ -123,7 +130,9 @@ public sealed record FakeProviderRequest(
     string Authorization,
     string? ContentType,
     string Body,
-    string Query = "");
+    string Query = "",
+    long BodyBytes = 0,
+    long? DeclaredContentLength = null);
 
 public sealed record FakeProviderResponse(
     int StatusCode,

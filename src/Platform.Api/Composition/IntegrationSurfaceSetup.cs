@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Release;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Validation;
 using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
@@ -88,6 +89,28 @@ public static class IntegrationSurfaceSetup
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IAttachmentEnvelopeCheck, AcceptedSetEnvelopeCheck>();
         services.TryAddScoped<IAttachmentReleaseCheck, RecordedAttachmentReleaseCheck>();
+        return services;
+    }
+
+    /// <summary>
+    /// The way to the bytes of an accepted attachment, published by
+    /// AttachmentManagement for the one path that composes a message out of
+    /// them.
+    /// <para>
+    /// It composes the module's own persistence and its custody, because
+    /// resolving the opaque handle is a reading of this module's record and of
+    /// the generation that record names. That is the whole reason the port
+    /// exists: the consuming role never learns a store, a key or a generation,
+    /// and holds nothing it could exchange for content anywhere else.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddAttachmentContentSurface(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddAttachmentManagementPersistence(configuration);
+        services.AddAttachmentObjectStore(configuration);
+        services.TryAddSingleton<IAcceptedAttachmentContent, RecordedAcceptedAttachmentContent>();
         return services;
     }
 

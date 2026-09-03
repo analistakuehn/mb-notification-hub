@@ -42,6 +42,47 @@ public sealed class MailSendEnvelopeShapeTests
         Encoding.UTF8.GetString(probeBody).ShouldBe(Encoding.UTF8.GetString(adapterBody));
     }
 
+    /// <summary>
+    /// The same comparison for a message that carries an attachment. The probe
+    /// measures bodies with attachments in them, so a copy that agreed with the
+    /// adapter only about the empty case would report costs for a message this
+    /// hub does not send.
+    /// </summary>
+    [Fact]
+    public void The_probe_envelope_serializes_exactly_like_the_request_the_email_adapter_builds_with_an_attachment()
+    {
+        var raw = "conteudo-do-anexo"u8.ToArray();
+        var envelope = new MailSendEnvelope(
+            "person@example.com",
+            "no-reply@example.com",
+            "Notification Hub",
+            "Confirme sua operação",
+            "Olá",
+            "<p>Olá</p>",
+            true);
+        SendGridMailRequest fromAdapter = SendGridChannelProvider.BuildRequest(
+            new EmailDeliveryTarget("person@example.com"),
+            new EmailMessage("Confirme sua operação", "Aguardando confirmação", "<p>Olá</p>", "Olá"),
+            new SendGridOptions
+            {
+                SenderEmail = "no-reply@example.com",
+                SenderName = "Notification Hub",
+                SandboxMode = true,
+            },
+            null,
+            [new SendGridAttachment(
+                new SendGridAttachmentContent(raw), "comprovante.pdf", "application/pdf", "attachment")]);
+
+        var adapterBody = JsonSerializer.SerializeToUtf8Bytes(fromAdapter);
+        var probeBody = MailSendComposer.Serialize(envelope.Compose(
+        [
+            new MailSendAttachment(
+                new AttachmentContent(raw), "comprovante.pdf", "application/pdf", "attachment"),
+        ]));
+
+        Encoding.UTF8.GetString(probeBody).ShouldBe(Encoding.UTF8.GetString(adapterBody));
+    }
+
     [Fact]
     public void An_attachment_enters_the_body_as_content_filename_type_and_disposition()
     {

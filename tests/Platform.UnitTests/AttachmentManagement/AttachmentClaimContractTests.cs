@@ -43,6 +43,14 @@ public sealed class AttachmentClaimContractTests
             .ShouldBe(
             [
                 nameof(AcceptedAttachment),
+
+                // The way to the bytes, and the two types that answer for one
+                // reading of them. It is published here because resolving the
+                // handle is this module's own act: the alternative is a
+                // consumer reaching the custody itself, which is a second
+                // authority over which bytes an accepted attachment is.
+                nameof(AcceptedAttachmentContent),
+                nameof(AcceptedAttachmentContentStatus),
                 nameof(AcceptedAttachmentSet),
                 nameof(AttachmentClaimOutcome),
                 nameof(AttachmentClaimRequest),
@@ -50,6 +58,7 @@ public sealed class AttachmentClaimContractTests
                 nameof(AttachmentEnvelopeVerdict),
                 nameof(AttachmentReferences),
                 nameof(AttachmentReleaseVerdict),
+                nameof(IAcceptedAttachmentContent),
                 nameof(IAttachmentClaim),
                 nameof(IAttachmentEnvelopeCheck),
                 nameof(IAttachmentReleaseCheck),
@@ -93,6 +102,22 @@ public sealed class AttachmentClaimContractTests
             "AcceptedAttachment.Name",
             "AcceptedAttachment.Reference",
 
+            // One reading of the content: the bytes and whether there are any.
+            // The stream is the content itself and not a way to it, which is
+            // the distinction that keeps a coordinate off this surface: a
+            // consumer holding it can read these bytes and can reach nothing
+            // else, and it learns no store, no key and no generation on the
+            // way.
+            "AcceptedAttachmentContent.Status",
+            "AcceptedAttachmentContent.Stream",
+
+            // Two words for the reading, and the refusal is one of them for
+            // every way of not yielding bytes: a handle this module never
+            // minted, a record that is gone and a custody that cannot be
+            // reached are three events on this side and one on the caller's.
+            "AcceptedAttachmentContentStatus.Opened",
+            "AcceptedAttachmentContentStatus.Unavailable",
+
             // The set is a list and answers as one. Its members are the two a
             // list has, and the items inside it are the values above.
             "AcceptedAttachmentSet.Count",
@@ -127,6 +152,7 @@ public sealed class AttachmentClaimContractTests
             "AttachmentReleaseVerdict.Unavailable",
             "AttachmentReleaseVerdict.Withheld",
 
+            "IAcceptedAttachmentContent.OpenAsync",
             "IAttachmentClaim.ClaimAsync",
             "IAttachmentEnvelopeCheck.Measure",
             "IAttachmentReleaseCheck.VerifyAsync",

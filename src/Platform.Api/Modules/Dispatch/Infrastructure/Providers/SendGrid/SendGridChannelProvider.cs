@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using Polly.CircuitBreaker;
@@ -17,14 +18,32 @@ namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.SendGrid
 /// network fault and open circuit stay transient because the provider gave
 /// no verdict. The adapter never retries a send: a mail send is not
 /// idempotent at the provider, so redelivery belongs to the queue.
+/// <para>
+/// A send that carries an accepted set carries the whole of it: the members
+/// are composed as attachment fields of the one body, in the order they were
+/// accepted in, and their bytes travel from custody onto the connection
+/// without ever being held here. Nothing in this adapter revalidates the set,
+/// converts it to a link or leaves a member out; whether the set may still go
+/// out was settled before this call, and a channel that cannot carry it is
+/// refused by the route that planned the send.
+/// </para>
 /// </summary>
 internal sealed class SendGridChannelProvider(
     IHttpClientFactory httpClientFactory,
     IOptions<SendGridOptions> options,
-    ILogger<SendGridChannelProvider> logger) : IChannelProvider
+    ILogger<SendGridChannelProvider> logger,
+    IAcceptedAttachmentContent? attachmentContent = null) : IChannelProvider
 {
     internal const string Key = "sendgrid";
     internal const string HttpClientName = "dispatch-sendgrid";
+
+    /// <summary>
+    /// Stable code of a send whose composed message is larger than one call
+    /// may carry. It is a permanent rejection and not a transient failure: no
+    /// redelivery of the same message composes a smaller one.
+    /// </summary>
+    internal const string MessageTooLargeErrorCode = "message-too-large";
+
     private const string MessageIdHeader = "X-Message-Id";
 
     /// <summary>
@@ -54,11 +73,27 @@ internal sealed class SendGridChannelProvider(
         SendGridOptions config = options.Value;
         EnsureConfigured(config);
 
-        SendGridMailRequest payload = BuildRequest(target, message, config, request.Correlation);
+        // Composed and measured before anything is opened and before anything
+        // is called. A message past what one call may carry is refused here,
+        // with the provider untouched and not a byte of custody read.
+        SendGridBodyComposition composition = SendGridMailBody.Compose(
+            target, message, config, request.Correlation, request.Attachments);
+        if (composition.Body is not { } body)
+        {
+            logger.SendGridMessageOverCeiling(
+                SendGridMailLimits.MaxBodyBytes, request.Attachments?.Count ?? 0);
+            return ProviderResult.Rejected(MessageTooLargeErrorCode, null);
+        }
+
         HttpClient client = httpClientFactory.CreateClient(HttpClientName);
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v3/mail/send");
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
-        httpRequest.Content = JsonContent.Create(payload, options: BodySerialization);
+        using var content = new SendGridMailContent(body, ContentSource(request));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
+        {
+            CharSet = "utf-8",
+        };
+        httpRequest.Content = content;
 
         try
         {
@@ -75,18 +110,44 @@ internal sealed class SendGridChannelProvider(
             logger.SendGridTimedOut(config.TimeoutSeconds);
             return ProviderResult.Transient("timeout", null);
         }
-        catch (HttpRequestException exception)
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
         {
+            // A body that stopped reads as a broken request, and the transport
+            // cannot say whose fault it was. The content knows, and what it
+            // says takes precedence: a custody that did not hand the bytes
+            // over is not a network fault, and reporting it as one would send
+            // an operator to the wrong system.
+            if (content.Interrupted is { } reason)
+            {
+                logger.SendGridBodyInterrupted(reason);
+                return ProviderResult.Transient(reason, null);
+            }
+
             logger.SendGridNetworkFault(exception);
             return ProviderResult.Transient("network", ProviderErrorSanitizer.Sanitize(exception.Message));
         }
     }
 
+    /// <summary>
+    /// Where the bytes of this send come from. A send with no set never opens
+    /// anything, and a send with one that reached an adapter composed without
+    /// the port is a composition defect: it is raised rather than answered,
+    /// because a result would report a provider verdict for a message this
+    /// host never had the means to compose.
+    /// </summary>
+    private IAcceptedAttachmentContent ContentSource(DispatchRequest request)
+        => request.Attachments is null
+            ? UnaskedAttachmentContent.Instance
+            : attachmentContent ?? throw new InvalidOperationException(
+                "O envio carrega um conjunto de anexos aceito e este host não compôs a porta "
+                + "de conteúdo do módulo que os detém; a mensagem não pode ser montada.");
+
     internal static SendGridMailRequest BuildRequest(
         EmailDeliveryTarget target,
         EmailMessage message,
         SendGridOptions config,
-        DispatchCorrelation? correlation = null)
+        DispatchCorrelation? correlation = null,
+        IReadOnlyList<SendGridAttachment>? attachments = null)
         => new(
             // custom_args carries the correlation ids the Event Webhook echoes
             // back; a pure pass-through that never touches the content bytes.
@@ -109,6 +170,7 @@ internal sealed class SendGridChannelProvider(
                 new SendGridContent("text/plain", message.TextBody),
                 new SendGridContent("text/html", message.HtmlBody),
             ],
+            attachments,
             new SendGridMailSettings(new SendGridSandboxMode(config.SandboxMode)));
 
     private async Task<ProviderResult> MapAsync(

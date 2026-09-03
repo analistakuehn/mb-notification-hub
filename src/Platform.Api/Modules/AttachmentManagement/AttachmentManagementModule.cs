@@ -44,6 +44,12 @@ public sealed class AttachmentManagementModule : IModule, IEndpointModule
         // that context does.
         services.TryAddSingleton<IAttachmentEnvelopeCheck, AcceptedSetEnvelopeCheck>();
         services.TryAddScoped<IAttachmentReleaseCheck, RecordedAttachmentReleaseCheck>();
+
+        // The way to the bytes of an accepted attachment. It creates the
+        // context it reads with, so it serves a caller that lives as long as
+        // the process: a provider adapter is a singleton, and a scoped
+        // dependency there would pin the first scope that resolved it.
+        services.TryAddSingleton<IAcceptedAttachmentContent, RecordedAcceptedAttachmentContent>();
         services.AddScoped<AttachmentDependencyRegistry>();
         services.AddScoped<AttachmentDisposal>();
         services.AddScoped<AttachmentRevocationOperation>();
