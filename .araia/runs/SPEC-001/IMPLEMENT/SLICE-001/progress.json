@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-04T01:30:00Z",
+ "updated_at": "2026-09-04T04:20:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 30,
+  "completed_tasks": 31,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,22 +23,24 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-04T01:30:00Z",
-  "task": "Task 30",
-  "checkpoint": "submission-witness-accepted",
+  "at": "2026-09-04T04:20:00Z",
+  "task": "Task 31",
+  "checkpoint": "routing-refusal-accepted",
   "status": "done",
   "reason_codes": [
-   "the-two-sides-are-independent-and-a-replica-of-itself-was-measured-to-red-three-oracles",
-   "the-witness-measures-what-was-handed-to-the-encoder-and-a-second-oracle-closes-the-seam",
-   "a-mutation-revert-failed-silently-because-an-always-true-predicate-compiles",
-   "the-full-diff-caught-it-and-all-eight-suites-were-rerun-clean",
-   "synthesized-equality-over-a-memory-region-failed-for-real-and-was-repaired-not-admitted",
-   "divergence-is-recorded-and-does-not-act-because-the-bytes-have-already-left"
+   "the-attachment-path-reaches-the-provider-and-the-submitted-set-is-the-verified-object",
+   "the-adapter-answers-whether-the-channel-carries-and-a-second-table-would-drift",
+   "the-route-refuses-without-filtering-reordering-or-converting-anything",
+   "the-fallback-terminates-instead-of-walking-on-because-carrying-is-about-the-message",
+   "nine-single-axis-mutations-none-came-back-green",
+   "a-false-red-proved-that-a-build-exit-code-does-not-prove-recompilation",
+   "an-attachment-notification-now-has-no-fallback-at-all-and-that-is-stated",
+   "a-gitignore-pattern-was-swallowing-production-source-so-a-clean-clone-did-not-build"
   ]
  },
  "task": {
-  "id": "Task 30",
-  "title": "Produzir a evidencia dos bytes submetidos",
+  "id": "Task 31",
+  "title": "Implementar roteamento e fallback com terminacao explicita",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -197,7 +199,7 @@
   {
    "id": "Task 31",
    "title": "Implementar roteamento e fallback com terminação explícita",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 32",
