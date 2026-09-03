@@ -22,7 +22,9 @@
   or mutable domain types. Cross-context capability enters and leaves only
   through distinct, versioned contracts under
   `src/Platform.Api/Modules/Dispatch/Integration/V1/`; the channel
-  vocabulary is consumed from the template-management published surface.
+  vocabulary is consumed from the template-management published surface,
+  and the attachment set a send carries is consumed from the
+  attachment-management published surface.
 
 ## Owned surfaces
 
@@ -62,6 +64,26 @@
   to call a provider at all is the caller's decision and never the adapter's:
   a validity that already ended is settled by the dispatcher, which is the
   only party that can end an attempt.
+- `DispatchRequest.Attachments` carries the attachment set of the send in
+  the neutral form the attachment-management context publishes:
+  composition, the values each member was released under, and an opaque
+  handle for the accepted content. No store, no key, no generation, no
+  address, and no digest travels with it, so an adapter composes the set
+  and never reaches the bytes on its own. The set arrives already
+  verified: whether every member may still leave, and whether the set
+  still fits what one notification may carry, are settled by the caller in
+  the window before the send, and an adapter that asked again would be a
+  second authority over the same question. Null is the whole way to say a
+  send carries no attachment, because the published set is never empty. A
+  channel that cannot carry the set is refused by the route that planned
+  the send, never downgraded here.
+- The set is reused from the context that owns it instead of restated
+  here. A second shape of the same concept would be two forms free to
+  drift, and the drift would land on the opaque content handle, which no
+  consumer can resolve or restate for itself. Reuse also keeps a send
+  comparable by content, because the published set answers about what it
+  carries, and the published-contract equality inventory reads that answer
+  through the send.
 - Every provider verdict returns as a result; exceptions are reserved for
   caller defects (wrong channel in the request) and misconfiguration
   (missing API key, missing service account). Configuration guards fire at
@@ -283,6 +305,12 @@
 
 ## Testing rules
 
+- The published surface of this module is walked from compiled metadata in
+  `tests/Platform.UnitTests/Dispatch/DispatchContractTests.cs`. Everything
+  it reaches is published here, ships with the runtime, or appears in the
+  recorded admissions with the reason it is admitted, so a client of a
+  cloud provider, an option type of this module, or a new dependency on
+  another context fails that rule instead of arriving quietly.
 - **FCM has no sandbox.** Every FCM test, in every suite, talks to a fake
   HTTP server; there is no gated real-FCM suite and none may be added.
 - SendGrid sandbox mode exists and the adapter supports it
