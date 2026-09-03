@@ -1,20 +1,77 @@
 ---
 language: pt-BR
+document_type: contract
+status: verified
+last_verified: 2026-09-03
 ---
 
-# Guia de integração do produtor
+# Guia de integração com o `mb-notification-hub`
 
-Este guia é para o time que vai **pedir notificações ao hub**. Ele descreve o
-contrato observável: rotas, corpos, cabeçalhos, status, eventos de saída e o
-que cada resposta afirma. Tudo aqui foi escrito a partir do comportamento
-implementado, não do desenho pretendido, e o guia diz explicitamente o que a
-versão atual **não** faz.
+| Metadado | Valor |
+|---|---|
+| Público | Times de engenharia que produzem notificações por REST ou Kafka |
+| Responsável | Time de engenharia do `mb-notification-hub` |
+| Estado | Vigente para solicitações sem anexos; capacidade de anexos publicada no contrato V1, mas ainda não liberada para integração |
+| Última verificação | 3 de setembro de 2026, contra código, configuração e testes do repositório |
+| Versões cobertas | HTTP `/v1`, CloudEvent de entrada `araia.notification.requested.v1` e eventos de saída `.v1` |
+
+## Objetivo, público e escopo
+
+Use este guia para **pedir notificações ao hub**, implementar idempotência,
+tratar respostas e dead letters, consumir eventos de resultado e consultar o
+estado de uma notificação. Ele descreve o contrato observável: rotas, corpos,
+cabeçalhos, status e o significado de cada desfecho.
+
+O guia cobre o ingresso de notificações, os pré-requisitos que um produtor
+precisa cumprir, o acompanhamento do resultado e a recuperação que cabe ao
+cliente. Não cobre administração de templates, operação do pipeline, gestão de
+provedores, auditoria de Compliance nem as APIs de cadastro de contatos. O
+fluxo de anexos também permanece fora do onboarding enquanto a capacidade não
+for habilitada de ponta a ponta; a seção de esquema registra o membro público
+para preservar compatibilidade de clientes.
+
+### Autoridade das fontes
 
 O contrato de máquina é o documento OpenAPI publicado pela própria API, em
 `GET /openapi/v1.json`. A rota existe em todos os ambientes e exige o mesmo
 token Bearer das demais, sem papel específico: uma chamada anônima recebe
 `401`. Este guia explica o que o OpenAPI não consegue dizer: ordem das
 checagens, semântica de cada desfecho e o que cada afirmação vale.
+
+O repositório ainda não publica AsyncAPI nem JSON Schema para Kafka. Até esse
+artefato existir, o contrato do barramento é o envelope e as regras documentadas
+aqui, verificados contra o binder e os testes de contrato. Não infira garantias
+de ACL, retenção ou quantidade de partições a partir dos exemplos: confirme a
+configuração do ambiente com o time de Plataforma.
+
+## Início rápido
+
+1. Escolha REST quando precisar de resposta síncrona ou quando o template
+   declarar variáveis sensíveis. Escolha Kafka para fatos de negócio publicados
+   por outbox.
+2. Obtenha o papel de envio da classe e um template publicado para a mesma
+   `application`. No Kafka, obtenha também o tópico exclusivo atribuído ao seu
+   produtor lógico e a autorização da tripla produtor, aplicação e classe.
+3. Derive uma chave de idempotência estável do fato de negócio.
+4. Envie apenas `recipientId`, `templateKey`, variáveis e contexto. Não envie
+   e-mail, telefone, conteúdo renderizado nem preferência de canal como ordem.
+5. No REST, trate `202` como persistência do aceite, não como entrega. No Kafka,
+   o ack do broker também não é aceite do hub.
+6. Consuma `notifications.events.v1`, acompanhe a dead letter quando usar Kafka
+   e mantenha a consulta REST como caminho de diagnóstico.
+
+## Segurança e autorização
+
+No REST, use OAuth 2.0 client credentials e envie o token no cabeçalho
+`Authorization: Bearer`. O token precisa conter uma identidade estável
+(`appid`, `oid` ou `sub`) e o papel exato da classe solicitada. Os papéis de
+envio não concedem leitura; consultas exigem `Notifications.Read`.
+
+No Kafka, a ACL do broker controla quem publica, mas a identidade lógica que o
+hub usa vem **exclusivamente do tópico dedicado**. `source`, headers e campos do
+payload não autenticam o produtor. Nunca coloque CPF, e-mail, telefone, token ou
+segredo em `recipientId`, `metadata`, headers ou chaves Kafka. Templates que
+declaram variáveis sensíveis só podem ser solicitados por REST.
 
 ## 1. O que o hub faz, em uma frase
 
@@ -41,7 +98,7 @@ canal.
 
 ## 2. Como pedir uma notificação
 
-### 2.1 REST: `POST /v1/notifications`
+### 2.1 REST: esquema e validação de `POST /v1/notifications`
 
 Autenticação por token Bearer. A rota exige pelo menos um dos papéis de envio,
 e a classe pedida no corpo é conferida contra o papel correspondente:
@@ -63,10 +120,11 @@ Campos do corpo:
 | `locale` | não | Até 20 caracteres. Aceito, **sem efeito** e fora do hash de idempotência: veja a seção 4. |
 | `ttlSeconds` | sim | Inteiro maior que zero e no máximo 2.592.000 (30 dias). |
 | `variables` | não | Objeto JSON. Ausente ou `null` significa nenhuma variável. No máximo 262.144 bytes na forma compacta em UTF-8. |
-| `channelsHint` | não | Lista de no máximo 4 strings, uma por canal existente, de até 20 caracteres cada. Aceita e ignorada: veja a seção 4. |
+| `channelsHint` | não | Lista de no máximo 4 strings não vazias, de até 20 caracteres cada. A implementação não confere catálogo nem unicidade. Aceita e ignorada: veja a seção 4. |
 | `correlationId` | não | Até 200 caracteres. É por ele que a consulta agrupa uma transação de negócio. |
 | `metadata` | não | Objeto JSON. Não é persistido, mas entra no hash de idempotência. No máximo 32.768 bytes na forma compacta em UTF-8, teto menor que o de `variables` porque o campo não é renderizado nem consultado, e mesmo assim é canonicalizado a cada requisição e a cada replay. |
 | `scheduledAt` | não | ISO 8601. Aceito e **sem efeito** nesta versão: veja a seção 4. |
+| `attachments` | não | Lista ordenada de referências opacas. Ausente ou `null` significa sem anexos. Lista vazia, referência em branco ou duplicata ordinal produz `400 payload-invalid`. **Não use enquanto o time do hub não confirmar a habilitação da capacidade no ambiente.** |
 
 O cabeçalho `Idempotency-Key` é obrigatório, com no máximo 200 caracteres.
 
@@ -99,10 +157,11 @@ Content-Type: application/json
 }
 ```
 
-O `202` afirma exatamente uma coisa: a solicitação foi aceita, registrada e
-enfileirada. Ele **não** afirma que existe destinatário, que existe contato,
-que existe consentimento nem que a mensagem será entregue. Todas essas
-perguntas são respondidas depois, pelos eventos de saída e pela consulta.
+O `202` afirma exatamente uma coisa: a solicitação foi aceita e a transação
+local persistiu notificação, idempotência, auditoria e outbox. A publicação na
+fila interna acontece depois. O status **não** afirma que existe destinatário,
+que existe contato, que existe consentimento nem que a mensagem será entregue.
+Essas perguntas são respondidas depois, pelos eventos de saída e pela consulta.
 
 O identificador público tem a forma `ntf_` seguida de 26 caracteres do
 alfabeto Crockford base32 em maiúsculas, sem as letras I, L, O e U.
@@ -124,18 +183,25 @@ mesmo tempo.
    estável: `403` com `type` `class-not-allowed-for-principal`.
 7. Chave de idempotência já conhecida: `200` no replay, `409` no conflito
    (seção 3).
-8. Limite de negócio estourado: `429` com `type` `recipient-rate-limited` ou
+8. Produtor bloqueado pelo controle de emergência: `403` com `type`
+   `producer-disabled`; autoridade desse controle indisponível: `503` com
+   `type` `kill-switch-unavailable`.
+9. Limite de negócio estourado: `429` com `type` `recipient-rate-limited` ou
    `principal-rate-limited`, conforme a dimensão, e cabeçalho `Retry-After`
    (seção 8).
-9. Template recusa a solicitação: `422` com o motivo do catálogo no `type`
+10. Template recusa a solicitação: `422` com o motivo do catálogo no `type`
    (seção 5).
-10. Aceite: `202`.
+11. Manifesto de anexos não pode ser vinculado atomicamente: `422` com `type`
+    `attachments-not-claimable`.
+12. Aceite: `202`.
 
-Ponto que vale saber: a idempotência é avaliada **antes** do limite de taxa,
-então um replay legítimo nunca gasta orçamento do destinatário. E a
-autorização é avaliada **antes** do catálogo, então um principal não
-autorizado nunca descobre quais templates existem pela diferença entre dois
-motivos de recusa.
+Ponto que vale saber no REST: a idempotência autoritativa é avaliada **antes**
+do limite de taxa, então um replay legítimo não gasta orçamento do
+destinatário. No Kafka, essa precedência depende de acerto no fast path Redis;
+uma falta no cache pode fazer o replay alcançar o limite antes da unicidade no
+banco. Em ambos os caminhos, a autorização é avaliada antes do catálogo, então
+um principal não autorizado não descobre quais templates existem pela diferença
+entre motivos de recusa.
 
 Outro ponto, que muda o que você vê quando erra duas coisas ao mesmo tempo: a
 chave de idempotência é conferida **antes** da forma do corpo. Um corpo
@@ -144,10 +210,19 @@ não `payload-invalid`. Isso é deliberado: a recusa por forma grava trilha, e a
 trilha precisa da chave para identificar a entidade que ela registra. Corrija a
 chave primeiro e reenvie para ver o relatório de campos.
 
-### 2.2 Kafka: tópico `notifications.requested.v1`
+### 2.2 Kafka: tópico dedicado ao produtor
 
-Envelope CloudEvents 1.0 em modo estruturado, JSON. A chave do registro é o
-`recipientId`, o que preserva ordem por cliente na entrada.
+Não existe um tópico único de ingresso. Cada produtor recebe um tópico
+exclusivo, associado a um nome lógico na configuração do worker. O repositório
+traz `notifications.requested.kyc.v1` e
+`notifications.requested.billing.v1` como exemplos de bindings, mas use apenas
+o tópico provisionado para o seu serviço.
+
+Publique um envelope CloudEvents 1.0 em modo estruturado, JSON. Use
+`recipientId` como chave do registro para manter a afinidade de partição na
+entrada. O hub não compara essa chave com `data.recipientId`, e o processamento
+interno não oferece ordenação ponta a ponta. Produtores e consumidores precisam
+tolerar reordenação e duplicatas.
 
 ```json
 {
@@ -173,51 +248,50 @@ Envelope CloudEvents 1.0 em modo estruturado, JSON. A chave do registro é o
 }
 ```
 
-O `data` carrega os mesmos campos do corpo REST, com uma diferença: a chave de
-idempotência viaja **dentro do corpo**, no campo `idempotencyKey`, porque não
-existe cabeçalho HTTP para ela. Um evento sem `idempotencyKey` não é sequer
-vinculado ao comando: vai direto para a dead letter com motivo
+O `data` carrega os mesmos campos do corpo REST, inclusive o membro opcional
+`attachments`, com uma diferença: a chave de idempotência viaja **dentro do
+corpo**, no campo `idempotencyKey`, porque não existe cabeçalho HTTP para ela.
+Um evento sem `idempotencyKey` vai para a dead letter com motivo
 `payload-invalid`.
 
 O `type` do envelope é a **versão do esquema**, e o hub o confere antes de olhar
 o corpo. Um envelope com `type` diferente de `araia.notification.requested.v1`
 vai para a dead letter com o motivo `event-type-unsupported`, mesmo que o
-`data` esteja perfeito. Quando uma versão nova existir, o nome dela é que muda,
-e o hub consome as duas durante a transição.
+`data` esteja perfeito. A implementação atual aceita apenas esse tipo V1; não
+há coexistência executável de V1 e V2.
 
-Cabeçalhos que o hub lê:
+O ingresso não define header Kafka obrigatório. O `source` continua obrigatório
+como atributo CloudEvents, mas não autentica nem autoriza o produtor. Não envie
+header `producer`: a identidade lógica vem exclusivamente do binding entre o
+tópico consumido e o produtor. O header `traceparent` só possui fallback
+comprovado no diagnóstico da dead letter; não dependa dele para propagação no
+caminho aceito.
 
-| Cabeçalho | Uso |
-|---|---|
-| `producer` | Nome lógico do produtor. É a identidade conferida contra o registro de produtores. Na ausência dele, o hub usa o `source` do CloudEvent. |
-| `traceparent` | Contexto de rastreio, usado quando o envelope não traz o atributo `traceparent`. |
+A autorização possui duas camadas. A Plataforma concede escrita no tópico ao
+principal do broker. O hub deriva o produtor lógico daquele tópico e confere a
+tripla exata produtor, `application` e classe no registro interno. Tripla fora
+do registro resulta em dead letter com motivo `producer-not-authorized`.
 
-Autorização em duas camadas. A primeira é a ACL de escrita do broker. A segunda
-é o registro de produtores dentro do hub, que autoriza a tripla identidade do
-produtor, `application` e classe. Identidade fora do registro, ou pedindo
-classe que o registro não concede, resulta em dead letter com motivo
-`producer-not-authorized`.
-
-As duas camadas fazem coisas diferentes, e vale entender qual faz qual. O
-cabeçalho `producer` é escrito por você, e um consumidor Kafka não enxerga
-identidade autenticada de quem publicou. Quem autentica de fato é a ACL de
-escrita do broker; o registro de produtores é autorização declarativa e
-auditável sobre um nome declarado. Consequência prática para o seu time: o
-nome lógico do produtor é um compromisso operacional, não uma credencial.
-Nunca publique com o nome de outro time, e trate a ACL de escrita no tópico de
-entrada como a concessão sensível que ela é.
-
-Duas regras operacionais do produtor no barramento:
+Regras operacionais do produtor no barramento:
 
 - Publique pelo **seu próprio outbox**, na transação do evento de negócio.
   Publicar direto do handler reintroduz exatamente a perda que o outbox existe
   para evitar.
-- Mantenha o registro dentro de 256 KB. Sem anexos e sem dado de contato: o
-  hub só aceita `recipientId`.
+- Mantenha o registro completo dentro de 262.144 bytes, limite bruto da
+  configuração versionada. Não envie dado de contato: o hub aceita apenas
+  `recipientId`.
+- Trate o ack do broker como confirmação de publicação, não como aceite do hub.
+  Observe a dead letter, os eventos de resultado e, quando autorizado, a
+  consulta REST.
+- Confirme com a Plataforma a ACL, a retenção e a quantidade de partições do
+  ambiente. Esses recursos não são provisionados neste repositório.
 
-O tópico de entrada retém 24 horas. Se a ingestão do hub ficar parada mais que
-isso, os registros mais antigos se perdem, e a recuperação é o produtor
-reemitir.
+O consumidor tenta novamente exceções transitórias e pausa a partição quando
+esgota as tentativas locais. A implementação atual não comprova o
+reposicionamento no offset recusado depois da retomada. Portanto, não use essa
+pausa como garantia de reprocessamento. Preserve o fato no outbox, acompanhe a
+ausência de desfecho pela chave de idempotência e acione o time do hub antes de
+reemitir uma sequência potencialmente incompleta.
 
 ### 2.3 A regra que separa os dois caminhos
 

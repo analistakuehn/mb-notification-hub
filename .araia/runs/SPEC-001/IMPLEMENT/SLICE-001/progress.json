@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-03T14:30:00Z",
+ "updated_at": "2026-09-03T16:40:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 25,
+  "completed_tasks": 26,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,25 +23,24 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-03T14:30:00Z",
-  "task": "Task 25",
-  "checkpoint": "accepted-snapshot-persisted",
+  "at": "2026-09-03T16:40:00Z",
+  "task": "Task 26",
+  "checkpoint": "snapshot-readers-accepted",
   "status": "done",
   "reason_codes": [
-   "redone-from-scratch-the-first-attempt-had-no-executed-oracle",
-   "no-migration-was-measured-unsatisfiable-and-the-constraint-was-wrong",
-   "the-notifications-context-validates-pending-changes-the-attachment-one-has-no-chain",
-   "sql-capture-asserts-the-neighbour-that-must-change-so-an-empty-capture-cannot-satisfy-it",
-   "the-envelope-defect-was-corrected-the-per-attachment-cap-exceeded-the-whole-set-ceiling",
-   "an-in-process-probe-for-the-body-limit-failed-and-was-removed-instead-of-promoted"
+   "builder-fell-three-times-to-infrastructure-errors-not-to-its-own",
+   "the-orchestrator-ran-the-falsification-itself",
+   "each-of-the-three-call-sites-has-its-own-oracle-and-none-masks-another",
+   "illegible-never-becomes-absence",
+   "two-compound-mutations-recorded-as-weak-attribution-and-redone-clean"
   ]
  },
  "task": {
-  "id": "Task 25",
-  "title": "Persistir o snapshot do manifesto aceito com leitor tolerante",
+  "id": "Task 26",
+  "title": "Ler o snapshot por pipeline, despacho e fallback",
   "status": "done",
   "task_state": "accepted",
-  "attempt": 2
+  "attempt": 1
  },
  "tasks": [
   {
@@ -172,12 +171,12 @@
   {
    "id": "Task 26",
    "title": "Ler o snapshot por pipeline, despacho e fallback",
-   "status": "in_progress"
+   "status": "completed"
   },
   {
    "id": "Task 27",
    "title": "Implementar o preflight antes do ponto irreversível",
-   "status": "pending"
+   "status": "in_progress"
   },
   {
    "id": "Task 28",

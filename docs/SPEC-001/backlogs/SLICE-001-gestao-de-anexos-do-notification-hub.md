@@ -383,8 +383,8 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 23 | Incorporar o manifesto à forma canônica idempotente | Implementation | Senior Dev | 5 | 24h | 1, 22 | Done |
 | 24 | Implementar o leitor do barramento para o membro novo | Implementation | Senior Dev | 3 | 16h | 23 | Done |
 | 25 | Persistir o snapshot do manifesto aceito com leitor tolerante | Implementation | Senior Dev | 5 | 24h | 11, 21 | Done |
-| 26 | Ler o snapshot por pipeline, despacho e fallback | Implementation | Senior Dev | 5 | 24h | 25 | In Progress |
-| 27 | Implementar o preflight antes do ponto irreversível | Implementation | Senior Dev | 5 | 24h | 26 | To Do |
+| 26 | Ler o snapshot por pipeline, despacho e fallback | Implementation | Senior Dev | 5 | 24h | 25 | Done |
+| 27 | Implementar o preflight antes do ponto irreversível | Implementation | Senior Dev | 5 | 24h | 26 | In Progress |
 | 28 | Evoluir o contrato de despacho com representação neutra do conjunto | Implementation | Senior Dev | 5 | 24h | 27 | To Do |
 | 29 | Implementar a submissão do conjunto integral no adaptador de e-mail | Implementation | Senior Dev | 8 | 40h | 9, 28 | To Do |
 | 30 | Produzir a evidência dos bytes submetidos | Implementation | Senior Dev | 3 | 16h | 29 | To Do |
@@ -723,6 +723,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 
 ### Tarefa 26: Ler o snapshot por pipeline, despacho e fallback
 
+- **Estado**: Done em 2026-09-03. Falsificação executada pelo orquestrador com sete mutações de runtime, cada sítio com oráculo próprio e nenhum encobrindo o outro.
 - **Descrição**: Fazer pipeline, despacho e fallback lerem o conjunto aceito exclusivamente da linha `notification` já carregada, sem consultar estado mutável do anexo e sem criar cópia persistida em tentativa, outbox ou mensagem. Uma representação transitória pode existir somente para a chamada em curso, e o descarte pós-veredito não pode alcançar o snapshot.
 - **Tipo**: Implementation
 - **Responsável**: Senior Dev
