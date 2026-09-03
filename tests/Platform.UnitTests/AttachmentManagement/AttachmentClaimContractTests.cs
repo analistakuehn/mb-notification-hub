@@ -58,10 +58,21 @@ public sealed class AttachmentClaimContractTests
                 nameof(AttachmentEnvelopeVerdict),
                 nameof(AttachmentReferences),
                 nameof(AttachmentReleaseVerdict),
+
+                // The witness of what a send actually put on the wire, and the
+                // three types that carry one settlement of it. It is published
+                // here for the same reason the way to the bytes is: the
+                // released side of the comparison is the digest on the
+                // generation row, it goes nowhere, and a consumer handed that
+                // digest instead would be holding the proof of the bytes in a
+                // form every message and every log line could copy.
+                nameof(AttachmentSubmissionVerdict),
                 nameof(IAcceptedAttachmentContent),
                 nameof(IAttachmentClaim),
                 nameof(IAttachmentEnvelopeCheck),
                 nameof(IAttachmentReleaseCheck),
+                nameof(IAttachmentSubmissionWitness),
+                nameof(SubmittedAttachmentBytes),
             ]);
     }
 
@@ -152,10 +163,28 @@ public sealed class AttachmentClaimContractTests
             "AttachmentReleaseVerdict.Unavailable",
             "AttachmentReleaseVerdict.Withheld",
 
+            // Three words for what the bytes that left turned out to be, and
+            // the refusal is not one of them: a comparison that could not be
+            // made is the absence of a statement and reads as the zero, so a
+            // stand-in nobody told what to answer cannot certify a submission.
+            "AttachmentSubmissionVerdict.Divergent",
+            "AttachmentSubmissionVerdict.Matched",
+            "AttachmentSubmissionVerdict.Unavailable",
+
             "IAcceptedAttachmentContent.OpenAsync",
             "IAttachmentClaim.ClaimAsync",
             "IAttachmentEnvelopeCheck.Measure",
             "IAttachmentReleaseCheck.VerifyAsync",
+            "IAttachmentSubmissionWitness.SettleAsync",
+
+            // What one member measured on its way out, and every value here
+            // travels inwards only. The digest is the caller's own measurement
+            // of bytes the caller was already holding, so handing it over
+            // publishes nothing new; what this surface still refuses to carry
+            // is the recorded digest, which never leaves the row it sits on.
+            "SubmittedAttachmentBytes.ContentIdentity",
+            "SubmittedAttachmentBytes.Digest",
+            "SubmittedAttachmentBytes.Length",
         ]);
     }
 
@@ -315,6 +344,87 @@ public sealed class AttachmentClaimContractTests
         rendered.Contains(item.ContentIdentity, StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
     }
 
+    /// <summary>
+    /// What a submitted measurement says when something writes it out. A record
+    /// renders every public member it has, and all three of these are values
+    /// that must not reach a line: the handle is producer-adjacent, and the
+    /// digest and the length describe content this side is not allowed to
+    /// publish. Nothing of the member survives the rendering, which is why the
+    /// stand-in has no correlator in it either.
+    /// </summary>
+    [Fact]
+    public void A_submitted_measurement_renders_without_the_handle_the_length_or_the_digest()
+    {
+        var digest = new byte[] { 0xAB, 0xCD, 0xEF, 0x01 };
+        var submitted = new SubmittedAttachmentBytes
+        {
+            ContentIdentity = "aci_" + Guid.NewGuid().ToString("N"),
+            Length = 4_099,
+            Digest = digest,
+        };
+
+        var rendered = submitted.ToString();
+
+        rendered.ShouldBe(SubmittedAttachmentBytes.Redacted);
+        rendered.Contains(submitted.ContentIdentity, StringComparison.OrdinalIgnoreCase)
+            .ShouldBeFalse();
+        rendered.Contains(
+            submitted.Length.ToString(CultureInfo.InvariantCulture),
+            StringComparison.Ordinal).ShouldBeFalse();
+        foreach (var spelling in new[]
+        {
+            Convert.ToHexString(digest),
+            Convert.ToHexString(digest).ToLowerInvariant(),
+            Convert.ToBase64String(digest),
+        })
+        {
+            rendered.Contains(spelling, StringComparison.Ordinal).ShouldBeFalse();
+        }
+    }
+
+    /// <summary>
+    /// A submitted measurement answers about what it carries, and the digest
+    /// is the member that makes the question worth asking: it arrives as a
+    /// region of memory, and the comparison the compiler writes for one of
+    /// those answers about the buffer rather than about the bytes in it.
+    /// <para>
+    /// Two arrays are built here on purpose. A single array shared by both
+    /// values compares equal under either rule, so an assertion that reused
+    /// one would pass over exactly the defect this closes.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_submitted_measurement_compares_by_the_bytes_of_its_digest()
+    {
+        var handle = "aci_" + Guid.NewGuid().ToString("N");
+        SubmittedAttachmentBytes left = Submitted(handle, 4_099, [1, 2, 3, 4]);
+        SubmittedAttachmentBytes right = Submitted(handle, 4_099, [1, 2, 3, 4]);
+
+        // Asked through the default comparer of the member's own type, which
+        // is the comparer the compiler would have closed the generated
+        // equality over. An assertion library walks the two regions element by
+        // element and never puts the question to the type at all, so it
+        // reports these two as the same and the tripwire stops tripping.
+        Same(left.Digest, right.Digest).ShouldBeFalse();
+        Same(left, right).ShouldBeTrue();
+        left.GetHashCode().ShouldBe(right.GetHashCode());
+
+        Same(left, Submitted(handle, 4_099, [1, 2, 3, 5])).ShouldBeFalse();
+        Same(left, Submitted(handle, 4_099, [1, 2, 3])).ShouldBeFalse();
+        Same(left, Submitted(handle, 4_100, [1, 2, 3, 4])).ShouldBeFalse();
+        Same(left, Submitted("aci_other", 4_099, [1, 2, 3, 4])).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A verdict nobody produced is the absence of a statement. It is the one
+    /// property of this vocabulary that a stand-in can defeat by doing nothing
+    /// at all: a default that meant agreement would let a witness that was
+    /// never asked certify every submission this hub makes.
+    /// </summary>
+    [Fact]
+    public void A_submission_verdict_nobody_produced_certifies_nothing()
+        => default(AttachmentSubmissionVerdict).ShouldBe(AttachmentSubmissionVerdict.Unavailable);
+
     [Fact]
     public void A_manifest_compares_by_what_it_carries_and_keeps_its_order()
     {
@@ -408,6 +518,14 @@ public sealed class AttachmentClaimContractTests
     /// that the type does not offer, and a set that compared by instance, or
     /// by one member of each item, passes it.
     /// </summary>
+    private static SubmittedAttachmentBytes Submitted(string handle, long length, byte[] digest)
+        => new()
+        {
+            ContentIdentity = handle,
+            Length = length,
+            Digest = digest,
+        };
+
     private static bool Same<T>(T left, T right)
         => EqualityComparer<T>.Default.Equals(left, right);
 

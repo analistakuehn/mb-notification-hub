@@ -50,6 +50,12 @@ public sealed class AttachmentManagementModule : IModule, IEndpointModule
         // the process: a provider adapter is a singleton, and a scoped
         // dependency there would pin the first scope that resolved it.
         services.TryAddSingleton<IAcceptedAttachmentContent, RecordedAcceptedAttachmentContent>();
+
+        // The witness of what a send actually put on the wire, composed beside
+        // the way to the bytes and never apart from it: a host that can open
+        // the content and cannot settle the comparison would deliver a set and
+        // record nothing about the bytes it delivered.
+        services.TryAddSingleton<IAttachmentSubmissionWitness, RecordedAttachmentSubmissionWitness>();
         services.AddScoped<AttachmentDependencyRegistry>();
         services.AddScoped<AttachmentDisposal>();
         services.AddScoped<AttachmentRevocationOperation>();

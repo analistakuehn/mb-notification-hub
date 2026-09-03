@@ -103,6 +103,13 @@ public static class IntegrationSurfaceSetup
     /// exists: the consuming role never learns a store, a key or a generation,
     /// and holds nothing it could exchange for content anywhere else.
     /// </para>
+    /// <para>
+    /// The witness of what was submitted comes with it, in the same call and
+    /// never in one of its own. The two are halves of the same act: opening
+    /// the bytes is what produces the measurement, and a role composed with
+    /// one and not the other would send a set and record nothing about the
+    /// bytes it sent.
+    /// </para>
     /// </summary>
     public static IServiceCollection AddAttachmentContentSurface(
         this IServiceCollection services,
@@ -111,6 +118,7 @@ public static class IntegrationSurfaceSetup
         services.AddAttachmentManagementPersistence(configuration);
         services.AddAttachmentObjectStore(configuration);
         services.TryAddSingleton<IAcceptedAttachmentContent, RecordedAcceptedAttachmentContent>();
+        services.TryAddSingleton<IAttachmentSubmissionWitness, RecordedAttachmentSubmissionWitness>();
         return services;
     }
 

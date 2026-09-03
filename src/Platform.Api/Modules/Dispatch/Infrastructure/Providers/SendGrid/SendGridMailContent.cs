@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Text;
 using System.Net;
+using System.Security.Cryptography;
 using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Dispatch.Infrastructure.Providers.SendGrid;
@@ -63,6 +64,27 @@ internal sealed class SendGridMailContent(
     /// </summary>
     internal string? Interrupted { get; private set; }
 
+    /// <summary>
+    /// What each member of the set measured as it went out: the handle it
+    /// claims to be, how many raw bytes of it were written, and the digest of
+    /// those exact bytes.
+    /// <para>
+    /// It is the witness of the submission, and it costs the pass that was
+    /// already happening. The bytes are read once, in blocks, on their way to
+    /// the connection; measuring them anywhere else would be a second reading
+    /// of a remote object, and two readings are two chances to read different
+    /// bytes, so the witness would stop describing what left.
+    /// </para>
+    /// <para>
+    /// It carries only members that were written whole. A body that stopped
+    /// leaves the member it stopped on out, because a digest over a prefix
+    /// would be a measurement of something nobody sent.
+    /// </para>
+    /// </summary>
+    internal IReadOnlyList<SubmittedAttachmentBytes> Submitted => _submitted;
+
+    private readonly List<SubmittedAttachmentBytes> _submitted = [];
+
     protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
         => SerializeToStreamAsync(stream, context, CancellationToken.None);
 
@@ -72,6 +94,12 @@ internal sealed class SendGridMailContent(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
+
+        // The transport may write this body more than once, and a witness that
+        // accumulated across passes would describe a set with the members of
+        // every attempt in it. What the caller settles is the pass that
+        // produced the request the provider answered, which is the last one.
+        _submitted.Clear();
 
         for (var index = 0; index < body.Attachments.Count; index++)
         {
@@ -127,6 +155,12 @@ internal sealed class SendGridMailContent(
         // returned as it is outlives this send in any memory dump taken later.
         var raw = ArrayPool<byte>.Shared.Rent(ReadChunkBytes);
         var encoded = ArrayPool<byte>.Shared.Rent(Base64.GetMaxEncodedToUtf8Length(ReadChunkBytes));
+
+        // Fed the exact spans the encoder is handed, and fed them in the pass
+        // that hands them over. What it measures is therefore the content this
+        // body carries, and not the record that describes it: a digest taken
+        // from that record would be the record compared with itself.
+        using IncrementalHash witness = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         try
         {
             long read = 0;
@@ -154,6 +188,7 @@ internal sealed class SendGridMailContent(
 
                 var available = carry + take;
                 var aligned = available - (available % 3);
+                witness.AppendData(raw.AsSpan(0, aligned));
                 Base64.EncodeToUtf8(
                     raw.AsSpan(0, aligned), encoded, out _, out var wrote, isFinalBlock: false);
                 await destination.WriteAsync(encoded.AsMemory(0, wrote), cancellationToken);
@@ -166,6 +201,7 @@ internal sealed class SendGridMailContent(
 
             if (carry > 0)
             {
+                witness.AppendData(raw.AsSpan(0, carry));
                 Base64.EncodeToUtf8(
                     raw.AsSpan(0, carry), encoded, out _, out var tail, isFinalBlock: true);
                 await destination.WriteAsync(encoded.AsMemory(0, tail), cancellationToken);
@@ -176,6 +212,15 @@ internal sealed class SendGridMailContent(
                 Interrupted = ContentLengthChanged;
                 throw new IOException(LengthMessage);
             }
+
+            // Recorded after the member is whole and never before it, so the
+            // witness names what went out rather than what was being attempted.
+            _submitted.Add(new SubmittedAttachmentBytes
+            {
+                ContentIdentity = slot.ContentIdentity,
+                Length = read,
+                Digest = witness.GetHashAndReset(),
+            });
         }
         finally
         {

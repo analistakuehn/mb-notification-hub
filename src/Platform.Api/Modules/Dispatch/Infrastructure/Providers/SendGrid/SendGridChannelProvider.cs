@@ -32,7 +32,8 @@ internal sealed class SendGridChannelProvider(
     IHttpClientFactory httpClientFactory,
     IOptions<SendGridOptions> options,
     ILogger<SendGridChannelProvider> logger,
-    IAcceptedAttachmentContent? attachmentContent = null) : IChannelProvider
+    IAcceptedAttachmentContent? attachmentContent = null,
+    IAttachmentSubmissionWitness? submissionWitness = null) : IChannelProvider
 {
     internal const string Key = "sendgrid";
     internal const string HttpClientName = "dispatch-sendgrid";
@@ -98,7 +99,14 @@ internal sealed class SendGridChannelProvider(
         try
         {
             using HttpResponseMessage response = await client.SendAsync(httpRequest, cancellationToken);
-            return await MapAsync(response, cancellationToken);
+            ProviderResult result = await MapAsync(response, cancellationToken);
+
+            // Settled after the verdict and never before it. The witness is a
+            // measurement of bytes that have already left, because measuring
+            // them is what writing them out produced, so it can only ever
+            // describe the call that just happened.
+            await SettleSubmissionAsync(content, body, request.Correlation, cancellationToken);
+            return result;
         }
         catch (BrokenCircuitException)
         {
@@ -138,9 +146,64 @@ internal sealed class SendGridChannelProvider(
     private IAcceptedAttachmentContent ContentSource(DispatchRequest request)
         => request.Attachments is null
             ? UnaskedAttachmentContent.Instance
-            : attachmentContent ?? throw new InvalidOperationException(
-                "O envio carrega um conjunto de anexos aceito e este host não compôs a porta "
-                + "de conteúdo do módulo que os detém; a mensagem não pode ser montada.");
+            : attachmentContent is { } source && submissionWitness is not null
+                ? source
+                : throw new InvalidOperationException(
+                    "O envio carrega um conjunto de anexos aceito e este host não compôs as "
+                    + "portas de conteúdo e de testemunha do módulo que os detém; a mensagem "
+                    + "não pode ser montada.");
+
+    /// <summary>
+    /// Hands the measurement of what left to the module that owns the proof of
+    /// the bytes, and records what it answered against this attempt.
+    /// <para>
+    /// Only a set whose every member was written whole is settled. A body that
+    /// stopped partway carries fewer measurements than the composition has
+    /// slots, and settling that would report on a message the provider never
+    /// received as a message at all; a body that stopped is already reported
+    /// as the interruption it is.
+    /// </para>
+    /// <para>
+    /// The verdict is recorded and acts on nothing. The bytes are gone by the
+    /// time it can be known, so there is no call to withhold and no outcome to
+    /// revise: what the provider answered about this send stands, and what
+    /// this line adds is whether the set that left is the set that was
+    /// released.
+    /// </para>
+    /// </summary>
+    private async Task SettleSubmissionAsync(
+        SendGridMailContent content,
+        SendGridMailBody body,
+        DispatchCorrelation? correlation,
+        CancellationToken cancellationToken)
+    {
+        if (submissionWitness is not { } witness
+            || content.Submitted.Count == 0
+            || content.Submitted.Count != body.Attachments.Count)
+        {
+            return;
+        }
+
+        try
+        {
+            AttachmentSubmissionVerdict verdict = await witness.SettleAsync(
+                content.Submitted, cancellationToken);
+            logger.SendGridSubmissionSettled(
+                verdict,
+                content.Submitted.Count,
+                correlation?.NotificationId,
+                correlation?.AttemptId);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The send already has its verdict, and losing it to a cancellation
+            // raised by the reading that follows would make this hub redeliver a
+            // message the provider has taken. The witness is what is dropped
+            // here, loudly, and never the outcome of the call.
+            logger.SendGridSubmissionWitnessDropped(
+                correlation?.NotificationId, correlation?.AttemptId);
+        }
+    }
 
     internal static SendGridMailRequest BuildRequest(
         EmailDeliveryTarget target,

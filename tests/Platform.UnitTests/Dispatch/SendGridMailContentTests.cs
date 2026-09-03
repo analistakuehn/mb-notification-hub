@@ -177,6 +177,96 @@ public sealed class SendGridMailContentTests
         contentWritten.ShouldBeLessThanOrEqualTo(body.Attachments[0].EncodedLength);
     }
 
+    /// <summary>
+    /// The witness names every member the body wrote, in order, with the
+    /// handle it was written under, the number of raw bytes that went out and
+    /// the digest of exactly those bytes.
+    /// <para>
+    /// The digest is compared against one this test takes over the array it
+    /// planted, which is the whole reason the comparison can fail: a witness
+    /// that reported the length it was told to expect, or a digest derived
+    /// from anything but the bytes read, disagrees here. The block sizes sweep
+    /// for the same reason as above: the measurement is fed the spans the
+    /// encoder is handed, so a carry the writer forgot to feed it, or fed
+    /// twice, changes the digest and nothing else.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(7)]
+    [InlineData(int.MaxValue)]
+    public async Task The_witness_names_each_member_with_the_digest_of_the_bytes_that_went_out(
+        int chunkBytes)
+    {
+        byte[][] contents = [Bytes(1_000), Bytes(1), Bytes(4_099)];
+        SendGridMailBody body = Composed(contents);
+        using var content = new SendGridMailContent(body, Custody(contents, chunkBytes));
+
+        await WriteAsync(content);
+
+        content.Submitted.Count.ShouldBe(contents.Length);
+        for (var index = 0; index < contents.Length; index++)
+        {
+            SubmittedAttachmentBytes member = content.Submitted[index];
+            member.ContentIdentity.ShouldBe(
+                "aci_" + index.ToString(CultureInfo.InvariantCulture));
+            member.Length.ShouldBe(contents[index].LongLength);
+            Convert.ToHexString(member.Digest.Span)
+                .ShouldBe(Digest(contents[index]));
+        }
+    }
+
+    /// <summary>
+    /// A member the body could not finish is left out of the witness. A digest
+    /// over a prefix would be a measurement of something nobody sent, and it
+    /// would be indistinguishable, to whoever settles it later, from a
+    /// divergence of the bytes themselves.
+    /// <para>
+    /// The set carries two members and the second one is the one that breaks,
+    /// so the count that comes out is one rather than zero. A witness that
+    /// simply never recorded anything would satisfy an assertion that only
+    /// asked for the absence of the broken member.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_member_the_body_could_not_finish_is_left_out_of_the_witness()
+    {
+        byte[][] declared = [Bytes(300), Bytes(300)];
+        SendGridMailBody body = Composed(declared);
+        byte[][] delivered = [declared[0], Bytes(297)];
+        using var content = new SendGridMailContent(body, Custody(delivered, int.MaxValue));
+
+        await Should.ThrowAsync<HttpRequestException>(async () => await WriteAsync(content));
+
+        content.Interrupted.ShouldBe(SendGridMailContent.ContentLengthChanged);
+        content.Submitted.Count.ShouldBe(1);
+        content.Submitted[0].ContentIdentity.ShouldBe("aci_0");
+        Convert.ToHexString(content.Submitted[0].Digest.Span).ShouldBe(Digest(declared[0]));
+    }
+
+    /// <summary>
+    /// A body written twice witnesses one set and not two. The transport may
+    /// write a request body again, and a witness that accumulated would hand
+    /// the module that settles it a submission with every member listed once
+    /// per attempt, which describes a message nobody sent.
+    /// </summary>
+    [Fact]
+    public async Task A_body_written_twice_witnesses_the_set_that_left_and_not_both_passes()
+    {
+        byte[][] contents = [Bytes(1_000), Bytes(2_048)];
+        SendGridMailBody body = Composed(contents);
+        using var content = new SendGridMailContent(body, Custody(contents, 512));
+
+        await WriteAsync(content);
+        await WriteAsync(content);
+
+        content.Submitted.Count.ShouldBe(contents.Length);
+        content.Submitted.Select(member => member.ContentIdentity)
+            .ShouldBe(["aci_0", "aci_1"]);
+        Convert.ToHexString(content.Submitted[1].Digest.Span).ShouldBe(Digest(contents[1]));
+    }
+
     private static async Task<byte[]> WriteAsync(
         SendGridMailBody body,
         IAcceptedAttachmentContent custody)

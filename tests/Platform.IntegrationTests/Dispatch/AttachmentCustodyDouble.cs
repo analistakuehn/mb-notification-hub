@@ -33,8 +33,17 @@ public sealed class AttachmentCustodyDouble : IAcceptedAttachmentContent
         => "aci_" + index.ToString(CultureInfo.InvariantCulture);
 
     public AttachmentCustodyDouble Plant(int index, byte[] content)
+        => Plant(HandleOf(index), content);
+
+    /// <summary>
+    /// The same, under a handle a test names itself. It exists for the suites
+    /// that plant bytes under a handle the owning module really minted, which
+    /// is the only arrangement in which the comparison of what left against
+    /// what was released has two sides to compare.
+    /// </summary>
+    public AttachmentCustodyDouble Plant(string contentIdentity, byte[] content)
     {
-        _planted[HandleOf(index)] = content;
+        _planted[contentIdentity] = content;
         return this;
     }
 
