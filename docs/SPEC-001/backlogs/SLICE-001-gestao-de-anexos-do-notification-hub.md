@@ -386,7 +386,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 26 | Ler o snapshot por pipeline, despacho e fallback | Implementation | Senior Dev | 5 | 24h | 25 | Done |
 | 27 | Implementar o preflight antes do ponto irreversível | Implementation | Senior Dev | 5 | 24h | 26 | Done |
 | 28 | Evoluir o contrato de despacho com representação neutra do conjunto | Implementation | Senior Dev | 5 | 24h | 27 | Done |
-| 29 | Implementar a submissão do conjunto integral no adaptador de e-mail | Implementation | Senior Dev | 8 | 40h | 9, 28 | To Do |
+| 29 | Implementar a submissão do conjunto integral no adaptador de e-mail | Implementation | Senior Dev | 8 | 40h | 9, 28 | Done |
 | 30 | Produzir a evidência dos bytes submetidos | Implementation | Senior Dev | 3 | 16h | 29 | To Do |
 | 31 | Implementar roteamento e fallback com terminação explícita | Implementation | Senior Dev | 5 | 24h | 27 | To Do |
 | 32 | Implementar a reconciliação de falhas parciais e a convergência de órfãos | Implementation | Senior Dev | 8 | 40h | 21, 30 | To Do |
@@ -809,7 +809,39 @@ o preflight e a composição do envio.
 - **Pontos de história**: 8
 - **Estimativa**: 40h
 - **Depende de**: 9, 28
+- **Estado**: Done em 2026-09-03.
+- **Porta para os bytes**: o adaptador chama o módulo dono com o manipulador opaco e recebe um fluxo somente para frente, sem comprimento e sem reposicionamento, e os dublês de teste recusam as duas operações para que nenhum oráculo passe dependendo de algo que a leitura remota não tem. Quem resolve o manipulador para geração, loja, chave e versão é o módulo dono. Três formas de não entregar bytes entram por uma palavra só, porque o chamador faz a mesma coisa nas três.
+- **Envelope efetivo, decidido com fundamento**: a regra de capacidade do produto não é repetida aqui. Ela mede bytes crus e já foi aplicada antes desta chamada; o que este ponto mede é se a mensagem composta cabe no que o provedor aceita, que é outra pergunta, com outro dono e outra unidade. Repetir a aritmética criaria a segunda autoridade que a separação existe para impedir. A soma decresce do teto e o comprimento cru é comparado antes de ser multiplicado, porque a codificação nunca encolhe.
+- **Achado de segurança materializado**: o campo é escrito pela chamada própria do escritor, e não como valor de texto. O oráculo mede sob corpus adversário **e** sob corpus legível, e o braço legível existe justamente para mostrar que sozinho ele não prova nada, já que a forma explorável passa verde sob conteúdo comum.
+- **Medição do envelope aprovado**: sete mebibytes crus em cinco membros atravessam numa chamada, com corpo medido em 9.787.493 bytes e digest de cada membro conferido no destinatário. Exceder recusa com zero chamadas e **zero aberturas na custódia**, com o zero acompanhado de um um na mesma configuração.
+- **Três mutações voltaram verdes e revelaram oráculos fracos**, corrigidos e remedidos. O valor extremo do inteiro não falsifica a guarda de estouro, porque o produto dá a volta e volta positivo grande, que a comparação seguinte recusa de qualquer jeito; o valor que falsifica é o que cai exatamente no bit de sinal. Uma asserção de bytes excedentes estava medida sobre o corpo inteiro, e o corpo interrompido é curto de qualquer forma. E o teste de manipulador desconhecido **passava porque a tabela estava vazia** numa execução filtrada, e passou a plantar uma geração real antes das recusas.
+- **O que os oráculos não provam**, declarado: nada sobre o provedor real, cujos dois testes seguem pulados por desenho; nada sobre alocação em produção, porque as medições do método promovido são da sonda e não deste código; nada sobre concorrência de envios com anexo; nada sobre cancelamento no meio do corpo; e nada sobre a leitura remota sob latência, porque o dublê de custódia é local.
+- **Ligação deliberadamente não feita, com o motivo**: o processador de despacho não passa o conjunto ao pedido publicado, embora seja o que falta para o caminho ficar vivo. Os arranjos vizinhos semeiam anexos liberados com localizador fabricado e **sem objeto no armazenamento**, então ligar agora faria cada envio daqueles testes tentar abrir bytes inexistentes; e enquanto o estágio de rota não recusar plano que não preserva o conjunto, ligar o membro faria um canal cujo adaptador ignora anexos sair em silêncio sem eles, que é exatamente a degradação que a tarefa de roteamento existe para impedir.
 - **Aceitação**: A captura do payload transmitido comprova conjunto, nome, tipo, digest e comprimento; exceder o envelope produz falha antes da chamada.
+
+### Perguntas de operação abertas, acumuladas até 2026-09-03
+
+Duas decisões de operação foram devolvidas com número medido, e nenhuma
+delas foi resolvida por conta própria, porque um valor inventado aqui
+repetiria o defeito que o portão de capacidade corrigiu.
+
+**Orçamento de bytes.** Não existe teto de bytes em lugar nenhum, e o
+limitador de taxa concede permissões por principal sem ponderar bytes.
+Derivado do que está medido, o pior caso por instância é 56 mebibytes em
+voo, 14,7 megabytes de egresso por notificação e cerca de 77 mebibytes de
+alocação transitória por rodada de oito envios.
+
+**Prazo do canal de e-mail.** O prazo configurado é de cinco segundos e
+cobre a escrita do corpo, o que foi medido: com leitura lenta da custódia
+e prazo de um segundo, o envio termina em erro transitório e o provedor
+não registra chamada alguma. A composição, a codificação e a escrita local
+custaram trinta e cinco milissegundos, ou seja menos de um por cento da
+janela, portanto praticamente todo o orçamento é rede e latência da
+custódia. Para caber, um envio no envelope aprovado exige cerca de quinze
+vírgula sete megabits por segundo sustentados, e cerca de cento e vinte e
+cinco megabits agregados com os oito envios em voo que a configuração já
+traz. Abaixo disso o desfecho não é falha explícita: o erro é transitório
+sem circuito aberto, então a tentativa **estaciona em desconhecido**.
 
 ### Tarefa 30: Produzir a evidência dos bytes submetidos
 
