@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.SharedKernel;
 
@@ -9,6 +11,7 @@ internal static partial class RegisterAttachment
     internal sealed class Handler(
         AttachmentManagementDbContext dbContext,
         IAttachmentSaveOperation saveOperation,
+        IOptions<AttachmentCapacityOptions> capacity,
         TimeProvider timeProvider,
         ILogger<Handler> logger)
     {
@@ -21,6 +24,7 @@ internal static partial class RegisterAttachment
                 command.FileName,
                 command.ContentType,
                 command.SizeBytes,
+                capacity.Value.MaxAttachmentBytes,
                 timeProvider.GetUtcNow());
             if (registration.IsFailure)
             {

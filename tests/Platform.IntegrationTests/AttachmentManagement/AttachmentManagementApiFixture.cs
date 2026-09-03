@@ -41,6 +41,12 @@ public sealed class AttachmentManagementApiFixture : WebApplicationFactory<Progr
 
     internal SentinelLogCaptureProvider Logs { get; } = new();
 
+    /// <summary>
+    /// The store the module runs on, for a test that has to be the caller of a
+    /// transaction instead of a caller of an endpoint.
+    /// </summary>
+    internal string PostgresConnectionString => _postgres.GetConnectionString();
+
     internal string AwsEndpoint => _localStack.GetConnectionString();
 
     internal IAmazonS3 S3

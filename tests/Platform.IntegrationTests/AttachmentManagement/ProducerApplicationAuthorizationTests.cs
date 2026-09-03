@@ -437,6 +437,7 @@ internal static class AttachmentAuthorizationTestData
                 AttachmentApi.FileName,
                 AttachmentApi.ContentType,
                 4,
+                AttachmentApi.SeedSizeCeiling,
                 DateTimeOffset.UtcNow);
             Result<ProducerApplicationGrant> grant = ProducerApplicationGrant.Create(
                 StandardIssuer,

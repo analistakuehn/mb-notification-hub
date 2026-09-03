@@ -6,6 +6,15 @@ namespace NotificationHub.UnitTests.AttachmentManagement;
 
 public sealed class AttachmentLifecycleTests
 {
+    /// <summary>
+    /// A ceiling these oracles pick for themselves. The aggregate is handed one
+    /// instead of holding one, so what is provable here is the rule and never
+    /// the number: restating the approved capacity would tie every reading
+    /// below to a value none of them measures, and would go red the day product
+    /// moved it for a reason that has nothing to do with this file.
+    /// </summary>
+    private const long SizeCeiling = 1_024;
+
     [Fact]
     public void Public_reference_has_a_stable_prefix_and_round_trips_as_an_opaque_value()
     {
@@ -31,6 +40,7 @@ public sealed class AttachmentLifecycleTests
             "invoice.pdf",
             "application/pdf",
             128,
+            SizeCeiling,
             now);
 
         result.IsSuccess.ShouldBeTrue();
@@ -49,7 +59,7 @@ public sealed class AttachmentLifecycleTests
     [InlineData("billing-app", "invoice.pdf", "not a media type", 10)]
     [InlineData("billing-app", "invoice.pdf", "application/pdf", 0)]
     [InlineData("billing-app", "invoice.pdf", "application/pdf", -1)]
-    [InlineData("billing-app", "invoice.pdf", "application/pdf", 30_000_001)]
+    [InlineData("billing-app", "invoice.pdf", "application/pdf", SizeCeiling + 1)]
     public void Invalid_registration_metadata_is_rejected_without_an_attachment(
         string application,
         string fileName,
@@ -61,10 +71,67 @@ public sealed class AttachmentLifecycleTests
             fileName,
             contentType,
             sizeBytes,
+            SizeCeiling,
             DateTimeOffset.UtcNow);
 
         result.IsFailure.ShouldBeTrue();
         result.Value.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The ceiling admits itself and refuses the next byte. Without the pair,
+    /// an off by one in either direction reads as green: a rule that refused
+    /// the ceiling itself would still refuse everything above it, and one that
+    /// admitted a byte past it would still refuse everything far above.
+    /// </summary>
+    [Fact]
+    public void The_ceiling_it_is_handed_is_the_last_size_a_registration_accepts()
+    {
+        Attachment.Register(
+                "billing-app",
+                "invoice.pdf",
+                "application/pdf",
+                SizeCeiling,
+                SizeCeiling,
+                DateTimeOffset.UtcNow)
+            .IsSuccess.ShouldBeTrue();
+        Attachment.Register(
+                "billing-app",
+                "invoice.pdf",
+                "application/pdf",
+                SizeCeiling + 1,
+                SizeCeiling,
+                DateTimeOffset.UtcNow)
+            .IsFailure.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The ceiling is the argument and not a number the aggregate keeps, so the
+    /// same size is accepted or refused by what the caller hands over. This is
+    /// the reading that goes red if a constant ever comes back into the
+    /// aggregate, whatever that constant were set to.
+    /// </summary>
+    [Fact]
+    public void The_same_size_is_decided_by_the_ceiling_the_caller_hands_over()
+    {
+        const long size = SizeCeiling + 1;
+
+        Attachment.Register(
+                "billing-app",
+                "invoice.pdf",
+                "application/pdf",
+                size,
+                SizeCeiling,
+                DateTimeOffset.UtcNow)
+            .IsFailure.ShouldBeTrue();
+        Attachment.Register(
+                "billing-app",
+                "invoice.pdf",
+                "application/pdf",
+                size,
+                size,
+                DateTimeOffset.UtcNow)
+            .IsSuccess.ShouldBeTrue();
     }
 
     [Fact]
@@ -104,6 +171,7 @@ public sealed class AttachmentLifecycleTests
                 "invoice.pdf",
                 "application/pdf",
                 sizeBytes,
+                SizeCeiling,
                 DateTimeOffset.UtcNow)
             .Value
             .ShouldNotBeNull();

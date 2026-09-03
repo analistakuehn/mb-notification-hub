@@ -178,6 +178,7 @@ public sealed class AttachmentRevocationTests(AttachmentManagementApiFixture fix
                 "no-release.pdf",
                 "application/pdf",
                 ByteCount(PdfContent),
+                AttachmentApi.SeedSizeCeiling,
                 Now)
             .Value
             .ShouldNotBeNull();

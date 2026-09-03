@@ -360,6 +360,7 @@ public sealed class AttachmentValidationTests(AttachmentManagementApiFixture fix
                 "no-generation.pdf",
                 "application/pdf",
                 ByteCount(PdfContent),
+                AttachmentApi.SeedSizeCeiling,
                 Now)
             .Value
             .ShouldNotBeNull();

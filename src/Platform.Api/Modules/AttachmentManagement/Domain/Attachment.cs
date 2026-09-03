@@ -107,7 +107,6 @@ public sealed class Attachment
     public const int MaxApplicationLength = 100;
     public const int MaxFileNameLength = 255;
     public const int MaxContentTypeLength = 200;
-    public const long MaxSizeBytes = 30_000_000;
 
     /// <summary>
     /// Room for the fine detail of the last validation outcome. It is durable
@@ -166,11 +165,22 @@ public sealed class Attachment
     /// </summary>
     public DateTimeOffset? InconclusiveUntil { get; private set; }
 
+    /// <summary>
+    /// Registers the metadata of an attachment whose bytes have not arrived
+    /// yet, refusing anything the module could not hold.
+    /// <para>
+    /// The ceiling arrives as an argument because it is an approved value and
+    /// not a shape of the aggregate. Written here as a constant it would be a
+    /// product limit chosen by whoever wrote this file, and it would keep on
+    /// admitting sizes long after the approved one had moved.
+    /// </para>
+    /// </summary>
     public static Result<Attachment> Register(
         string application,
         string fileName,
         string contentType,
         long sizeBytes,
+        long maxSizeBytes,
         DateTimeOffset createdAt)
     {
         if (string.IsNullOrWhiteSpace(application)
@@ -180,7 +190,7 @@ public sealed class Attachment
             || !IsValidMediaType(contentType)
             || contentType.Length > MaxContentTypeLength
             || sizeBytes <= 0
-            || sizeBytes > MaxSizeBytes)
+            || sizeBytes > maxSizeBytes)
         {
             return Result.ValidationError<Attachment>(ErrorCodes.InvalidMetadata);
         }

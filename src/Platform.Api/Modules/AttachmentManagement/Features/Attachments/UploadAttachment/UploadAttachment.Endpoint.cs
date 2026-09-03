@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Options;
 using NotificationHub.Api.Infrastructure.EndpointFilters;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Authorization;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Http;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.RateLimiting;
 using NotificationHub.SharedKernel;
@@ -25,6 +27,12 @@ internal static partial class UploadAttachment
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+    /// <summary>
+    /// Caps the body at the approved ceiling, read from configuration on every
+    /// call. A number frozen here would keep accepting bytes the module had
+    /// stopped registering, and the two answers a producer gets, one at
+    /// registration and one at transfer, would stop agreeing.
+    /// </summary>
     private static async ValueTask<object?> LimitBodyAsync(
         EndpointFilterInvocationContext context,
         EndpointFilterDelegate next)
@@ -33,7 +41,10 @@ internal static partial class UploadAttachment
             context.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
         if (feature is { IsReadOnly: false })
         {
-            feature.MaxRequestBodySize = Attachment.MaxSizeBytes;
+            feature.MaxRequestBodySize = context.HttpContext.RequestServices
+                .GetRequiredService<IOptions<AttachmentCapacityOptions>>()
+                .Value
+                .MaxAttachmentBytes;
         }
 
         return await next(context);

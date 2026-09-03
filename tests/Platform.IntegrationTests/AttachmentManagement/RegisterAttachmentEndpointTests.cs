@@ -4,9 +4,13 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
+using NotificationHub.Api.Modules.AttachmentManagement.Features.Attachments;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.IntegrationTests.TemplateManagement;
+using NotificationHub.SharedKernel;
 
 namespace NotificationHub.IntegrationTests.AttachmentManagement;
 
@@ -105,7 +109,6 @@ public sealed class RegisterAttachmentEndpointTests(AttachmentManagementApiFixtu
     [InlineData("billing-app", "", "application/pdf", 4)]
     [InlineData("billing-app", "invoice.pdf", "not a media type", 4)]
     [InlineData("billing-app", "invoice.pdf", "application/pdf", 0)]
-    [InlineData("billing-app", "invoice.pdf", "application/pdf", 30_000_001)]
     public async Task Structurally_invalid_metadata_returns_400(
         string application,
         string fileName,
@@ -123,6 +126,82 @@ public sealed class RegisterAttachmentEndpointTests(AttachmentManagementApiFixtu
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
+
+    /// <summary>
+    /// The endpoint answers about the capacity the module was configured with.
+    /// The ceiling is taken from the running host rather than restated here, so
+    /// this stays a reading about the wiring and not about a number it does not
+    /// measure, and the pair is what makes it one: refusing the ceiling itself
+    /// and admitting the byte past it both look like a working rule from one
+    /// side only.
+    /// <para>
+    /// The refusal has to name the field, because that is what says the request
+    /// validator turned it away rather than the use case behind it. Both answer
+    /// 400, and without the field the two are the same green.
+    /// </para>
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task Registration_accepts_the_configured_ceiling_and_refuses_the_byte_above_it()
+    {
+        await AttachmentAuthorizationTestData.SeedStandardGrantAsync(
+            fixture.Services,
+            "attachment-producer");
+        using HttpClient client = fixture.CreateProducerClient("attachment-producer");
+        var ceiling = ConfiguredCeiling();
+
+        (HttpResponseMessage accepted, AttachmentApi.ApiResponse body) =
+            await AttachmentApi.RegisterAsync(client, ceiling);
+        using (accepted)
+        {
+            accepted.StatusCode.ShouldBe(HttpStatusCode.Created);
+            (await fixture.QueryAttachmentAsync(body.Reference)).SizeBytes.ShouldBe(ceiling);
+        }
+
+        using HttpResponseMessage refused = await client.PostAsJsonAsync(
+            "/v1/attachments",
+            AttachmentApi.Registration(ceiling + 1));
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = await refused.Content.ReadAsStringAsync();
+        problem.Contains(nameof(RegisterAttachment.Command.SizeBytes), StringComparison.Ordinal)
+            .ShouldBeTrue("A recusa do tamanho tem de vir do validador, que nomeia o campo.");
+    }
+
+    /// <summary>
+    /// The use case refuses the same size with the request validator out of the
+    /// way. Through the endpoint the two guards are indistinguishable, so a use
+    /// case that had kept a ceiling of its own would sit behind a green suite
+    /// until the day the validator was the one to drift, which is the day the
+    /// second guard is the only thing left.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task The_registration_use_case_refuses_the_byte_above_the_configured_ceiling()
+    {
+        var ceiling = ConfiguredCeiling();
+        var before = await CountAttachmentsAsync();
+        using IServiceScope scope = fixture.Services.CreateScope();
+
+        Result<RegisterAttachment.Response> result = await scope.ServiceProvider
+            .GetRequiredService<RegisterAttachment.Handler>()
+            .HandleAsync(
+                new RegisterAttachment.Command(
+                    AttachmentApi.Application,
+                    AttachmentApi.FileName,
+                    AttachmentApi.ContentType,
+                    ceiling + 1),
+                CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(ErrorCodes.InvalidMetadata);
+        (await CountAttachmentsAsync()).ShouldBe(before);
+    }
+
+    /// <summary>The capacity the running host was configured with.</summary>
+    private long ConfiguredCeiling()
+        => fixture.Services
+            .GetRequiredService<IOptions<AttachmentCapacityOptions>>()
+            .Value
+            .MaxAttachmentBytes;
 
     private void AssertDoesNotLeak(IEnumerable<string> responseFragments, string contentId)
     {

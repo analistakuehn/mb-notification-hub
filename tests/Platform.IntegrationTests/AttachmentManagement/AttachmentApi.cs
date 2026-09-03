@@ -11,6 +11,14 @@ internal static class AttachmentApi
     internal const string FileName = "invoice-private-name.pdf";
     internal const string ContentType = "application/pdf";
 
+    /// <summary>
+    /// The ceiling a seeded registration is handed when size is not what the
+    /// oracle reads. The aggregate takes a ceiling instead of holding one, so a
+    /// seed that restated the approved capacity would tie itself to a number it
+    /// never measures.
+    /// </summary>
+    internal const long SeedSizeCeiling = 1_048_576;
+
     internal static object Registration(
         long sizeBytes,
         string application = Application,

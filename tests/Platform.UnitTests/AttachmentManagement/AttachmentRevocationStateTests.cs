@@ -14,6 +14,14 @@ public sealed class AttachmentRevocationStateTests
 {
     private static readonly TimeSpan Window = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// A ceiling this file picks for itself. Size is not what these oracles
+    /// read, and the aggregate is handed a ceiling rather than holding one, so
+    /// restating the approved capacity here would only tie them to a number
+    /// none of them measures.
+    /// </summary>
+    private const long SizeCeiling = 1_048_576;
+
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse(
         "2026-09-02T12:00:00Z",
         CultureInfo.InvariantCulture);
@@ -160,7 +168,8 @@ public sealed class AttachmentRevocationStateTests
     }
 
     private static Attachment RegisteredAttachment()
-        => Attachment.Register("billing-app", "invoice.pdf", "application/pdf", 4, Now)
+        => Attachment
+            .Register("billing-app", "invoice.pdf", "application/pdf", 4, SizeCeiling, Now)
             .Value
             .ShouldNotBeNull();
 }

@@ -4,11 +4,13 @@ using NotificationHub.Api.Composition;
 using NotificationHub.Api.Modules.AttachmentManagement.Features.Attachments;
 using NotificationHub.Api.Modules.AttachmentManagement.Features.Operations;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Authorization;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.RateLimiting;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Revocation;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Validation;
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.AttachmentManagement;
 
@@ -25,8 +27,14 @@ public sealed class AttachmentManagementModule : IModule, IEndpointModule
             typeof(AttachmentManagementModule).Assembly,
             includeInternalTypes: true);
         services.AddAttachmentObjectStore(configuration);
+        services.AddAttachmentCapacity(configuration);
         services.AddAttachmentValidation(configuration);
         services.TryAddSingleton(TimeProvider.System);
+
+        // The claim is stateless and joins whatever transaction it is handed,
+        // exactly like the audit trail this module borrows the shape from, so
+        // one instance serves every caller.
+        services.TryAddSingleton<IAttachmentClaim, TransactionalAttachmentClaim>();
         services.AddScoped<AttachmentDependencyRegistry>();
         services.AddScoped<AttachmentDisposal>();
         services.AddScoped<AttachmentRevocationOperation>();

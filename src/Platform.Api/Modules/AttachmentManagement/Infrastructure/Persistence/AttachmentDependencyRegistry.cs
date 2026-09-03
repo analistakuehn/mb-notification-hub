@@ -69,28 +69,17 @@ internal sealed class AttachmentDependencyRegistry(
             return AttachmentDependencyOutcome.UnknownAttachment;
         }
 
-        var identifier = Guid.CreateVersion7();
         DateTimeOffset acquiredAt = timeProvider.GetUtcNow();
 
-        // A live hold is never revised. Its reason and its instant describe
-        // the acquisition that is still running, and letting a later call
-        // overwrite them would erase when the protection started and why. The
-        // write revives a hold that was already released and touches nothing
-        // else, so the number of rows it changed is what separates a hold this
-        // call created from one it found.
-        var written = await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            INSERT INTO attachmentmanagement.attachment_dependency
-                (id, attachment_id, reason, holder, acquired_at, released_at, version)
-            VALUES
-                ({identifier}, {attachmentId}, {reason}, {holder}, {acquiredAt}, NULL, 1)
-            ON CONFLICT (attachment_id, holder) DO UPDATE
-            SET reason = EXCLUDED.reason,
-                acquired_at = EXCLUDED.acquired_at,
-                released_at = NULL,
-                version = attachment_dependency.version + 1
-            WHERE attachment_dependency.released_at IS NOT NULL
-            """,
+        // The statement itself lives beside the claim that shares it, because
+        // two writes of the same hold that drifted apart would protect the
+        // same object in two different ways.
+        var written = await AttachmentDependencyUpsert.ExecuteAsync(
+            transaction.GetDbTransaction(),
+            attachmentId,
+            reason,
+            holder,
+            acquiredAt,
             cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return written == 1

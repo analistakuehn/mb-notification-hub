@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Compliance.Features.Reporting;
@@ -39,6 +41,24 @@ public static class IntegrationSurfaceSetup
     {
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IAuditTrail, TransactionalAuditTrail>();
+        return services;
+    }
+
+    /// <summary>
+    /// The transactional claim contract of AttachmentManagement; stateless,
+    /// joins the caller's transaction and owns no store of its own.
+    /// <para>
+    /// It composes no persistence, and that is the point rather than an
+    /// omission: the claim runs its statements on the connection under the
+    /// transaction it is handed, so the store it writes to is the store the
+    /// caller is already committing to. A role that consumes it needs the
+    /// contract and nothing else.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddAttachmentClaimSurface(this IServiceCollection services)
+    {
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IAttachmentClaim, TransactionalAttachmentClaim>();
         return services;
     }
 
