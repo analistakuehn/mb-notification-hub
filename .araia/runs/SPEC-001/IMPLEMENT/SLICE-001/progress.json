@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-03T16:40:00Z",
+ "updated_at": "2026-09-03T20:10:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 26,
+  "completed_tasks": 27,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,21 +23,22 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-03T16:40:00Z",
-  "task": "Task 26",
-  "checkpoint": "snapshot-readers-accepted",
+  "at": "2026-09-03T20:10:00Z",
+  "task": "Task 27",
+  "checkpoint": "preflight-accepted",
   "status": "done",
   "reason_codes": [
-   "builder-fell-three-times-to-infrastructure-errors-not-to-its-own",
-   "the-orchestrator-ran-the-falsification-itself",
-   "each-of-the-three-call-sites-has-its-own-oracle-and-none-masks-another",
-   "illegible-never-becomes-absence",
-   "two-compound-mutations-recorded-as-weak-attribution-and-redone-clean"
+   "closes-the-expired-release-gap-the-claim-deliberately-left-open",
+   "zero-provider-calls-measured-on-a-real-http-server-each-zero-paired-with-a-one",
+   "the-envelope-sum-counts-down-so-an-overflow-cannot-read-as-a-small-number",
+   "falsification-exposed-an-integration-oracle-that-two-rules-were-masking",
+   "a-silent-revert-abort-was-caught-and-the-measurement-discarded",
+   "byte-budget-returned-as-a-formulated-question-instead-of-an-invented-number"
   ]
  },
  "task": {
-  "id": "Task 26",
-  "title": "Ler o snapshot por pipeline, despacho e fallback",
+  "id": "Task 27",
+  "title": "Implementar o preflight antes do ponto irreversivel",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -176,7 +177,7 @@
   {
    "id": "Task 27",
    "title": "Implementar o preflight antes do ponto irreversível",
-   "status": "in_progress"
+   "status": "completed"
   },
   {
    "id": "Task 28",
