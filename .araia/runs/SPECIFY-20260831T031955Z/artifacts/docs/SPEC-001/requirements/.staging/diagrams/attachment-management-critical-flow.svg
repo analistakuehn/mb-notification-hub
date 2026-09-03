@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" font-family="Segoe UI, system-ui, sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L10,4 L0,8" fill="#6366f1"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L10,4 L0,8" fill="#16a34a"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L10,4 L0,8" fill="#dc2626"/>
+    </marker>
+    <style>
+      .title { font-size: 18px; font-weight: 700; fill: #1e293b; text-anchor: middle; }
+      .subtitle { font-size: 12px; fill: #64748b; text-anchor: middle; }
+      .box-title { font-size: 12px; font-weight: 700; fill: #fff; text-anchor: middle; }
+      .item-text { font-size: 10px; fill: #334155; }
+      .item-strong { font-size: 10px; font-weight: 700; fill: #1e293b; }
+      .flow-label { font-size: 9px; font-weight: 600; fill: #64748b; text-anchor: middle; }
+      .gate-label { font-size: 10px; font-weight: 700; fill: #991b1b; text-anchor: middle; }
+      .primary { stroke: #6366f1; stroke-width: 2; fill: none; marker-end: url(#arrowBlue); }
+      .success { stroke: #16a34a; stroke-width: 2; fill: none; marker-end: url(#arrowGreen); }
+      .return { stroke: #16a34a; stroke-width: 2; stroke-dasharray: 6 4; fill: none; marker-end: url(#arrowGreen); }
+      .failure { stroke: #dc2626; stroke-width: 2; stroke-dasharray: 6 4; fill: none; marker-end: url(#arrowRed); }
+    </style>
+  </defs>
+
+  <text class="title" x="480" y="30">Fluxo crítico: gestão e envio de anexos</text>
+  <text class="subtitle" x="480" y="50">Referências opacas cruzam módulos; bytes permanecem sob custódia controlada</text>
+
+  <g filter="url(#shadow)">
+    <rect x="25" y="90" width="190" height="155" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="25" y="90" width="190" height="38" rx="10" fill="#4f46e5"/>
+    <rect x="25" y="118" width="190" height="10" fill="#4f46e5"/>
+    <text class="box-title" x="120" y="114">Aplicação produtora</text>
+    <text class="item-text" x="42" y="151">1. Registra e fornece o arquivo</text>
+    <text class="item-text" x="42" y="174">2. Acompanha a validação</text>
+    <text class="item-text" x="42" y="197">3. Usa a referência liberada</text>
+    <text class="item-text" x="42" y="220">4. Solicita a notificação</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="265" y="75" width="230" height="185" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="265" y="75" width="230" height="38" rx="10" fill="#4f46e5"/>
+    <rect x="265" y="103" width="230" height="10" fill="#4f46e5"/>
+    <text class="box-title" x="380" y="99">AttachmentManagement</text>
+    <text class="item-strong" x="282" y="137">Propriedade do contexto</text>
+    <text class="item-text" x="282" y="158">Referência opaca e autorização</text>
+    <text class="item-text" x="282" y="179">Integridade, validação e liberação</text>
+    <text class="item-text" x="282" y="200">Revogação, dependência e descarte</text>
+    <text class="item-text" x="282" y="221">Claim indivisível do manifesto</text>
+    <text class="item-text" x="282" y="242">Sem expor bucket, chave ou URL</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="545" y="90" width="165" height="155" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="545" y="90" width="165" height="38" rx="10" fill="#1e1b4b"/>
+    <rect x="545" y="118" width="165" height="10" fill="#1e1b4b"/>
+    <text class="box-title" x="627.5" y="114">S3 sob custódia</text>
+    <text class="item-text" x="562" y="151">Conteúdo protegido</text>
+    <text class="item-text" x="562" y="174">Identidade imutável</text>
+    <text class="item-text" x="562" y="197">Acesso de menor privilégio</text>
+    <text class="item-text" x="562" y="220">Preservação enquanto ativo</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="760" y="75" width="175" height="185" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="760" y="75" width="175" height="38" rx="10" fill="#16a34a"/>
+    <rect x="760" y="103" width="175" height="10" fill="#16a34a"/>
+    <text class="box-title" x="847.5" y="99">Gate de liberação</text>
+    <text class="item-strong" x="777" y="137">Libera somente quando:</text>
+    <text class="item-text" x="777" y="158">integridade confere</text>
+    <text class="item-text" x="777" y="179">tipo e conteúdo são válidos</text>
+    <text class="item-text" x="777" y="200">autorização está vigente</text>
+    <text class="item-text" x="777" y="221">resultado é conclusivo</text>
+    <text class="gate-label" x="847.5" y="244">Caso contrário, falha fechada</text>
+  </g>
+
+  <path class="primary" d="M215 167 L255 167"/>
+  <text class="flow-label" x="235" y="154">upload gerenciado</text>
+
+  <path class="primary" d="M495 167 L535 167"/>
+  <text class="flow-label" x="515" y="154">custódia</text>
+
+  <path class="primary" d="M710 167 L750 167"/>
+  <text class="flow-label" x="730" y="154">verificação</text>
+
+  <path class="return" d="M760 235 C690 290 555 290 485 240"/>
+  <text class="flow-label" x="625" y="307">resultado de liberação ou recusa</text>
+
+  <g filter="url(#shadow)">
+    <rect x="265" y="335" width="230" height="165" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="265" y="335" width="230" height="38" rx="10" fill="#4f46e5"/>
+    <rect x="265" y="363" width="230" height="10" fill="#4f46e5"/>
+    <text class="box-title" x="380" y="359">Notifications</text>
+    <text class="item-text" x="282" y="397">Claim e aceite do conjunto</text>
+    <text class="item-text" x="282" y="420">Hash e manifesto imutável</text>
+    <text class="item-text" x="282" y="443">Tentativa, retry e fallback</text>
+    <text class="item-text" x="282" y="466">Verificação antes do envio</text>
+    <text class="item-text" x="282" y="489">Falha explícita sem degradação</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="545" y="350" width="165" height="135" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="545" y="350" width="165" height="38" rx="10" fill="#4f46e5"/>
+    <rect x="545" y="378" width="165" height="10" fill="#4f46e5"/>
+    <text class="box-title" x="627.5" y="374">Dispatch</text>
+    <text class="item-text" x="562" y="412">Contrato neutro</text>
+    <text class="item-text" x="562" y="435">Adaptação para base64</text>
+    <text class="item-text" x="562" y="458">Sem estado ou acesso S3</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="760" y="350" width="175" height="135" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="760" y="350" width="175" height="38" rx="10" fill="#16a34a"/>
+    <rect x="760" y="378" width="175" height="10" fill="#16a34a"/>
+    <text class="box-title" x="847.5" y="374">Provedor de e-mail</text>
+    <text class="item-text" x="777" y="412">Conjunto integral</text>
+    <text class="item-text" x="777" y="435">Payload dentro do envelope</text>
+    <text class="item-text" x="777" y="458">Resposta registrada</text>
+  </g>
+
+  <path class="success" d="M380 260 L380 325"/>
+  <text class="flow-label" x="430" y="298">referências liberadas</text>
+
+  <path class="primary" d="M495 417 L535 417"/>
+  <text class="flow-label" x="515" y="404">conteúdo neutro</text>
+
+  <path class="primary" d="M710 417 L750 417"/>
+  <text class="flow-label" x="730" y="404">submissão integral</text>
+
+  <path class="return" d="M760 466 C735 510 680 520 642 490"/>
+  <text class="flow-label" x="716" y="522">resposta</text>
+
+  <path class="return" d="M545 466 C520 510 465 520 425 500"/>
+  <text class="flow-label" x="505" y="535">veredito</text>
+
+  <g filter="url(#shadow)">
+    <rect x="105" y="535" width="750" height="42" rx="9" fill="#fef2f2" stroke="#ef4444"/>
+    <text class="gate-label" x="480" y="560">Gate fechado: nenhum claim, nenhuma notificação aceita e nenhuma chamada ao provedor</text>
+  </g>
+  <path class="failure" d="M910 260 C950 300 950 480 855 535"/>
+  <path class="failure" d="M300 500 C270 520 235 530 215 535"/>
+</svg>

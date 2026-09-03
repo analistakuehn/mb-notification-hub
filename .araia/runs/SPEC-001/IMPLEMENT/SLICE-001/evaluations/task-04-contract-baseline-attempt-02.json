@@ -1,0 +1,16 @@
+{
+  "evaluated_at": "2026-08-31T18:27:22Z",
+  "evaluator_role": "dotnet-engineer-independent",
+  "candidate_fingerprint": "sha256:A5ED2DC88F78CCEEBB369A81D70868883660903C39FED5495988C1CA6926044D",
+  "evidence_row": "AC-15/AC-8-contract-baseline",
+  "verdict": "refute",
+  "trigger": "public-contract",
+  "oracle_observed": "As falsificações usam os mesmos assertors; time exige round-trip UTC; id usa regex ancorada com cifrão.",
+  "commands": [],
+  "evidence_refs": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentIngressContractTests.cs:120",
+    "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentIngressContractTests.cs:123"
+  ],
+  "finding": "Em regex .NET, o cifrão também casa antes de LF final; um id com newline pode ser aceito e depois apagado pela normalização.",
+  "residual_uncertainty": null
+}

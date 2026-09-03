@@ -1,0 +1,16 @@
+{
+  "evaluated_at": "2026-08-31T18:34:10Z",
+  "evaluator_role": "dotnet-engineer-independent",
+  "candidate_fingerprint": "sha256:B601C83CC5DA73109BFF74038EC07EDEDC190EFE1E7E436B10B56E18E46642C9",
+  "evidence_row": "AC-15/AC-8-contract-baseline",
+  "verdict": "confirm",
+  "trigger": "public-contract",
+  "oracle_observed": "OpenAPI real e envelope Kafka integral usam os mesmos assertors nas falsificações; id exige evt- mais 32 hex minúsculos com fim absoluto; time exige round-trip ISO em UTC.",
+  "commands": [],
+  "evidence_refs": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentIngressContractTests.cs",
+    "focused-test:exit-0;passed-5;failed-0;skipped-0"
+  ],
+  "finding": null,
+  "residual_uncertainty": null
+}

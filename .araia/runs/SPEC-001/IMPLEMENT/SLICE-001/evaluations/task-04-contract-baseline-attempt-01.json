@@ -1,0 +1,17 @@
+{
+  "evaluated_at": "2026-08-31T18:19:25Z",
+  "evaluator_role": "dotnet-engineer-independent",
+  "candidate_fingerprint": "sha256:15A0DC34DED782F55870B444402788F2617B4D7302CB8F29B276593B80AE62A8",
+  "evidence_row": "AC-15/AC-8-contract-baseline",
+  "verdict": "refute",
+  "trigger": "public-contract",
+  "oracle_observed": "O OpenAPI vem do endpoint real e o evento Kafka é comparado após normalização de id e time.",
+  "commands": [],
+  "evidence_refs": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentIngressContractTests.cs:28",
+    "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentIngressContractTests.cs:43",
+    "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentIngressContractTests.cs:55"
+  ],
+  "finding": "A normalização irrestrita elimina semântica contratual de id e time; a falsificação OpenAPI registrada alterou o digest esperado, não o corpo produzido.",
+  "residual_uncertainty": null
+}

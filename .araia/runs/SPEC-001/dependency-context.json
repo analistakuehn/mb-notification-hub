@@ -1,0 +1,15 @@
+{
+  "context": {
+    "blocking": [],
+    "contracts": [],
+    "hard_dependency_closure": [
+      "spec:SPEC-001"
+    ],
+    "hard_edges": []
+  },
+  "graph_revision": "26ffcbf33e4926e90e431730fc2fb47ece985c807d5a7bf779b03d5589442dc6",
+  "schema_version": "1.0.0",
+  "spec": "SPEC-001",
+  "stage": "IMPLEMENT",
+  "verified_at": "2026-09-02T11:05:41Z"
+}

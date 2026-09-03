@@ -1,0 +1,311 @@
+{
+ "schema_version": 2,
+ "updated_at": "2026-09-03T01:20:00Z",
+ "spec": {
+  "id": "SPEC-001",
+  "completed_stages": 3,
+  "total_stages": 6,
+  "completed_slices": 0,
+  "total_slices": 1
+ },
+ "slice": {
+  "id": "SLICE-001",
+  "title": "Gestão de anexos do Notification Hub",
+  "status": "in_progress",
+  "completed_tasks": 21,
+  "total_tasks": 38
+ },
+ "working_branch": "master",
+ "implementation_strategy": "adaptive",
+ "strategy_selection": {
+  "requested": "auto",
+  "effective": "adaptive",
+  "reason": "evidence-contract"
+ },
+ "last_transition": {
+  "at": "2026-09-03T01:20:00Z",
+  "task": "Task 19",
+  "checkpoint": "revocation-accepted",
+  "status": "done",
+  "reason_codes": [
+   "rejection-is-a-verdict-revocation-is-an-act-over-a-grant",
+   "revocation-got-its-own-terminal-state-and-its-own-append-only-row",
+   "the-row-names-the-exact-release-not-only-the-attachment",
+   "thirty-runtime-mutations-each-produced-red",
+   "four-public-reasons-one-per-family-fine-detail-behind-authorized-read",
+   "openapi-digest-refrozen-deliberately-with-the-reason-written-beside-it"
+  ]
+ },
+ "task": {
+  "id": "Task 19",
+  "title": "Implementar revogação, rejeição e repetição segura",
+  "status": "done",
+  "task_state": "accepted",
+  "attempt": 1
+ },
+ "tasks": [
+  {
+   "id": "Task 1",
+   "title": "Congelar vetores dourados do hash de ingestão",
+   "status": "completed"
+  },
+  {
+   "id": "Task 2",
+   "title": "Criar a varredura com sentinelas nas superfícies coletadas",
+   "status": "completed"
+  },
+  {
+   "id": "Task 3",
+   "title": "Acrescentar a regra de arquitetura para tipos do provedor de nuvem no domínio",
+   "status": "completed"
+  },
+  {
+   "id": "Task 4",
+   "title": "Criar o snapshot de contrato para a documentação de API e o schema do barramento",
+   "status": "completed"
+  },
+  {
+   "id": "Task 5",
+   "title": "Acrescentar o braço comparativo ao runner de desempenho",
+   "status": "completed"
+  },
+  {
+   "id": "Task 6",
+   "title": "Executar o experimento de identidade e proteção do objeto sob custódia",
+   "status": "completed"
+  },
+  {
+   "id": "Task 7",
+   "title": "Provar o protocolo de consistência do claim sob falhas injetadas",
+   "status": "completed"
+  },
+  {
+   "id": "Task 8",
+   "title": "Levantar o corpus contratual do manifesto e decidir a versão",
+   "status": "completed"
+  },
+  {
+   "id": "Task 9",
+   "title": "Executar a sonda comparativa de transferência ao provedor",
+   "status": "completed"
+  },
+  {
+   "id": "Task 10",
+   "title": "Escrever o ADR do protocolo de consistência do claim",
+   "status": "completed"
+  },
+  {
+   "id": "Task 11",
+   "title": "Escrever o ADR do local e forma do snapshot do manifesto aceito",
+   "status": "completed"
+  },
+  {
+   "id": "Task 12",
+   "title": "Escrever o ADR da entrada do manifesto na forma canônica idempotente",
+   "status": "completed"
+  },
+  {
+   "id": "Task 13",
+   "title": "Criar o módulo de anexos com contexto de persistência, schema e configuração",
+   "status": "completed"
+  },
+  {
+   "id": "Task 14",
+   "title": "Implementar registro, upload gerenciado e referência opaca",
+   "status": "completed"
+  },
+  {
+   "id": "Task 15",
+   "title": "Implementar autorização por principal e aplicação",
+   "status": "completed"
+  },
+  {
+   "id": "Task 16",
+   "title": "Implementar a custódia com identidade íntegra imutável",
+   "status": "completed"
+  },
+  {
+   "id": "Task 17",
+   "title": "Implementar a proteção contra descarte enquanto houver dependência ativa",
+   "status": "completed"
+  },
+  {
+   "id": "Task 18",
+   "title": "Implementar a máquina de estados de validação e liberação, fechando por padrão",
+   "status": "completed"
+  },
+  {
+   "id": "Task 19",
+   "title": "Implementar revogação, rejeição e repetição segura",
+   "status": "completed"
+  },
+  {
+   "id": "Task 20",
+   "title": "Publicar o contrato de claim e snapshot para o módulo de notificações",
+   "status": "pending"
+  },
+  {
+   "id": "Task 21",
+   "title": "Implementar o claim integral na transação compartilhada de aceite",
+   "status": "pending"
+  },
+  {
+   "id": "Task 22",
+   "title": "Acrescentar o contrato REST V2 e as referências ao comando e ao validador",
+   "status": "completed"
+  },
+  {
+   "id": "Task 23",
+   "title": "Incorporar o manifesto à forma canônica idempotente",
+   "status": "completed"
+  },
+  {
+   "id": "Task 24",
+   "title": "Implementar o leitor do barramento para o membro novo",
+   "status": "pending"
+  },
+  {
+   "id": "Task 25",
+   "title": "Persistir o snapshot do manifesto aceito com leitor tolerante",
+   "status": "pending"
+  },
+  {
+   "id": "Task 26",
+   "title": "Ler o snapshot por pipeline, despacho e fallback",
+   "status": "pending"
+  },
+  {
+   "id": "Task 27",
+   "title": "Implementar o preflight antes do ponto irreversível",
+   "status": "pending"
+  },
+  {
+   "id": "Task 28",
+   "title": "Evoluir o contrato de despacho com representação neutra do conjunto",
+   "status": "pending"
+  },
+  {
+   "id": "Task 29",
+   "title": "Implementar a submissão do conjunto integral no adaptador de e-mail",
+   "status": "pending"
+  },
+  {
+   "id": "Task 30",
+   "title": "Produzir a evidência dos bytes submetidos",
+   "status": "pending"
+  },
+  {
+   "id": "Task 31",
+   "title": "Implementar roteamento e fallback com terminação explícita",
+   "status": "pending"
+  },
+  {
+   "id": "Task 32",
+   "title": "Implementar a reconciliação de falhas parciais e a convergência de órfãos",
+   "status": "pending"
+  },
+  {
+   "id": "Task 33",
+   "title": "Implementar o descarte seguro de abandonados",
+   "status": "pending"
+  },
+  {
+   "id": "Task 34",
+   "title": "Implementar a evidência operacional reconstruível",
+   "status": "pending"
+  },
+  {
+   "id": "Task 35",
+   "title": "Escrever as migrações aditivas e regenerar o snapshot de modelo",
+   "status": "pending"
+  },
+  {
+   "id": "Task 36",
+   "title": "Implementar a habilitação progressiva e o rollback lógico",
+   "status": "pending"
+  },
+  {
+   "id": "Task 37",
+   "title": "Executar o ensaio de versões mistas",
+   "status": "pending"
+  },
+  {
+   "id": "Task 38",
+   "title": "Atualizar o guia do produtor e os motivos de recusa",
+   "status": "pending"
+  }
+ ],
+ "evidence": {
+  "pending": 20,
+  "producing": 0,
+  "observed": 0,
+  "boundary_verified": 13,
+  "blocked": 3,
+  "total": 36
+ },
+ "loop_health": {
+  "files_touched": 16,
+  "output_tokens": null,
+  "attempts": 2
+ },
+ "evaluation": {
+  "required": true,
+  "triggers": [
+   "risk:critical",
+   "security-privacy",
+   "public-contract",
+   "persistence",
+   "security",
+   "provider-boundary",
+   "migration"
+  ],
+  "status": "confirmed",
+  "confirmed": 22,
+  "refuted": 1,
+  "uncertain": 0
+ },
+ "scope_extensions": [
+  {
+   "approved_at": "2026-08-31T18:39:31Z",
+   "approved_by": "Usuário",
+   "decision_source": "explicit-user-chat",
+   "tasks": [
+    "Task 3",
+    "Task 5"
+   ],
+   "path_count": 9
+  },
+  {
+   "approved_at": "2026-09-02T13:40:00Z",
+   "approved_by": "Usuario",
+   "decision_source": "pre-authorized-by-user",
+   "tasks": [
+    "Task 16"
+   ],
+   "path_count": 1,
+   "paths": [
+    "tests/Platform.IntegrationTests/AttachmentManagement/AttachmentManagementApiFixture.cs"
+   ],
+   "reason": "O glob autorizado cobre tests/**/AttachmentManagement/**/*Tests.cs e não alcança a fixture. A decisão da mesa exige habilitar versionamento no bucket e trocar a listagem por visão corrente por listagem por versão, sem o que os oráculos de geração nascem cegos: foi medido que a listagem corrente devolve uma entrada com três versões duráveis. A alteração fica contida na fixture do módulo e não cria projeto, pacote nem instrução de esquema."
+  }
+ ],
+ "approval": {
+  "policy": "auto-recommended",
+  "last_checkpoint": "task-6-aws-real-matrix",
+  "decision": "approved",
+  "approved_at": "2026-09-01T11:55:17Z",
+  "approved_by": "Usuário",
+  "decision_source": "explicit-user-chat"
+ },
+ "decisions": [
+  {
+   "at": "2026-09-02T12:05:00Z",
+   "task": "Task 16",
+   "forum": "dotnet-round-table",
+   "verdict": "RECOMMEND",
+   "receipt": ".araia/runs/SPEC-001/IMPLEMENT/SLICE-001/experiments/task-16-round-table-identity.md",
+   "decided_by": "Usuario",
+   "decision_source": "pre-authorized-by-user"
+  }
+ ]
+}
