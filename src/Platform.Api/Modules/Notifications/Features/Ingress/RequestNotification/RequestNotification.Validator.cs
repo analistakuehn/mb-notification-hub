@@ -121,9 +121,55 @@ internal static partial class RequestNotification
                 .MaximumLength(20)
                 .When(command => command.ChannelsHint is null
                     || command.ChannelsHint.Count <= Channel.All.Count);
+
+            // Absent is the shape of a request without attachments and carries
+            // no rule at all, because a manifest is optional. Present is the
+            // shape of a request that asks for them, and the three rules below
+            // are what the ingestion can decide on its own: whether the list
+            // says anything, whether every item names something, and whether
+            // the producer asked for the same reference twice. Nothing here
+            // reads or rewrites a reference: how many, how large and of which
+            // type are not decided by this module.
+            //
+            // Each rule answers for the whole list instead of per position, so
+            // a manifest of ten thousand references is refused by one sentence
+            // rather than by ten thousand: the request is refused for its
+            // shape, and a refusal that grows with the payload would be a
+            // second way to make the same request expensive.
+            RuleFor(command => command.Attachments)
+                .Must(attachments => attachments is not { Count: 0 })
+                .WithMessage("Attachments must name at least one attachment reference.");
+            RuleFor(command => command.Attachments)
+                .Must(NameSomethingInEveryItem)
+                .WithMessage("Attachments must not carry a reference that names nothing.");
+            RuleFor(command => command.Attachments)
+                .Must(BeOrdinallyUnique)
+                .WithMessage("Attachments must not repeat the same attachment reference.");
         }
 
         private static bool BeAnObjectOrAbsent(JsonElement? value)
             => value is null or { ValueKind: JsonValueKind.Object or JsonValueKind.Null };
+
+        private static bool NameSomethingInEveryItem(IReadOnlyList<string>? attachments)
+            => attachments is null
+                || attachments.All(reference => !string.IsNullOrWhiteSpace(reference));
+
+        /// <summary>
+        /// Whether the manifest names each reference once, compared exactly as
+        /// received. Ordinal on purpose: a comparison that folded case or
+        /// trimmed would refuse two references the issuing surface holds apart,
+        /// and the ingestion has no authority to decide that two spellings name
+        /// the same file.
+        /// </summary>
+        private static bool BeOrdinallyUnique(IReadOnlyList<string>? attachments)
+        {
+            if (attachments is null)
+            {
+                return true;
+            }
+
+            var seen = new HashSet<string>(attachments.Count, StringComparer.Ordinal);
+            return attachments.All(seen.Add);
+        }
     }
 }

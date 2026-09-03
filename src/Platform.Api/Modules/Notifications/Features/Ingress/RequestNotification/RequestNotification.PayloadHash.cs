@@ -13,17 +13,29 @@ internal static partial class RequestNotification
     /// SHA-256 (lowercase hex) of the canonical form of the request body,
     /// computed over the bound command so transport noise never changes the
     /// hash. Canonical form: one compact JSON object whose members appear in
-    /// fixed ordinal order (<c>application</c>, <c>channelsHint</c>,
-    /// <c>class</c>, <c>correlationId</c>, <c>metadata</c>,
-    /// <c>recipientId</c>, <c>scheduledAt</c>, <c>templateKey</c>,
-    /// <c>ttlSeconds</c>, <c>variables</c>); absent optional members are
-    /// omitted, and a JSON-null <c>variables</c> or <c>metadata</c> counts as
-    /// absent; <c>variables</c> and <c>metadata</c> are canonicalized
-    /// recursively with object keys in ordinal order and scalar tokens written
-    /// exactly as parsed; <c>channelsHint</c> keeps its order because it is a
-    /// preference; <c>scheduledAt</c> is normalized to UTC in the round-trip
-    /// format. Two bodies differing only in property order, whitespace, or
-    /// time-zone offset of the same instant therefore hash identically.
+    /// fixed ordinal order (<c>application</c>, <c>attachments</c>,
+    /// <c>channelsHint</c>, <c>class</c>, <c>correlationId</c>,
+    /// <c>metadata</c>, <c>recipientId</c>, <c>scheduledAt</c>,
+    /// <c>templateKey</c>, <c>ttlSeconds</c>, <c>variables</c>); absent
+    /// optional members are omitted, and a JSON-null <c>variables</c> or
+    /// <c>metadata</c> counts as absent; <c>variables</c> and <c>metadata</c>
+    /// are canonicalized recursively with object keys in ordinal order and
+    /// scalar tokens written exactly as parsed; <c>channelsHint</c> keeps its
+    /// order because it is a preference; <c>scheduledAt</c> is normalized to
+    /// UTC in the round-trip format. Two bodies differing only in property
+    /// order, whitespace, or time-zone offset of the same instant therefore
+    /// hash identically.
+    ///
+    /// <c>attachments</c> is the manifest of references the request asks to
+    /// deliver, so it identifies the request as much as the recipient does. A
+    /// manifest that names nothing, whether the member is missing, JSON null
+    /// or an empty list, writes no member at all: that is what keeps a
+    /// producer that never heard of attachments hashing exactly as it always
+    /// did. A manifest that names something is written in the order it
+    /// arrived and spelled as it arrived, because the ingestion is not the
+    /// authority on what a reference names: sorting, trimming, folding case
+    /// or removing repetitions here would answer one request with the result
+    /// of another.
     ///
     /// <c>locale</c> is deliberately absent. It reaches no decision of the
     /// hub, so two requests that differ only in it are the same notification;
@@ -41,6 +53,17 @@ internal static partial class RequestNotification
         {
             writer.WriteStartObject();
             writer.WriteString("application", command.Application);
+            if (command.Attachments is { Count: > 0 })
+            {
+                writer.WriteStartArray("attachments");
+                foreach (var reference in command.Attachments)
+                {
+                    writer.WriteStringValue(reference);
+                }
+
+                writer.WriteEndArray();
+            }
+
             if (command.ChannelsHint is not null)
             {
                 writer.WriteStartArray("channelsHint");

@@ -34,5 +34,14 @@ internal static partial class RequestNotification
 
         /// <summary>Deferred release instant (ISO 8601).</summary>
         public DateTimeOffset? ScheduledAt { get; init; }
+
+        /// <summary>
+        /// Ordered manifest of opaque attachment references; absent means the
+        /// request carries none. The order and the spelling are part of the
+        /// request, so the ingestion never sorts, deduplicates, trims or
+        /// rewrites them: two producers naming the same files in a different
+        /// order are asking for two different deliveries.
+        /// </summary>
+        public IReadOnlyList<string>? Attachments { get; init; }
     }
 }
