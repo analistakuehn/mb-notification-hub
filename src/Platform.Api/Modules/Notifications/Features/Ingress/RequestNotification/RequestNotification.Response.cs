@@ -72,5 +72,19 @@ internal static partial class RequestNotification
         /// carrying a value.
         /// </summary>
         internal sealed record SensitiveVariablesOnBus(IReadOnlyList<string> VariableNames) : Outcome;
+
+        /// <summary>
+        /// The attachments the request named could not be claimed, so no
+        /// notification was created; answer 422.
+        /// <para>
+        /// It carries nothing about which member refused or why. The
+        /// difference between an attachment nobody minted and one that belongs
+        /// to another application is not something a refusal may reveal, and
+        /// the difference between one that was never released and one whose
+        /// release was taken back is a reading of the lifecycle rather than an
+        /// answer to a request.
+        /// </para>
+        /// </summary>
+        internal sealed record AttachmentsNotClaimable : Outcome;
     }
 }

@@ -73,6 +73,7 @@ internal static partial class RequestNotification
             Outcome.RateLimited limited => IngestionProblems.RateLimited(
                 limited.Dimension, limited.RetryAfterSeconds),
             Outcome.PayloadInvalid invalid => IngestionProblems.PayloadInvalid(invalid.Errors),
+            Outcome.AttachmentsNotClaimable => IngestionProblems.AttachmentsNotClaimable(),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError),
         };
     }

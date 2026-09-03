@@ -5,11 +5,14 @@ using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using NotificationHub.Api.Infrastructure.Messaging;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications;
 using NotificationHub.Api.Modules.Notifications.Domain;
@@ -71,6 +74,11 @@ public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsync
                 ["Modules:Audit:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:Notifications:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
+
+                // The claim writes on the connection the acceptance already
+                // holds, so the attachment schema has to live in the same
+                // physical database as the ingestion.
+                ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,
                 ["Platform:Messaging:Ef:ConnectionString"] = _postgres.GetConnectionString(),
@@ -298,6 +306,13 @@ public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsync
         await scope.ServiceProvider.GetRequiredService<AuditDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<NotificationsDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<PlatformMessagingDbContext>().Database.MigrateAsync();
+
+        // Attachments have no migration history of their own yet, so the
+        // schema is created from the model.
+        await scope.ServiceProvider
+            .GetRequiredService<AttachmentManagementDbContext>()
+            .Database.GetService<IRelationalDatabaseCreator>()
+            .CreateTablesAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

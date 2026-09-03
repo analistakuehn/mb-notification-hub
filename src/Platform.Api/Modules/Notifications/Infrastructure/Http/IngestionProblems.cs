@@ -10,10 +10,11 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 /// <c>type</c> carries the stable rejection code; template rejections expose
 /// the failed variable checks as the <c>checks</c> extension member.
 ///
-/// Three HTTP-only codes deliberately stay out of the canonical catalog:
+/// Four HTTP-only codes deliberately stay out of the canonical catalog:
 /// <see cref="IdempotencyKeyRequiredType"/>,
-/// <see cref="PrincipalRateLimitedType"/>, and
-/// <see cref="KillSwitchUnavailableType"/>. None reaches the bus as the
+/// <see cref="PrincipalRateLimitedType"/>,
+/// <see cref="KillSwitchUnavailableType"/>, and
+/// <see cref="AttachmentsNotClaimableType"/>. None reaches the bus as the
 /// <c>reason</c> of a rejection event. Every other code answered here is a
 /// catalog member.
 /// </summary>
@@ -23,6 +24,16 @@ internal static class IngestionProblems
     internal const string IdempotencyKeyConflictType = "idempotency-key-conflict";
     internal const string ClassNotAllowedType = "class-not-allowed-for-principal";
     internal const string KillSwitchUnavailableType = "kill-switch-unavailable";
+
+    /// <summary>
+    /// The request names attachments that cannot be claimed for it. It stays
+    /// out of the canonical catalog and off the bus for now: the catalog is
+    /// the vocabulary a producer looks up in the published integration guide,
+    /// and a member that exists in code and nowhere in that guide reaches a
+    /// producer as a word it cannot look up. The guide and the catalog entry
+    /// are published together, by the task that owns that document.
+    /// </summary>
+    internal const string AttachmentsNotClaimableType = "attachments-not-claimable";
 
     /// <summary>
     /// The producer's own request budget is exhausted. It is a code of its own
@@ -90,6 +101,19 @@ internal static class IngestionProblems
                     ? "O orçamento de notificações deste destinatário na classe pedida se esgotou; não retente em laço."
                     : "O limite de solicitações do seu principal foi atingido; reduza a vazão e tente novamente após o intervalo indicado."));
     }
+
+    /// <summary>
+    /// The 422 of a set that was not claimed. It names no member and no
+    /// reason: which attachment refused, and whether it was never released,
+    /// released to someone else or released and taken back, is a reading of
+    /// the lifecycle that the operations surface answers to a caller that may
+    /// ask it.
+    /// </summary>
+    internal static IResult AttachmentsNotClaimable()
+        => Problem(
+            StatusCodes.Status422UnprocessableEntity,
+            AttachmentsNotClaimableType,
+            "Os anexos informados não podem ser vinculados a esta solicitação.");
 
     /// <summary>
     /// The shape refusal of the ingestion, carrying the same per-field

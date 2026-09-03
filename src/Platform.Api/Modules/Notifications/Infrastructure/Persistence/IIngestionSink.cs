@@ -1,5 +1,6 @@
 using System.Data.Common;
 using NotificationHub.Api.Infrastructure.Messaging;
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 
@@ -13,11 +14,18 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 /// </summary>
 internal interface IIngestionSink
 {
+    /// <summary>
+    /// Commits one acceptance. <paramref name="attachments"/> is the set the
+    /// request asked to be claimed, or nothing when it named none: the claim
+    /// belongs inside this write because a notification accepted over a set it
+    /// does not hold is the one state nothing downstream can repair.
+    /// </summary>
     Task<PersistOutcome> PersistAcceptedAsync(
         Notification notification,
         IdempotencyRegistration registration,
         OutboxAppend outboxMessage,
         AuditEntry auditEntry,
+        AttachmentClaimRequest? attachments,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -42,9 +50,10 @@ internal sealed class CommittedIngestionSink(IngestionWriter writer) : IIngestio
         IdempotencyRegistration registration,
         OutboxAppend outboxMessage,
         AuditEntry auditEntry,
+        AttachmentClaimRequest? attachments,
         CancellationToken cancellationToken)
         => writer.PersistAcceptedAsync(
-            notification, registration, outboxMessage, auditEntry, cancellationToken);
+            notification, registration, outboxMessage, auditEntry, attachments, cancellationToken);
 
     public Task RecordTrailAsync(
         AuditEntry auditEntry,
@@ -72,9 +81,10 @@ internal sealed class DeferredTrailIngestionSink(IngestionWriter writer) : IInge
         IdempotencyRegistration registration,
         OutboxAppend outboxMessage,
         AuditEntry auditEntry,
+        AttachmentClaimRequest? attachments,
         CancellationToken cancellationToken)
         => writer.PersistAcceptedAsync(
-            notification, registration, outboxMessage, auditEntry, cancellationToken);
+            notification, registration, outboxMessage, auditEntry, attachments, cancellationToken);
 
     public Task RecordTrailAsync(
         AuditEntry auditEntry,

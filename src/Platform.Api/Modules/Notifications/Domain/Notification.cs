@@ -81,6 +81,19 @@ public sealed class Notification
     /// </summary>
     public string? AdmittedPlanJson { get; private set; }
 
+    /// <summary>
+    /// The set of attachments this notification was accepted over, as the
+    /// document the acceptance froze. Null when the request named none, and
+    /// null forever on rows written before the column existed.
+    /// <para>
+    /// It travels in the insert that accepts the notification and it is never
+    /// written again. Every later reader of this notification reads exactly
+    /// this document: the composition a producer was told had been accepted is
+    /// not something a retry, a fallback or a terminal verdict may move.
+    /// </para>
+    /// </summary>
+    public string? AcceptedAttachmentsJson { get; private set; }
+
     /// <summary>Variables with every sensitive value masked; the only plaintext projection ever stored.</summary>
     public string VariablesMaskedJson { get; private set; }
 
@@ -100,6 +113,45 @@ public sealed class Notification
     public DateTimeOffset ExpiresAt { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
+
+    /// <summary>
+    /// Freezes the accepted attachment snapshot onto the acceptance, before
+    /// the notification has ever been stored.
+    /// <para>
+    /// It is not a transition and it is not an update. The claim that produces
+    /// the snapshot runs inside the very transaction that inserts this row, so
+    /// this is the only moment at which the accepted set and a notification
+    /// nothing has stored yet exist together, and freezing it here is what
+    /// puts the document in the insert instead of in a statement after it.
+    /// </para>
+    /// <para>
+    /// A second snapshot is refused outright. A notification stands for one
+    /// acceptance over one set, so a second call means either that one
+    /// acceptance claimed twice or that something after the acceptance decided
+    /// to change what had been accepted. The refusal here answers in memory;
+    /// the mapping answers for a row that already exists, and neither one
+    /// stands in for the other.
+    /// </para>
+    /// </summary>
+    public void FreezeAcceptedAttachments(string acceptedAttachmentsJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(acceptedAttachmentsJson);
+        if (Status != NotificationStatuses.Accepted)
+        {
+            throw new InvalidOperationException(
+                $"A notificação {Id} está em '{Status}' e o conjunto aceito de anexos só é "
+                    + "gravado no aceite.");
+        }
+
+        if (AcceptedAttachmentsJson is not null)
+        {
+            throw new InvalidOperationException(
+                $"A notificação {Id} já carrega um conjunto aceito de anexos, e ele não é "
+                    + "reescrito.");
+        }
+
+        AcceptedAttachmentsJson = acceptedAttachmentsJson;
+    }
 
     /// <summary>
     /// Stamps the policy version that ruled the notification and records the

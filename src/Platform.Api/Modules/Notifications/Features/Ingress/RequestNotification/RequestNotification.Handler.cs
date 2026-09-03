@@ -3,11 +3,13 @@ using System.Text.Json;
 using FluentValidation;
 using FluentValidation.Results;
 using NotificationHub.Api.Infrastructure.Messaging;
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Events;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Idempotency;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
@@ -211,7 +213,14 @@ internal static partial class RequestNotification
                 registration,
                 BuildOutboxMessage(notification, acceptedAt),
                 AcceptedEntry(notification, producer, origin, template.Version),
+                ClaimOf(command, notification, idempotencyKey),
                 cancellationToken);
+            if (persisted is PersistOutcome.AttachmentsRefused refused)
+            {
+                return await ResolveAttachmentRefusalAsync(
+                    command, producer, origin, idempotencyKey, refused.Status, cancellationToken);
+            }
+
             if (persisted is PersistOutcome.ExistingRegistration existing)
             {
                 return await ResolveReplayAsync(
@@ -242,6 +251,69 @@ internal static partial class RequestNotification
             => rejection.Reason == TemplateGateReasons.SensitiveVariablesOnBus
                 ? new Outcome.SensitiveVariablesOnBus(rejection.SensitiveVariables ?? [])
                 : new Outcome.TemplateRejected(rejection.Reason, rejection.Detail, rejection.Checks);
+
+        /// <summary>
+        /// The claim this request asks for, or nothing when it names no
+        /// attachments. The key is the producer's own idempotency key, not the
+        /// identifier of the notification: a retry of an acceptance whose
+        /// commit was never confirmed mints a new notification for the same
+        /// request, and a claim keyed on it would take a second hold over the
+        /// same attachments for one acceptance.
+        /// </summary>
+        private static AttachmentClaimRequest? ClaimOf(
+            Command command,
+            Notification notification,
+            string idempotencyKey)
+            => command.Attachments is { Count: > 0 } references
+                ? new AttachmentClaimRequest
+                {
+                    NotificationId = notification.Id,
+                    Application = command.Application,
+                    ClaimKey = idempotencyKey,
+                    References = AttachmentReferences.Of(references),
+                }
+                : null;
+
+        /// <summary>
+        /// Answers a claim that refused. A key that already stands for a
+        /// different set is the same fact the idempotency contract already has
+        /// a word for, so it answers with that word; anything else is a set
+        /// this request may not have, which is its own answer.
+        /// </summary>
+        private async Task<Result<Outcome>> ResolveAttachmentRefusalAsync(
+            Command command,
+            string producer,
+            IngestionOrigin origin,
+            string idempotencyKey,
+            AttachmentClaimStatus status,
+            CancellationToken cancellationToken)
+        {
+            if (status == AttachmentClaimStatus.ClaimKeyConflict)
+            {
+                await RejectAsync(
+                    command, producer, origin, idempotencyKey,
+                    NotificationRejectionReasons.IdempotencyKeyConflict, cancellationToken);
+                logger.IdempotencyConflictDetected(command.Application, command.TemplateKey);
+                return Result.Success<Outcome>(new Outcome.IdempotencyConflict());
+            }
+
+            // The trail is recorded and the bus stays quiet. The reason is not
+            // a member of the published rejection catalog yet, and a rejection
+            // event carrying a word no producer can look up is worse than no
+            // event: the synchronous answer already names it.
+            await sink.RecordTrailAsync(
+                RejectionEntry(
+                    command, producer, origin, idempotencyKey,
+                    IngestionProblems.AttachmentsNotClaimableType),
+                integrationEvent: null,
+                cancellationToken);
+            logger.IngressRejected(
+                command.Application,
+                command.TemplateKey,
+                command.Class,
+                IngestionProblems.AttachmentsNotClaimableType);
+            return Result.Success<Outcome>(new Outcome.AttachmentsNotClaimable());
+        }
 
         /// <summary>Records the trail of one rejection: the audit event and the outgoing rejection event.</summary>
         private async Task RejectAsync(

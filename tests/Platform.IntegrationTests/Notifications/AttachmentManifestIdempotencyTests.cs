@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using NotificationHub.IntegrationTests.AttachmentManagement;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using StackExchange.Redis;
 
@@ -71,17 +72,21 @@ public sealed class AttachmentManifestIdempotencyTests(NotificationsApiFixture f
             "producer-manifest-order", NotificationsApi.SendTransactional);
         var idempotencyKey = $"manifest-reordered-{Guid.NewGuid():N}";
         var recipientId = $"cus_{Guid.NewGuid():N}";
+        SeededAttachment alpha = await ClaimableAttachments.ReleasedAsync(
+            fixture, NotificationsApi.Application);
+        SeededAttachment beta = await ClaimableAttachments.ReleasedAsync(
+            fixture, NotificationsApi.Application);
 
         HttpResponseMessage first = await PostAsync(
             producer,
-            Body(templateKey, recipientId, attachments: ["att_alpha", "att_beta"]),
+            Body(templateKey, recipientId, attachments: [alpha.Reference, beta.Reference]),
             idempotencyKey);
         first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await RemoveFastPathEntryAsync(idempotencyKey);
 
         HttpResponseMessage reordered = await PostAsync(
             producer,
-            Body(templateKey, recipientId, attachments: ["att_beta", "att_alpha"]),
+            Body(templateKey, recipientId, attachments: [beta.Reference, alpha.Reference]),
             idempotencyKey);
 
         reordered.StatusCode.ShouldBe(HttpStatusCode.Conflict);

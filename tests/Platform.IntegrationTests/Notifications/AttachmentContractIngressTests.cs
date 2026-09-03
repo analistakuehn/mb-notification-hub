@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using NotificationHub.IntegrationTests.AttachmentManagement;
 using NotificationHub.IntegrationTests.TemplateManagement;
 
 namespace NotificationHub.IntegrationTests.Notifications;
@@ -26,10 +27,18 @@ public sealed class AttachmentContractIngressTests(NotificationsApiFixture fixtu
             "producer-manifest", NotificationsApi.SendTransactional);
         var idempotencyKey = $"manifest-{Guid.NewGuid():N}";
 
+        // The references are attachments this application holds and had
+        // released. A manifest is claimed on the way in, so text that names no
+        // attachment is no longer a request the route accepts.
+        SeededAttachment first = await ClaimableAttachments.ReleasedAsync(
+            fixture, NotificationsApi.Application);
+        SeededAttachment second = await ClaimableAttachments.ReleasedAsync(
+            fixture, NotificationsApi.Application);
+
         HttpResponseMessage response = await PostAsync(
             producer,
             IngestionRoute,
-            Body(templateKey, attachments: ["att_alpha", "att_beta"]),
+            Body(templateKey, attachments: [first.Reference, second.Reference]),
             idempotencyKey);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);

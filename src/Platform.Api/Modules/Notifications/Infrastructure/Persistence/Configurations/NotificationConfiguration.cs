@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NotificationHub.Api.Modules.Notifications.Domain;
 
@@ -54,6 +55,21 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
         builder.Property(notification => notification.AdmittedPlanJson)
             .HasColumnName("admitted_plan")
             .HasColumnType("jsonb");
+
+        // The accepted attachment snapshot is written by the insert that
+        // accepts the notification and by nothing else. The read-only-after-
+        // save behaviour is what says so in the model instead of in a habit:
+        // a tracked change to this property after the row exists fails on the
+        // model guard, before a statement is ever built, so no later path can
+        // rewrite what a producer was told had been accepted, and no update
+        // this module emits can name the column. Nullable and without a
+        // default value, because a notification that named no attachments
+        // carries nothing here and has to stay distinguishable from one whose
+        // document cannot be read.
+        builder.Property(notification => notification.AcceptedAttachmentsJson)
+            .HasColumnName("accepted_attachments")
+            .HasColumnType("jsonb")
+            .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
 
         builder.Property(notification => notification.VariablesMaskedJson)
             .HasColumnName("variables_masked")

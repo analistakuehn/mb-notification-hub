@@ -8,6 +8,7 @@ using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
 using RequestNotificationUseCase = NotificationHub.Api.Modules.Notifications.Features.Ingress.RequestNotification.RequestNotification;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Consuming;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.SharedKernel;
@@ -212,6 +213,16 @@ internal sealed class KafkaIngressProcessor(
                     Diagnose(request, producer, NotificationRejectionReasons.IdempotencyKeyConflict),
                     cancellationToken);
 
+            // Permanently invalid on this transport: the set the event names
+            // will not become claimable by redelivering the same event, so the
+            // record goes to the dead-letter topic with the reason the
+            // synchronous surface answers with.
+            case RequestNotificationUseCase.Outcome.AttachmentsNotClaimable:
+                return await settlement.RefuseAsync(
+                    context,
+                    Diagnose(request, producer, IngestionProblems.AttachmentsNotClaimableType),
+                    cancellationToken);
+
             case RequestNotificationUseCase.Outcome.RateLimited:
                 // Only the recipient budget rejects on this path: the
                 // principal dimension is counted and observed, never refused.
@@ -297,6 +308,20 @@ internal sealed record IngressRequest(RequestNotificationUseCase.Command Command
 /// fields preserve missing and JSON null as absence, but reject a value whose
 /// JSON type or format cannot represent the command contract. The idempotency
 /// key is transport identity and must be valid before any persistence starts.
+///
+/// Every member the request contract names is read here, and the manifest of
+/// attachment references is one of them. A member this binder did not read
+/// would be dropped in silence: the body would still bind, the request would
+/// still be accepted, and the producer would receive the acceptance of a
+/// notification it never asked for. That failure keeps the syntax valid and
+/// changes the effect, so a member of the contract is transported or the body
+/// that names it is refused, and never bound without it.
+///
+/// A manifest that arrives empty is bound empty rather than as absence. An
+/// empty list is a producer asking for attachments without naming one, which
+/// is a different request from one that never asked, and turning it into
+/// absence here would answer it with an acceptance instead of the refusal the
+/// shared validator owes it.
 /// </summary>
 internal static class IngressRequestBinder
 {
@@ -341,6 +366,10 @@ internal static class IngressRequestBinder
                 data,
                 "channelsHint",
                 out IReadOnlyList<string>? channelsHint)
+            || !TryReadOptionalStringArray(
+                data,
+                "attachments",
+                out IReadOnlyList<string>? attachments)
             || !TryReadOptionalString(data, "correlationId", out var correlationId)
             || !TryReadOptionalDateTimeOffset(data, "scheduledAt", out DateTimeOffset? scheduledAt))
         {
@@ -360,6 +389,7 @@ internal static class IngressRequestBinder
             ChannelsHint = channelsHint,
             CorrelationId = correlationId,
             ScheduledAt = scheduledAt,
+            Attachments = attachments,
         };
         return new IngressRequest(command, idempotencyKey);
     }

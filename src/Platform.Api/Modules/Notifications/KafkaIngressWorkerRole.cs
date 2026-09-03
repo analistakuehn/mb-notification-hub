@@ -40,6 +40,7 @@ public sealed class KafkaIngressWorkerRole : IWorkerRoleModule
         services.AddKafkaMessageConsuming(configuration);
         services.AddEnvelopeEncryption(configuration);
         services.AddAuditTrailSurface();
+        services.AddAttachmentClaimSurface();
         services.AddTemplateManagementReadSurface(configuration);
         services.AddNotificationsPersistence(configuration);
         services.AddNotificationsKillSwitch();
