@@ -1,5 +1,8 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Release;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Validation;
 using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
@@ -59,6 +62,32 @@ public static class IntegrationSurfaceSetup
     {
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IAttachmentClaim, TransactionalAttachmentClaim>();
+        return services;
+    }
+
+    /// <summary>
+    /// The two checks AttachmentManagement publishes for the instant before a
+    /// call that cannot be taken back: whether the set that was accepted still
+    /// fits what a notification may carry, and whether every member of it still
+    /// carries a release in force over the content it was accepted with.
+    /// <para>
+    /// It composes the module's own persistence, unlike the claim beside it,
+    /// because these two answer from the durable record rather than from a
+    /// transaction the caller hands over. The consuming role gets a store it
+    /// reads and never writes, and the capacity and validity sections come with
+    /// it because the answers are read against the values in force now.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddAttachmentReleaseCheckSurface(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddAttachmentManagementPersistence(configuration);
+        services.AddAttachmentCapacity(configuration);
+        services.AddAttachmentValidationOptions(configuration);
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IAttachmentEnvelopeCheck, AcceptedSetEnvelopeCheck>();
+        services.TryAddScoped<IAttachmentReleaseCheck, RecordedAttachmentReleaseCheck>();
         return services;
     }
 

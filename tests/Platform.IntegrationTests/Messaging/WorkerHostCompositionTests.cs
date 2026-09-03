@@ -142,6 +142,10 @@ public sealed class WorkerHostCompositionTests
             ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
             ["Modules:ContactConsent:Redis:ConnectionString"] = "localhost:6379",
             ["Modules:Dispatch:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = "Host=localhost;Database=worker_tests;Username=test",
+            ["Modules:AttachmentManagement:Capacity:MaxAttachmentBytes"] = "7340032",
+            ["Modules:AttachmentManagement:Capacity:MaxEnvelopeBytes"] = "7340032",
+            ["Modules:AttachmentManagement:Capacity:MaxAttachmentsPerNotification"] = "10",
         };
 
     [Fact]

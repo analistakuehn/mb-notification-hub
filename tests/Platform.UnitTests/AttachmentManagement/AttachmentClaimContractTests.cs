@@ -8,12 +8,13 @@ namespace NotificationHub.UnitTests.AttachmentManagement;
 /// The surface this module publishes to the context that sends notifications,
 /// read from the compiled assembly rather than from the files that declare it.
 /// <para>
-/// Everything here is a rule about shape, and that is deliberate: the claim
-/// and the check behind these interfaces do not exist yet, so nothing in this
-/// file claims that a set is ever claimed or that a release is ever read. What
-/// it does claim is that the shape a later implementation has to fill cannot
-/// carry a coordinate, cannot carry the proof of the bytes, cannot report an
-/// acceptance with nothing accepted, and cannot let a set through by default.
+/// Everything here is a rule about shape, and that is deliberate: what a claim
+/// writes and what a check reads are measured against real stores elsewhere,
+/// and nothing in this file claims that a set is ever claimed or that a release
+/// is ever read. What it does claim is that the shape an implementation has to
+/// fill cannot carry a coordinate, cannot carry the proof of the bytes, cannot
+/// report an acceptance with nothing accepted, and cannot let a set through by
+/// default.
 /// </para>
 /// </summary>
 public sealed class AttachmentClaimContractTests
@@ -46,9 +47,11 @@ public sealed class AttachmentClaimContractTests
                 nameof(AttachmentClaimOutcome),
                 nameof(AttachmentClaimRequest),
                 nameof(AttachmentClaimStatus),
+                nameof(AttachmentEnvelopeVerdict),
                 nameof(AttachmentReferences),
                 nameof(AttachmentReleaseVerdict),
                 nameof(IAttachmentClaim),
+                nameof(IAttachmentEnvelopeCheck),
                 nameof(IAttachmentReleaseCheck),
             ]);
     }
@@ -110,6 +113,13 @@ public sealed class AttachmentClaimContractTests
             "AttachmentClaimStatus.Claimed",
             "AttachmentClaimStatus.NotClaimable",
 
+            // Two words for the capacity, and the refusal is one of them for
+            // both ways of exceeding it: a count and a sum are different rules
+            // over the same snapshot, and the caller does the same thing about
+            // either.
+            "AttachmentEnvelopeVerdict.Exceeded",
+            "AttachmentEnvelopeVerdict.WithinEnvelope",
+
             "AttachmentReferences.Count",
             "AttachmentReferences.Item",
 
@@ -118,6 +128,7 @@ public sealed class AttachmentClaimContractTests
             "AttachmentReleaseVerdict.Withheld",
 
             "IAttachmentClaim.ClaimAsync",
+            "IAttachmentEnvelopeCheck.Measure",
             "IAttachmentReleaseCheck.VerifyAsync",
         ]);
     }
@@ -360,6 +371,7 @@ public sealed class AttachmentClaimContractTests
     {
         default(AttachmentReleaseVerdict).ShouldBe(AttachmentReleaseVerdict.Unavailable);
         default(AttachmentClaimStatus).ShouldBe(AttachmentClaimStatus.NotClaimable);
+        default(AttachmentEnvelopeVerdict).ShouldBe(AttachmentEnvelopeVerdict.Exceeded);
     }
 
     /// <summary>

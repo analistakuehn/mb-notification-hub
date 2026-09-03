@@ -7,6 +7,7 @@ using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Authorizat
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.RateLimiting;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Release;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Revocation;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Validation;
@@ -35,6 +36,14 @@ public sealed class AttachmentManagementModule : IModule, IEndpointModule
         // exactly like the audit trail this module borrows the shape from, so
         // one instance serves every caller.
         services.TryAddSingleton<IAttachmentClaim, TransactionalAttachmentClaim>();
+
+        // The two halves of what a caller asks immediately before a call it
+        // cannot take back. The capacity measurement holds no state and reads
+        // only the configured limits; the release check reads the durable
+        // record and takes this module's own context, so it lives as long as
+        // that context does.
+        services.TryAddSingleton<IAttachmentEnvelopeCheck, AcceptedSetEnvelopeCheck>();
+        services.TryAddScoped<IAttachmentReleaseCheck, RecordedAttachmentReleaseCheck>();
         services.AddScoped<AttachmentDependencyRegistry>();
         services.AddScoped<AttachmentDisposal>();
         services.AddScoped<AttachmentRevocationOperation>();

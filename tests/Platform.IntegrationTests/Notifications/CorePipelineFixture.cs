@@ -155,6 +155,15 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
             ["Modules:Dispatch:RateLimits:RedisConnectionString"] = RedisConnectionString,
             ["Modules:Dispatch:RateLimits:KeyPrefix"] = RedisKeyPrefix,
             ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
+
+            // The dispatcher revalidates the accepted set against the owning
+            // module's own record before it calls a provider, so a worker-side
+            // composition needs that store and the capacity in force, exactly
+            // as the API host has them.
+            ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
+            ["Modules:AttachmentManagement:Capacity:MaxAttachmentBytes"] = "7340032",
+            ["Modules:AttachmentManagement:Capacity:MaxEnvelopeBytes"] = "7340032",
+            ["Modules:AttachmentManagement:Capacity:MaxAttachmentsPerNotification"] = "10",
         };
         if (overrides is not null)
         {

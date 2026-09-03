@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using Microsoft.EntityFrameworkCore;
@@ -6,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
@@ -36,6 +39,22 @@ public sealed class AcceptedAttachmentFlowCollectionDefinition
 {
     public const string Name = "accepted-attachment-flow";
 }
+
+/// <summary>
+/// Template and class policy of one plan, arranged once and reused by every
+/// notification a suite accepts under it.
+/// <para>
+/// The recipient is deliberately not here. The deduplication window of the
+/// policy is keyed on the application, the template and the recipient, so two
+/// notifications sharing all three inside the window are one notification and
+/// the second is rejected before it ever reaches a channel. A recipient of its
+/// own per acceptance is what keeps an arrangement reusable.
+/// </para>
+/// </summary>
+internal sealed record AttachmentArrangement(
+    string Application,
+    string TemplateKey,
+    int DeviceCount);
 
 /// <summary>One arranged notification and the set it was accepted over.</summary>
 internal sealed record AttachedNotification(
@@ -110,31 +129,78 @@ internal static class AcceptedAttachmentFlow
         (string Channel, string? Timeout)[] plan,
         int deviceCount = 1,
         string[]? sensitiveVariables = null)
+        => await AcceptAsync(
+            fixture,
+            await ArrangeAsync(fixture, plan, deviceCount, sensitiveVariables),
+            attachmentCount);
+
+    /// <summary>
+    /// Seeds template, class policy, recipient and provider bindings for one
+    /// plan, without accepting anything over them.
+    /// <para>
+    /// It is split from the acceptance so that a suite needing several
+    /// notifications under one plan pays for the plan once. Each of those
+    /// notifications still gets attachments of its own, because a set that two
+    /// notifications shared would be held by two claims and a mutation aimed at
+    /// one of them would land on the other.
+    /// </para>
+    /// </summary>
+    internal static async Task<AttachmentArrangement> ArrangeAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        (string Channel, string? Timeout)[] plan,
+        int deviceCount = 1,
+        string[]? sensitiveVariables = null)
     {
         var application = DispatchApi.NewApplication();
         (var templateKey, _) = await DispatchApi.CreatePublishedTemplateAsync(
             fixture, application, NotificationClass, Purpose, sensitiveVariables);
         await DispatchApi.CreatePublishedPolicyAsync(fixture, application, NotificationClass, plan);
-        (var recipientId, _, _) = await DispatchApi.RegisterRecipientAsync(
-            fixture, deviceCount: deviceCount);
         await fixture.SeedProviderConfigAsync(("email", "sendgrid"), ("push", "fcm"));
+        return new AttachmentArrangement(application, templateKey, deviceCount);
+    }
+
+    /// <summary>
+    /// Accepts one notification over freshly released attachments of its own,
+    /// under an arrangement that already exists.
+    /// <para>
+    /// <paramref name="grantedAt"/> is the instant the whole lifecycle of those
+    /// attachments is written at. Setting it into the past is how a set is
+    /// accepted over a release that is already past its validity, which the
+    /// claim admits because a claim reads the state and the release row and
+    /// never the age of either.
+    /// </para>
+    /// </summary>
+    internal static async Task<AttachedNotification> AcceptAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        AttachmentArrangement arrangement,
+        int attachmentCount,
+        DateTimeOffset? grantedAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(arrangement);
+
+        // A recipient of this notification's own, so the deduplication window
+        // of the policy never reads two notifications of one arrangement as
+        // one notification asked for twice.
+        (var recipientId, _, _) = await DispatchApi.RegisterRecipientAsync(
+            fixture, deviceCount: arrangement.DeviceCount);
 
         var attachments = new List<SeededAttachment>();
         for (var index = 0; index < attachmentCount; index++)
         {
             attachments.Add(await ClaimableAttachments.ReleasedAsync(
                 fixture,
-                application,
+                arrangement.Application,
                 fileName: $"manifesto-{Guid.NewGuid():N}.pdf",
                 mediaType: "application/pdf",
-                length: 2048 + index));
+                length: 2048 + index,
+                grantedAt: grantedAt));
         }
 
         HttpClient producer = fixture.CreateProducerClient(
             "attachment-producer", NotificationsApi.SendTransactional);
         HttpResponseMessage accepted = await NotificationsApi.PostNotificationAsync(
             producer,
-            Body(application, templateKey, recipientId, attachments),
+            Body(arrangement.Application, arrangement.TemplateKey, recipientId, attachments),
             Guid.NewGuid().ToString("N"));
         if (!accepted.IsSuccessStatusCode)
         {
@@ -147,7 +213,7 @@ internal static class AcceptedAttachmentFlow
         JsonElement answer = await NotificationsApi.ReadJsonAsync(accepted);
         NotificationId.TryParse(answer.GetProperty("notificationId").GetString(), out Guid id)
             .ShouldBeTrue();
-        return new AttachedNotification(id, application, recipientId, attachments);
+        return new AttachedNotification(id, arrangement.Application, recipientId, attachments);
     }
 
     /// <summary>Runs the acceptance message through the pipeline and publishes what it wrote.</summary>
@@ -159,6 +225,50 @@ internal static class AcceptedAttachmentFlow
         (await CorePipelineFixture.RunCorePassAsync(core, CoreQueue))
             .Processed.ShouldBeGreaterThanOrEqualTo(1);
         (await CorePipelineFixture.RunRelayPassAsync(relay)).Published.ShouldBeGreaterThanOrEqualTo(1);
+    }
+
+    /// <summary>
+    /// Runs the acceptance messages of several notifications through the
+    /// pipeline and publishes what they wrote.
+    /// <para>
+    /// The loop stops on the attempts and never on a count of processed
+    /// messages. One receive hands over whatever the queue felt like handing
+    /// over, and this environment holds messages of neighbouring arrangements
+    /// too, so a pass that processed as many messages as this call is waiting
+    /// for may have processed none of them.
+    /// </para>
+    /// </summary>
+    internal static async Task DispatchAllAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        params Guid[] notifications)
+    {
+        await using ServiceProvider relay = fixture.BuildRelayProvider();
+        await using ServiceProvider core = fixture.BuildCoreWorkerProvider();
+        Guid[] pending = notifications;
+        for (var pass = 0; pass < notifications.Length + 12 && pending.Length > 0; pass++)
+        {
+            await CorePipelineFixture.RunRelayPassAsync(relay);
+            await CorePipelineFixture.RunCorePassAsync(core, CoreQueue);
+            pending = await WithoutAttemptAsync(fixture, pending);
+        }
+
+        pending.ShouldBeEmpty(
+            "cada notificação arranjada precisa do seu attempt antes de qualquer medição.");
+        await CorePipelineFixture.RunRelayPassAsync(relay);
+    }
+
+    /// <summary>The notifications the pipeline has not queued an attempt for yet.</summary>
+    private static async Task<Guid[]> WithoutAttemptAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        Guid[] notifications)
+    {
+        List<Guid> attempted = await fixture.QueryNotificationsDbAsync(db => db.NotificationAttempts
+            .AsNoTracking()
+            .Where(attempt => notifications.Contains(attempt.NotificationId))
+            .Select(attempt => attempt.NotificationId)
+            .Distinct()
+            .ToListAsync());
+        return [.. notifications.Except(attempted)];
     }
 
     /// <summary>Publishes whatever the last write left pending in the outbox.</summary>
@@ -305,6 +415,67 @@ internal static class AcceptedAttachmentFlow
             candidate => candidate.Id == attachmentId);
         attachment.Revoke().ShouldBe(AttachmentRevocationTransition.Applied);
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Captures a second generation for one attachment and grants a release
+    /// over it, which is the shape an explicit revalidation writes: a second
+    /// row with an instant of its own, leaving the first one exactly as it was.
+    /// <para>
+    /// The handle the snapshot froze still names the first generation, so after
+    /// this the content the notification was accepted with is no longer the
+    /// content the release in force stands for.
+    /// </para>
+    /// </summary>
+    internal static async Task SupersedeContentAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        SeededAttachment attachment)
+    {
+        ArgumentNullException.ThrowIfNull(attachment);
+        using IServiceScope scope = fixture.Services.CreateScope();
+        AttachmentManagementDbContext db = scope.ServiceProvider
+            .GetRequiredService<AttachmentManagementDbContext>();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        AttachmentObjectGeneration generation = AttachmentObjectGeneration.Capture(
+            attachment.Id,
+            AttachmentObjectLocator.FromStoredRow(
+                "attachment-store",
+                $"attachments/{Guid.NewGuid():N}",
+                $"generation-{Guid.NewGuid():N}"),
+            AttachmentContentProof.Sha256Of(
+                SHA256.HashData(Encoding.UTF8.GetBytes($"superseded-{attachment.Id:N}")),
+                attachment.Length),
+            attachment.MediaType,
+            now);
+        db.ObjectGenerations.Add(generation);
+        db.Releases.Add(AttachmentRelease.Grant(
+            attachment.Id, generation.Id, now, TimeSpan.FromDays(30)));
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Gives one attachment a reference nobody holds, so the reference the
+    /// snapshot froze stops naming a row and the set is one member short.
+    /// <para>
+    /// Written straight onto the row because no path in the module renames an
+    /// attachment: what is being arranged is a set the module can no longer
+    /// assemble in full, and the reason it cannot is not the point.
+    /// </para>
+    /// </summary>
+    internal static async Task ForgetReferenceAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        Guid attachmentId)
+    {
+        var replacement = $"{AttachmentReference.Prefix}{Guid.CreateVersion7():N}";
+        using IServiceScope scope = fixture.Services.CreateScope();
+        await scope.ServiceProvider
+            .GetRequiredService<AttachmentManagementDbContext>()
+            .Database
+            .ExecuteSqlAsync($"""
+                UPDATE attachmentmanagement.attachment
+                SET reference = {replacement}
+                WHERE id = {attachmentId}
+                """);
     }
 
     /// <summary>The state the owning module now holds for one attachment.</summary>

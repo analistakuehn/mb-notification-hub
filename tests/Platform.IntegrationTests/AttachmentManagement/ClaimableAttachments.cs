@@ -39,14 +39,25 @@ internal static class ClaimableAttachments
     private const string DefaultMediaType = "application/pdf";
     private const long DefaultLength = 2048;
 
-    /// <summary>An attachment whose release is in force: the one state a claim accepts.</summary>
+    /// <summary>
+    /// An attachment whose release is in force: the one state a claim accepts.
+    /// <para>
+    /// <paramref name="grantedAt"/> is the instant the whole lifecycle is
+    /// written at, the release included. A claim reads the state and the
+    /// release row and never the age of either, so an old grant is claimable
+    /// today and is exactly how a set that was accepted over a release past its
+    /// validity is arranged.
+    /// </para>
+    /// </summary>
     internal static Task<SeededAttachment> ReleasedAsync(
         WebApplicationFactory<Program> host,
         string application,
         string fileName = DefaultFileName,
         string mediaType = DefaultMediaType,
-        long length = DefaultLength)
-        => SeedAsync(host, application, AttachmentStates.Released, fileName, mediaType, length);
+        long length = DefaultLength,
+        DateTimeOffset? grantedAt = null)
+        => SeedAsync(
+            host, application, AttachmentStates.Released, fileName, mediaType, length, grantedAt);
 
     /// <summary>An attachment whose content arrived and was never approved.</summary>
     internal static Task<SeededAttachment> ReceivedAsync(
@@ -100,13 +111,14 @@ internal static class ClaimableAttachments
         string state,
         string fileName,
         string mediaType,
-        long length)
+        long length,
+        DateTimeOffset? grantedAt = null)
     {
         ArgumentNullException.ThrowIfNull(host);
         using IServiceScope scope = host.Services.CreateScope();
         AttachmentManagementDbContext dbContext = scope.ServiceProvider
             .GetRequiredService<AttachmentManagementDbContext>();
-        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset now = grantedAt ?? DateTimeOffset.UtcNow;
 
         Attachment attachment = Attachment
             .Register(

@@ -34,8 +34,12 @@ public sealed class DispatcherWorkerOptions
 /// the dispatch queues of every configured channel and band consumed
 /// concurrently with processing slots prioritized auth over critical over
 /// transactional over operational, the optimistic claim over the attempt
-/// state, the provider surface of the Dispatch context and the read and
-/// lifecycle surfaces of ContactConsent, each behind its published contract.
+/// state, the provider surface of the Dispatch context, the read and
+/// lifecycle surfaces of ContactConsent and the release and capacity checks of
+/// AttachmentManagement, each behind its published contract. The last two are
+/// composed here and in no other role because this is the only role that
+/// reaches a provider, and what they answer is only true for the instant
+/// before it does.
 /// It is also the only role that observes provider circuits, so it is the only
 /// one composing the automatic channel stop.
 /// </summary>
@@ -71,12 +75,14 @@ public sealed class DispatcherWorkerRole : IWorkerRoleModule
         services.AddContactConsentReadSurface(configuration);
         services.AddContactConsentDeviceLifecycle(configuration);
         services.AddDispatchProviderSurface(configuration);
+        services.AddAttachmentReleaseCheckSurface(configuration);
         services.AddNotificationsPersistence(configuration);
         services.AddNotificationsKillSwitch();
         services.AddNotificationsKillSwitchHolds();
         services.AddAutomaticChannelKillSwitch(configuration);
 
         services.AddScoped<AttemptDispatchWriter>();
+        services.AddScoped<AttachmentPreflight>();
         services.AddScoped<IPoisonMessageSink, DispatchPoisonMessageSink>();
 
         services.AddSqsQueueConsumer<DispatchMessageProcessor>(QueueBindings(configuration));

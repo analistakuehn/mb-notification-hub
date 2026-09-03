@@ -16,6 +16,34 @@ internal static class AttachmentValidationSetup
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddAttachmentValidationOptions(configuration);
+        services.TryAddSingleton(TimeProvider.System);
+
+        // The policy that ships refuses everything the operator did not admit,
+        // and the operator admits nothing by default. A verifier arrives as a
+        // different registration behind this same interface, and nothing else
+        // in the module moves when it does.
+        services.TryAddSingleton<IAttachmentContentPolicy, AdmittedTypeContentPolicy>();
+        services.AddScoped<AttachmentValidation>();
+        return services;
+    }
+
+    /// <summary>
+    /// Binds the policy's values on their own, for a composition that reads
+    /// them without running a validation.
+    /// <para>
+    /// It is separate because the release validity and the instant it took
+    /// effect are read twice: once here, where a verdict grants a release, and
+    /// once on the path that decides whether a release granted long ago may
+    /// still be used. That second reader needs the two values and none of the
+    /// machinery around them, and binding the section a second time of its own
+    /// would be a second place the guards below could drift away from.
+    /// </para>
+    /// </summary>
+    internal static IServiceCollection AddAttachmentValidationOptions(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
         services.AddOptions<AttachmentValidationOptions>()
             .Bind(configuration.GetSection(AttachmentValidationOptions.SectionName))
             .Validate(
@@ -47,14 +75,6 @@ internal static class AttachmentValidationSetup
                     + "vencimento resultante ultrapassaria a maior data representável.")
             .ValidateOnStart();
 
-        services.TryAddSingleton(TimeProvider.System);
-
-        // The policy that ships refuses everything the operator did not admit,
-        // and the operator admits nothing by default. A verifier arrives as a
-        // different registration behind this same interface, and nothing else
-        // in the module moves when it does.
-        services.TryAddSingleton<IAttachmentContentPolicy, AdmittedTypeContentPolicy>();
-        services.AddScoped<AttachmentValidation>();
         return services;
     }
 

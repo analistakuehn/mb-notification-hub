@@ -47,6 +47,7 @@ internal enum DispatchVerdict
 internal sealed class DispatchMessageProcessor(
     NotificationsDbContext db,
     AttemptDispatchWriter writer,
+    AttachmentPreflight attachmentPreflight,
     ChannelKillSwitchGate channelKillSwitchGate,
     AutomaticChannelKillSwitch automaticChannelKillSwitch,
     IRecipientDirectory recipientDirectory,
@@ -83,6 +84,37 @@ internal sealed class DispatchMessageProcessor(
     /// still meant something.
     /// </summary>
     internal const string ErrorNotificationExpired = "notification-expired";
+
+    /// <summary>
+    /// Stable code of an attempt whose accepted attachments stopped being
+    /// deliverable between the acceptance and the send: a release taken back,
+    /// a release past its validity, content that is no longer the content that
+    /// was accepted, or a member that is not there any more.
+    /// <para>
+    /// One code for the four, mirroring the one word the owning module answers
+    /// with. The four are different events on that module's durable record and
+    /// the same event here: the notification may not go out carrying the set
+    /// its producer was told had been accepted, and nothing this hub does next
+    /// depends on which of them closed.
+    /// </para>
+    /// </summary>
+    internal const string ErrorAttachmentsWithheld = "attachments-withheld";
+
+    /// <summary>
+    /// Stable code of an attempt whose accepted set no longer fits what one
+    /// notification may carry. It names the set and not the release on purpose:
+    /// every attachment may be perfectly released, and what changed is the
+    /// capacity this hub allows itself to spend.
+    /// </summary>
+    internal const string ErrorAttachmentsOverCapacity = "attachments-over-capacity";
+
+    /// <summary>
+    /// Stable reason of a send held back because nothing could be established
+    /// about the accepted set. It is a reason and not an error code because
+    /// nothing was settled: the attempt returns to the queue exactly as it does
+    /// under an open circuit, and the redelivery asks again.
+    /// </summary>
+    internal const string ReasonAttachmentsUnverified = "attachments-unverified";
 
     /// <summary>Adapter code of an open circuit: the only transient error that proves no call was taken.</summary>
     internal const string CircuitOpenErrorCode = "circuit-open";
@@ -225,6 +257,22 @@ internal sealed class DispatchMessageProcessor(
             return expired ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
         }
 
+        // The accepted set is revalidated here and nowhere else. The snapshot
+        // froze which attachments this notification carries and froze no
+        // permission at all, so whether every one of them may still leave, and
+        // whether the set still fits what a notification may carry, are read
+        // again in this window. It sits after the claim because settling the
+        // refusal needs an attempt this worker owns, and before the reveal
+        // because a send that is not going to happen is not worth a plaintext
+        // destination in memory.
+        AttachmentPreflightOutcome preflight = await attachmentPreflight.VerifyAsync(
+            notification, cancellationToken);
+        if (preflight != AttachmentPreflightOutcome.Clear)
+        {
+            return await SettlePreflightAsync(
+                attempt, notification, envelope.MessageId, preflight, cancellationToken);
+        }
+
         Result<DeliveryTarget> target = await ResolveTargetAsync(
             notification, attempt, isPush, isSms, deviceTokenId, cancellationToken);
         if (target.IsFailure)
@@ -333,6 +381,44 @@ internal sealed class DispatchMessageProcessor(
         return string.Equals(result.ErrorCode, RateLimitedErrorCode, StringComparison.Ordinal)
             ? ReasonRateLimited
             : ReasonProviderThrottled;
+    }
+
+    /// <summary>
+    /// Settles a claimed attempt the revalidation refused, with no provider
+    /// call behind it.
+    /// <para>
+    /// The two shapes of refusal settle differently and must. A set that may
+    /// not be used will not become usable by being asked again, so the attempt
+    /// fails with a stable code and the plan is free to advance; a set nothing
+    /// could be established about is a question that may answer next time, so
+    /// the attempt returns to the queue with no verdict and no dedupe mark,
+    /// exactly as an open circuit returns it. Failing the second case would end
+    /// a notification because a store was briefly unreachable.
+    /// </para>
+    /// </summary>
+    private async Task<MessageDisposition> SettlePreflightAsync(
+        NotificationAttempt attempt,
+        Notification notification,
+        Guid messageId,
+        AttachmentPreflightOutcome preflight,
+        CancellationToken cancellationToken)
+    {
+        if (preflight == AttachmentPreflightOutcome.Undecided)
+        {
+            await writer.RevertToQueuedAsync(attempt, cancellationToken);
+            logger.DispatchAttemptRequeued(
+                attempt.Id, notification.Id, ReasonAttachmentsUnverified);
+            return new MessageDisposition.Postponed(null, ReasonAttachmentsUnverified);
+        }
+
+        var errorCode = preflight == AttachmentPreflightOutcome.OverCapacity
+            ? ErrorAttachmentsOverCapacity
+            : ErrorAttachmentsWithheld;
+        var settled = await writer.RecordFailureAsync(
+            attempt, notification, errorCode, messageId, cancellationToken);
+        if (settled) logger.DispatchAttemptFailed(attempt.Id, notification.Id, errorCode);
+
+        return settled ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
     }
 
     private async Task<MessageDisposition> SettleVerdictAsync(
