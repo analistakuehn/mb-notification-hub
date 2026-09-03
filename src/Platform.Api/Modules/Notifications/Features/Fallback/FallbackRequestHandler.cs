@@ -402,6 +402,15 @@ internal sealed class FallbackRequestHandler(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        // The set the next attempt inherits, read off the notification this
+        // handler already loaded and never carried in the trigger: the step
+        // about to be queued departs from the same composition the first one
+        // did, and that is what keeps every step of one plan on the set the
+        // producer was told had been accepted. A document that no longer reads
+        // stops the step before the advance is claimed, so the trigger that
+        // follows the repair still finds a step to buy.
+        AcceptedAttachmentManifest.RefuseUnreadable(notification);
+
         var sealedContent = await RenderedContentEnvelope.SealAsync(
             cipher, notification.Application, render, cancellationToken);
         var channel = nextStep.Channel.Value;

@@ -4,6 +4,8 @@ using Amazon.Runtime;
 using Amazon.SQS;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -13,6 +15,7 @@ using Microsoft.IdentityModel.Tokens;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Compliance.Infrastructure.Authorization;
 using NotificationHub.Api.Modules.ContactConsent;
@@ -107,6 +110,13 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
                 ["Modules:Audit:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:Notifications:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
+
+                // Attachments share the physical database of the ingestion,
+                // because the claim of a set runs its statements on the
+                // connection the acceptance transaction already holds. Pointed
+                // anywhere else, the schema the claim writes to would not be
+                // the schema the module's own endpoints write to.
+                ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,
                 ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
@@ -357,6 +367,14 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
         await scope.ServiceProvider.GetRequiredService<ContactConsentDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<DispatchDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<PlatformMessagingDbContext>().Database.MigrateAsync();
+
+        // Attachments have no migration history of their own yet, so the
+        // schema is created from the model, exactly as the module's own
+        // fixture creates it.
+        await scope.ServiceProvider
+            .GetRequiredService<AttachmentManagementDbContext>()
+            .Database.GetService<IRelationalDatabaseCreator>()
+            .CreateTablesAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

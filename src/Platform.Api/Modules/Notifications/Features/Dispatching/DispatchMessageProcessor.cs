@@ -156,6 +156,13 @@ internal sealed class DispatchMessageProcessor(
             throw new InvalidOperationException(provider.Error);
         }
 
+        // The set this send would carry, read off the notification row and
+        // out of nowhere else, before the claim. Before, because a claim taken
+        // over a document nobody can read parks the attempt on sending with no
+        // owner left to settle it, while a refusal here leaves it queued and
+        // claimable by the redelivery that follows the repair of the row.
+        AcceptedAttachmentManifest.RefuseUnreadable(notification);
+
         var isPush = string.Equals(
             attempt.Channel, AttemptDispatchWriter.PushChannel, StringComparison.Ordinal);
         var isSms = string.Equals(

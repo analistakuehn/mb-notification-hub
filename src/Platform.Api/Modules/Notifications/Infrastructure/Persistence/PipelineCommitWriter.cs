@@ -37,6 +37,18 @@ internal sealed class PipelineCommitWriter(
         CancellationToken cancellationToken)
     {
         PipelineResultKind kind = ResolveKind(context);
+        if (kind == PipelineResultKind.Dispatched)
+        {
+            // The composition this notification was accepted over is read here,
+            // off the row the processor already loaded, before the first attempt
+            // exists. Every later path departs from that attempt, so a document
+            // nobody can read has to stop the run while there is still nothing
+            // queued and nothing to send; one statement later the refusal would
+            // be over a message already on its way. A rejection, an expiry and a
+            // deferral never reach a provider, so none of them is asked.
+            AcceptedAttachmentManifest.RefuseUnreadable(context.Notification);
+        }
+
         DateTimeOffset now = timeProvider.GetUtcNow();
 
         await using IDbContextTransaction transaction =

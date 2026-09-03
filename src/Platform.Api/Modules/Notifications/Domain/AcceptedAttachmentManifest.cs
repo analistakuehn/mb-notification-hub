@@ -189,6 +189,44 @@ internal static class AcceptedAttachmentManifest
         }
     }
 
+    /// <summary>
+    /// Reads the accepted set of one notification off the row already loaded,
+    /// and stops the caller when the stored document does not read.
+    /// <para>
+    /// The row is the only place the set is ever read from. Nothing after the
+    /// acceptance keeps a copy of it, so a caller reaching anywhere else would
+    /// be reading something free to disagree with what the producer was told
+    /// had been accepted.
+    /// </para>
+    /// <para>
+    /// A set and its absence both let the caller go on, and they are the two
+    /// ordinary answers: a notification that named attachments carries exactly
+    /// those, one that named none carries none. An unreadable document is
+    /// neither, and it must not be turned into either. Read as absence, the
+    /// notification would leave without the attachments it was accepted over,
+    /// which is the most expensive failure this path has; read as a set, it
+    /// would leave with a composition nobody can name.
+    /// </para>
+    /// <para>
+    /// The stop is an operational defect and never an answer to the producer.
+    /// Whatever asked stops before writing anything, so the state a repaired
+    /// row would need is still there and the notification is held rather than
+    /// lost.
+    /// </para>
+    /// </summary>
+    /// <exception cref="AcceptedAttachmentsUnreadableException">
+    /// The row carries a document this reader cannot make sense of.
+    /// </exception>
+    public static void RefuseUnreadable(Notification notification)
+    {
+        ArgumentNullException.ThrowIfNull(notification);
+
+        if (Read(notification.AcceptedAttachmentsJson) is AcceptedManifestRead.Unreadable unreadable)
+        {
+            throw new AcceptedAttachmentsUnreadableException(notification.Id, unreadable.Reason);
+        }
+    }
+
     private static AcceptedAttachment Restore(StoredItem? item) => new()
     {
         Reference = item?.Reference ?? string.Empty,
@@ -260,4 +298,40 @@ internal abstract record AcceptedManifestRead
     /// taken from the document.
     /// </summary>
     public sealed record Unreadable(string Reason) : AcceptedManifestRead;
+}
+
+/// <summary>
+/// A path that could still reach a provider asked one notification which
+/// attachments it was accepted over, and the row answered with a document
+/// nothing can make sense of.
+/// <para>
+/// It is worded as an operational defect because that is what it is: the
+/// document is written by the acceptance and never written again, so one that
+/// stopped reading is corruption of a durable row, and no redelivery of the
+/// same message repairs it. The path that met it wrote nothing, so repairing
+/// the row is enough to let the notification carry on.
+/// </para>
+/// <para>
+/// <see cref="Reason"/> names the shape of the defect, from the reader's
+/// closed vocabulary, and never quotes the document. A reference, a name and a
+/// media type are producer data, and an operational trail is exactly where
+/// they must not surface.
+/// </para>
+/// </summary>
+internal sealed class AcceptedAttachmentsUnreadableException : Exception
+{
+    internal AcceptedAttachmentsUnreadableException(Guid notificationId, string reason)
+        : base($"A notificação {notificationId} carrega um conjunto aceito de anexos ilegível "
+            + $"({reason}); nenhum caminho que possa alcançar o provedor prossegue sobre um "
+            + "conjunto que ninguém consegue nomear.")
+    {
+        NotificationId = notificationId;
+        Reason = reason;
+    }
+
+    /// <summary>The notification whose stored document does not read.</summary>
+    internal Guid NotificationId { get; }
+
+    /// <summary>One of <see cref="AcceptedAttachmentManifest.Refusals"/>.</summary>
+    internal string Reason { get; }
 }
