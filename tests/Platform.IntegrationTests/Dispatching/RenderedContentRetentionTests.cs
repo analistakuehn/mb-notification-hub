@@ -269,7 +269,11 @@ public sealed class RenderedContentRetentionTests(CorePipelineFixture fixture)
 
         // The published content of one of them moved on after the send, so no
         // fresh render can reproduce the hash that attempt recorded.
-        await DispatchApi.PublishVersionAsync(fixture, movedKey, "Seu código de acesso é {{ code }}.");
+        // A declaração sensível acompanha a nova versão: descartá-la seria
+        // recusada por retirar o mascaramento, e o que este caso precisa é
+        // apenas que a frase publicada mude.
+        await DispatchApi.PublishVersionAsync(
+            fixture, movedKey, "Seu código de acesso é {{ code }}.", SensitiveCode);
 
         var logs = new CapturingLoggerProvider();
         await using ServiceProvider maintenance = fixture.BuildMaintenanceWorkerProvider(

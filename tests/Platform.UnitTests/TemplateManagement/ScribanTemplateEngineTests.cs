@@ -276,23 +276,63 @@ public sealed class ScribanTemplateEngineTests
     }
 
     [Fact]
-    public async Task Refusing_a_source_costs_a_fraction_of_parsing_it()
+    public async Task Refusing_an_oversized_source_names_the_size_limit_without_scanning_it()
     {
-        var source = Repeat("{{a.b.c.d.e.f.g.h.i.j}}", 131_072);
+        // A recusa por comprimento e a primeira barreira e nao examina a fonte:
+        // ela decide por um inteiro. A prova e deterministica e nao usa
+        // relogio, porque a mensagem so pode vir do ramo que decidiu. Se a
+        // barreira sumisse, a fonte seguiria para a varredura e a recusa
+        // passaria a nomear o limite de tokens.
         ScribanTemplateEngine engine = Engine(maxSizeChars: 131_072);
+        var source = Repeat("{{a.b.c.d.e.f.g.h.i.j}}", 262_144);
 
-        var watch = Stopwatch.StartNew();
-        Result<string> result = await engine.RenderAsync(source, variables: null, CancellationToken.None);
-        watch.Stop();
+        Result<string> result = await engine.RenderAsync(
+            source, variables: null, CancellationToken.None);
 
         result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldNotBeNull().ShouldContain("262144");
+        result.Error.ShouldNotBeNull().ShouldContain("131072");
+    }
 
-        // The measurement this ceiling exists for: parsing this source takes
-        // around 80 ms on the machine that sized it, against 0.6 ms for prose of
-        // the same length, and nothing stops a parse once it starts. The scan
-        // stops at the ceiling instead of at the end of the source, so the
-        // refusal is bounded by the ceiling and not by what the caller sent.
-        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromMilliseconds(25));
+    [Fact]
+    public async Task Refusing_a_dense_source_stops_at_the_token_ceiling_and_not_at_the_end()
+    {
+        // Dentro do teto de comprimento, quem limita a recusa e o teto de
+        // tokens. A propriedade e que a varredura para nele, e nao no fim da
+        // fonte. Densidade de tokens fixa e comprimento variavel discriminam
+        // as duas: parando no teto o tempo e constante, varrendo ate o fim ele
+        // acompanha o comprimento. A razao cancela a velocidade do hospedeiro,
+        // que um limiar absoluto mediria no lugar do mecanismo.
+        const string unit = "{{a.b.c.d.e.f.g.h.i.j}}";
+        ScribanTemplateEngine engine = Engine(
+            maxSizeChars: 8_000_000, maxTemplateTokens: 8192);
+        var modest = Repeat(unit, 200_000);
+        var enormous = Repeat(unit, 3_200_000);
+
+        // Primeira chamada descartada: paga compilacao tardia e primeiro toque
+        // de memoria, que nao pertencem ao mecanismo sob teste.
+        await engine.RenderAsync(modest, variables: null, CancellationToken.None);
+
+        var modestWatch = Stopwatch.StartNew();
+        Result<string> refusedModest = await engine.RenderAsync(
+            modest, variables: null, CancellationToken.None);
+        modestWatch.Stop();
+
+        var enormousWatch = Stopwatch.StartNew();
+        Result<string> refusedEnormous = await engine.RenderAsync(
+            enormous, variables: null, CancellationToken.None);
+        enormousWatch.Stop();
+
+        refusedModest.IsFailure.ShouldBeTrue();
+        refusedEnormous.IsFailure.ShouldBeTrue();
+        refusedModest.Error.ShouldNotBeNull().ShouldContain("8192");
+        refusedEnormous.Error.ShouldNotBeNull().ShouldContain("8192");
+
+        // A fonte cresce dezesseis vezes. A folga de quatro absorve ruido de
+        // agendamento sem admitir uma varredura proporcional.
+        var growth = enormousWatch.Elapsed.TotalMilliseconds
+            / Math.Max(modestWatch.Elapsed.TotalMilliseconds, 0.01);
+        growth.ShouldBeLessThan(4d);
     }
 
     [Fact]

@@ -130,7 +130,16 @@ internal static class TemplateApi
     {
         HttpResponseMessage response = await publisherClient.PostAsync(
             $"/v1/templates/{key}/versions/{version}/publish", content: null);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            // A recusa de publicação carrega o relatório de verificações no
+            // corpo. Sem ele, a falha chega ao autor do teste como um código
+            // de status e obriga uma investigação que a resposta já respondeu.
+            var report = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException(
+                $"A publicação de {key} v{version} foi recusada com {(int)response.StatusCode}: {report}");
+        }
+
         return version;
     }
 

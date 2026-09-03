@@ -1,0 +1,46 @@
+id: clean
+canonical-architecture: clean
+aliases: [clean-architecture, onion]
+template-set: common
+title: Clean Architecture with bounded-context modules
+host-name: Platform.WebApi
+host-path: src/Platform.WebApi
+infrastructure-name: Platform.Infrastructure
+infrastructure-path: src/Platform.Infrastructure
+features-root: src/Platform.Application/Modules
+slice-shape: layered-with-vertical-slices
+
+projects:
+  - { name: Platform.Domain, path: src/Platform.Domain, sdk: Microsoft.NET.Sdk, role: domain, namespace-suffix: Domain }
+  - { name: Platform.Application, path: src/Platform.Application, sdk: Microsoft.NET.Sdk, role: application, namespace-suffix: Application, references: Platform.Domain, packages: "FluentValidation|Microsoft.Extensions.Configuration.Abstractions|Microsoft.Extensions.DependencyInjection.Abstractions|Microsoft.Extensions.Logging.Abstractions" }
+  - { name: Platform.Infrastructure, path: src/Platform.Infrastructure, sdk: Microsoft.NET.Sdk, role: infrastructure, namespace-suffix: Infrastructure, references: Platform.Application, packages: "Microsoft.Extensions.Configuration|Microsoft.Extensions.Configuration.EnvironmentVariables|Microsoft.Extensions.Configuration.Json|Microsoft.Extensions.DependencyInjection.Abstractions|Microsoft.Extensions.Hosting.Abstractions|Microsoft.Extensions.Logging.Abstractions|Microsoft.Extensions.Options|Microsoft.Extensions.Options.ConfigurationExtensions|Microsoft.Extensions.Options.DataAnnotations" }
+  - { name: Platform.WebApi, path: src/Platform.WebApi, sdk: Microsoft.NET.Sdk.Web, role: host, namespace-suffix: WebApi, references: "Platform.Application|Platform.Infrastructure", packages: "FluentValidation|FluentValidation.DependencyInjectionExtensions|Microsoft.Extensions.Http.Resilience" }
+  - { name: Platform.ArchTests, path: tests/Platform.ArchTests, sdk: Microsoft.NET.Sdk, role: arch-tests, namespace-suffix: ArchTests, references: Platform.WebApi }
+  - { name: Platform.SecurityArchTests, path: tests/Platform.SecurityArchTests, sdk: Microsoft.NET.Sdk, role: security-arch-tests, namespace-suffix: SecurityArchTests, references: Platform.WebApi }
+  - { name: Platform.UnitTests, path: tests/Platform.UnitTests, sdk: Microsoft.NET.Sdk, role: unit-tests, namespace-suffix: UnitTests, references: Platform.WebApi }
+  - { name: Platform.IntegrationTests, path: tests/Platform.IntegrationTests, sdk: Microsoft.NET.Sdk, role: integration-tests, namespace-suffix: IntegrationTests, references: Platform.WebApi }
+  - { name: Platform.PerformanceTests, path: tests/Platform.PerformanceTests, sdk: Microsoft.NET.Sdk, role: performance-benchmarks, namespace-suffix: PerformanceTests, references: Platform.WebApi }
+
+surfaces:
+  composition: { project: Platform.Application, path: "src/Platform.Application/Composition" }
+  endpoint-composition: { project: Platform.WebApi, path: "src/Platform.WebApi/Composition" }
+  host-infrastructure: { project: Platform.WebApi, path: "src/Platform.WebApi/Infrastructure" }
+  shared-kernel: { project: Platform.Domain, path: "src/Platform.Domain/SharedKernel", namespace: "SharedKernel" }
+  module-context: { project: Platform.Application, path: "src/Platform.Application/Modules/{{ModuleName}}" }
+  domain: { project: Platform.Domain, path: "src/Platform.Domain/Modules/{{ModuleName}}" }
+  features: { project: Platform.Application, path: "src/Platform.Application/Modules/{{ModuleName}}/Features" }
+  integration: { project: Platform.Application, path: "src/Platform.Application/Modules/{{ModuleName}}/Integration/V1" }
+  module-infrastructure: { project: Platform.Infrastructure, path: "src/Platform.Infrastructure/Modules/{{ModuleName}}" }
+
+registrations:
+  application: { project: Platform.Application, path: "src/Platform.Application/Modules/{{ModuleName}}/{{ModuleName}}Module.cs", type: "{{ModuleName}}Module" }
+  infrastructure: { project: Platform.Infrastructure, path: "src/Platform.Infrastructure/Modules/{{ModuleName}}/{{ModuleName}}InfrastructureModule.cs", type: "{{ModuleName}}InfrastructureModule" }
+  endpoints: { project: Platform.WebApi, path: "src/Platform.WebApi/Modules/{{ModuleName}}/{{ModuleName}}EndpointModule.cs", type: "{{ModuleName}}EndpointModule" }
+
+dependency-rules:
+  - { id: domain-must-stay-technology-free, scope: "Domain", forbid-packages: "Microsoft.AspNetCore|Microsoft.EntityFrameworkCore|MongoDB.Driver|RabbitMQ.Client|Confluent.Kafka|StackExchange.Redis" }
+  - { id: domain-must-not-depend-on-outer-layers, scope: "Domain", forbid: "Application|Infrastructure|WebApi" }
+  - { id: application-must-stay-transport-and-provider-free, scope: "Application", forbid-packages: "Microsoft.AspNetCore|Microsoft.EntityFrameworkCore|MongoDB.Driver|RabbitMQ.Client|Confluent.Kafka|StackExchange.Redis" }
+  - { id: application-must-not-depend-on-adapters, scope: "Application", forbid: "Infrastructure|WebApi" }
+  - { id: infrastructure-must-not-depend-on-the-host, scope: "Infrastructure", forbid: "WebApi" }
+  - { id: shared-kernel-must-stay-technology-free, scope: "SharedKernel", forbid-packages: "Microsoft.AspNetCore|Microsoft.EntityFrameworkCore|MongoDB.Driver|RabbitMQ.Client|Confluent.Kafka|StackExchange.Redis" }

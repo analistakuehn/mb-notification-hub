@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .agents/hooks/post-write-language-check.mjs",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node .agents/hooks/post-write-tier-check.mjs",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .agents/hooks/pre-bash-git-hygiene-check.mjs",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

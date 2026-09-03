@@ -1,0 +1,36 @@
+using Microsoft.Extensions.Options;
+using RabbitMQ.Client;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Messaging.RabbitMq;
+
+public static class RabbitMqSetup
+{
+    public static IServiceCollection AddRabbitMq(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<RabbitMqOptions>()
+            .Bind(configuration.GetSection(RabbitMqOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddSingleton<IConnection>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
+            var factory = new ConnectionFactory
+            {
+                HostName = options.Host,
+                Port = options.Port,
+                VirtualHost = options.VirtualHost,
+                UserName = options.Username,
+                Password = options.Password,
+                AutomaticRecoveryEnabled = true,
+                TopologyRecoveryEnabled = true,
+            };
+
+            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+        });
+
+        return services;
+    }
+}

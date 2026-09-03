@@ -1,0 +1,30 @@
+using HotChocolate.Execution.Configuration;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.GraphQL;
+
+/// <summary>
+/// Defaults applied to the HotChocolate request executor on startup. Slice
+/// modules register their own type extensions through their
+/// <c>ConfigureServices</c>; the host calls <see cref="ApplyDefaults"/> once
+/// to wire projections, filtering, sorting, and instrumentation.
+/// </summary>
+public static class GraphQLDefaults
+{
+    public static IRequestExecutorBuilder ApplyDefaults(this IRequestExecutorBuilder builder)
+    {
+        return builder
+            .AddQueryType<Query>()
+            .AddProjections()
+            .AddFiltering()
+            .AddSorting()
+            .AddInstrumentation();
+    }
+}
+
+/// <summary>
+/// Bootstrap query root extended by feature slices.
+/// </summary>
+public sealed class Query
+{
+    public string Status { get; } = "ready";
+}

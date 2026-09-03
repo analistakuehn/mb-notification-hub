@@ -1,0 +1,14 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+public sealed class MongoOptions
+{
+    public const string SectionName = "Modules:{{ModuleName}}:Persistence:Mongo";
+
+    [Required]
+    public required string ConnectionString { get; init; }
+
+    [Required]
+    public required string DatabaseName { get; init; }
+}

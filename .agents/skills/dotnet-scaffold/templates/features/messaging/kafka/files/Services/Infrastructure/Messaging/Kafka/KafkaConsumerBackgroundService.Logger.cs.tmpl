@@ -1,0 +1,10 @@
+namespace {{NamespacePrefix}}.Services.Infrastructure.Messaging.Kafka;
+
+public abstract partial class KafkaConsumerBackgroundService<TKey, TValue>
+{
+    [LoggerMessage(EventId = 3100, Level = LogLevel.Information, Message = "Kafka consumer started for topic {Topic}")]
+    protected partial void ConsumerStarted(string topic);
+
+    [LoggerMessage(EventId = 3101, Level = LogLevel.Error, Message = "Kafka message handling failed on topic {Topic}")]
+    protected partial void MessageHandlingFailed(string topic, Exception exception);
+}

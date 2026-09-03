@@ -1,0 +1,15 @@
+using System.Data.Common;
+using Microsoft.Extensions.Options;
+using Npgsql;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+internal sealed class PostgresConnectionFactory(IOptions<DapperOptions> options) : IDbConnectionFactory
+{
+    public async Task<DbConnection> OpenAsync(CancellationToken cancellationToken)
+    {
+        var connection = new NpgsqlConnection(options.Value.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        return connection;
+    }
+}

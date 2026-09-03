@@ -1,0 +1,20 @@
+using Microsoft.EntityFrameworkCore;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+/// <summary>
+/// Persistence boundary owned exclusively by the {{ModuleName}} bounded context.
+/// </summary>
+public sealed class {{ModuleName}}DbContext(DbContextOptions<{{ModuleName}}DbContext> options) : DbContext(options)
+{
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDefaultSchema("{{ModuleSchema}}");
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof({{ModuleName}}DbContext).Assembly,
+            type => type.Namespace?.StartsWith(
+                "{{ModuleNamespace}}",
+                StringComparison.Ordinal) is true);
+        base.OnModelCreating(modelBuilder);
+    }
+}

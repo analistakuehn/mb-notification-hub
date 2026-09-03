@@ -1,0 +1,54 @@
+id: graphql
+axis: transport
+description: |
+  Adds HotChocolate as a GraphQL transport. Mounts at /graphql; slice modules
+  contribute query/mutation type extensions through their own ConfigureServices
+  by calling services.AddGraphQLServer().AddTypeExtension<T>().
+
+requires: []
+conflicts: []
+
+packages:
+  - { name: HotChocolate.AspNetCore, version: "16.5.0" }
+  - { name: HotChocolate.Data, version: "16.5.0" }
+  - { name: HotChocolate.Diagnostics, version: "16.5.0" }
+
+project-references:
+  axis-owner:
+    - HotChocolate.AspNetCore
+    - HotChocolate.Data
+    - HotChocolate.Diagnostics
+
+files:
+  - src: files/Services/Infrastructure/GraphQL/GraphQLDefaults.cs.tmpl
+    dest: {{HostInfrastructureRoot}}/GraphQL/GraphQLDefaults.cs
+
+patches:
+  - file: {{HostProgramFile}}
+    marker: usings-transports
+    snippet-file: patches/program-usings.snippet
+  - file: {{HostProgramFile}}
+    marker: di-transports
+    snippet-file: patches/program-di.snippet
+  - file: {{HostProgramFile}}
+    marker: pipeline-transports
+    snippet-file: patches/program-pipeline.snippet
+
+readme-section: |
+  ### GraphQL transport
+
+  - HotChocolate is mounted at `/graphql`.
+  - Each bounded-context module contributes types from its explicit `ConfigureServices` method:
+
+    ```csharp
+    public static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddGraphQLServer()
+            .AddTypeExtension<CustomerQueries>()
+            .AddTypeExtension<CustomerMutations>();
+    }
+    ```
+
+  - Add `HotChocolate.Data.MongoDb` to `Directory.Packages.props` and chain
+    `.AddMongoDbProjections().AddMongoDbFiltering().AddMongoDbSorting()` when
+    pairing GraphQL with the `mongo` persistence overlay.

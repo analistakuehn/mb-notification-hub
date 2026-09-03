@@ -1,0 +1,99 @@
+{
+  "policy-version": "1.0.0",
+  "source": "shared/git-hygiene-protocol.md",
+  "note": "Harness-neutral rule source for command_policy (see harness/harness-contract.md). prefix-rules are enforced by a native per-harness primitive (Claude Code permissions.ask, Codex .rules prefix_rule); content-rules match a token that can appear anywhere in the argument list and are enforced only where a pre-execution hook exists (Claude Code hooks/pre-bash-git-hygiene-check.mjs today). Every decision here is \"ask\", never a hard block: git-hygiene-protocol.md reserves an explicit, session-scoped user override for each of these rules, and a hard deny cannot express that carve-out.",
+  "prefix-rules": [
+    {
+      "id": "push-force",
+      "pattern": ["git", "push", "--force"],
+      "decision": "ask",
+      "rule": "Rule 2",
+      "justification": "Force-pushes rewrite remote history; git-hygiene-protocol.md Rule 2 forbids raw --force against protected branches and prefers --force-with-lease, which this rule deliberately excludes."
+    },
+    {
+      "id": "add-all-flag",
+      "pattern": ["git", "add", "-A"],
+      "decision": "ask",
+      "rule": "Rule 6",
+      "justification": "Blind wildcard staging risks pulling in .env, credentials, build artifacts, or in-progress work not meant for this commit."
+    },
+    {
+      "id": "add-dot",
+      "pattern": ["git", "add", "."],
+      "decision": "ask",
+      "rule": "Rule 6",
+      "justification": "Same risk as -A: stages every change under the current directory unreviewed."
+    },
+    {
+      "id": "reset-hard",
+      "pattern": ["git", "reset", "--hard"],
+      "decision": "ask",
+      "rule": "Scope",
+      "justification": "Discards working-tree and index changes irreversibly."
+    },
+    {
+      "id": "rebase",
+      "pattern": ["git", "rebase"],
+      "decision": "ask",
+      "rule": "Rule 2",
+      "justification": "Rewrites local history; risky when the affected commits already exist on a remote. A static rule cannot check push status, so this is a conservative blanket approximation of Rule 2's actual (published-commits-only) condition."
+    },
+    {
+      "id": "commit-amend",
+      "pattern": ["git", "commit", "--amend"],
+      "decision": "ask",
+      "rule": "Rule 2",
+      "justification": "Rewrites the previous commit; risky when it already exists on a remote. Same conservative-blanket caveat as rebase above."
+    },
+    {
+      "id": "cherry-pick",
+      "pattern": ["git", "cherry-pick"],
+      "decision": "ask",
+      "rule": "Scope",
+      "justification": "Named in the protocol's Scope section as a history-rewriting risk when applied onto a published branch. Same conservative-blanket caveat: a static rule cannot check the target branch."
+    }
+  ],
+  "content-rules": [
+    {
+      "id": "no-verify-flag",
+      "match": "--no-verify\\b",
+      "kimi-pattern": "Bash(*--no-verify*)",
+      "decision": "ask",
+      "rule": "Rule 1",
+      "justification": "Bypasses pre-commit, commit-msg, and pre-push hooks the user opted into. Can appear anywhere in the argument list (e.g. after -m \"message\"), so no prefix rule can catch it."
+    },
+    {
+      "id": "no-gpg-sign-flag",
+      "match": "--no-gpg-sign\\b",
+      "kimi-pattern": "Bash(*--no-gpg-sign*)",
+      "decision": "ask",
+      "rule": "Rule 1",
+      "justification": "Bypasses commit signing."
+    },
+    {
+      "id": "gpgsign-config-override",
+      "match": "-c\\s+commit\\.gpgsign=false",
+      "kimi-pattern": "Bash(*commit.gpgsign=false*)",
+      "decision": "ask",
+      "rule": "Rule 1",
+      "justification": "Disables signing via an inline config override instead of the flag form; same bypass as --no-gpg-sign."
+    },
+    {
+      "id": "no-signoff-flag",
+      "match": "--no-signoff\\b",
+      "kimi-pattern": "Bash(*--no-signoff*)",
+      "decision": "ask",
+      "rule": "Rule 1",
+      "justification": "Skips DCO signoff on a project that may enforce it."
+    },
+    {
+      "id": "skip-ci-marker",
+      "match": "\\[(skip ci|ci skip)\\]",
+      "match-flags": "i",
+      "kimi-patterns": ["Bash(*skip ci*)", "Bash(*ci skip*)"],
+      "decision": "ask",
+      "rule": "Rule 3",
+      "justification": "Skips CI or required-status checks via a magic string embedded in the commit message rather than a command-line flag."
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+using System.Collections.Concurrent;
+using System.Reflection;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+/// <summary>
+/// Loads embedded SQL resources by manifest name. Resources are cached after
+/// the first load. Put query files under <c>Persistence/Queries/</c> in this
+/// context's infrastructure folder, so resource names follow the pattern
+/// <c>{{NamespacePrefix}}.Services.Infrastructure.Persistence.Queries.{File}.sql</c>.
+/// </summary>
+public static class SqlResourceLoader
+{
+    private static readonly Assembly Assembly = typeof(SqlResourceLoader).Assembly;
+    private static readonly ConcurrentDictionary<string, string> Cache = new();
+
+    public static string Load(string resourceName)
+    {
+        return Cache.GetOrAdd(resourceName, ReadResource);
+    }
+
+    private static string ReadResource(string resourceName)
+    {
+        const string Prefix = "{{NamespacePrefix}}.Services.Infrastructure.Persistence.Queries.";
+
+        string fullName = resourceName.StartsWith(Prefix, StringComparison.Ordinal)
+            ? resourceName
+            : Prefix + resourceName;
+
+        using Stream stream = Assembly.GetManifestResourceStream(fullName)
+            ?? throw new InvalidOperationException(
+                $"Embedded SQL resource '{fullName}' not found.");
+
+        using StreamReader reader = new(stream);
+        return reader.ReadToEnd();
+    }
+}

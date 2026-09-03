@@ -1,0 +1,13 @@
+using MongoDB.Driver;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+/// <summary>
+/// Implemented by slice infrastructure that owns Mongo indexes. Every
+/// registration runs once on startup through
+/// <see cref="IndexRegistrationHostedService"/>.
+/// </summary>
+public interface IMongoIndexRegistration
+{
+    Task EnsureIndexesAsync(IMongoDatabase database, CancellationToken cancellationToken);
+}

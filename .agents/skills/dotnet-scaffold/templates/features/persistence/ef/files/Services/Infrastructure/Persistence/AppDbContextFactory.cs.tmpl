@@ -1,0 +1,37 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+/// <summary>
+/// Design-time factory used by <c>dotnet ef</c> CLI commands (migrations add,
+/// database update). Secrets remain outside committed settings.
+/// </summary>
+public sealed class {{ModuleName}}DbContextFactory : IDesignTimeDbContextFactory<{{ModuleName}}DbContext>
+{
+    public {{ModuleName}}DbContext CreateDbContext(string[] args)
+    {
+        string currentDirectory = Directory.GetCurrentDirectory();
+        string basePath = File.Exists("appsettings.json")
+            ? currentDirectory
+            : $"{currentDirectory}/{{HostProjectPath}}";
+
+        IConfigurationRoot configuration = new ConfigurationBuilder()
+            .SetBasePath(basePath)
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile("appsettings.Development.json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
+
+        string connectionString = configuration[$"{EfOptions.SectionName}:ConnectionString"]
+            ?? throw new InvalidOperationException(
+                $"Missing configuration '{EfOptions.SectionName}:ConnectionString'.");
+
+        DbContextOptions<{{ModuleName}}DbContext> options = new DbContextOptionsBuilder<{{ModuleName}}DbContext>()
+            .UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "{{ModuleSchema}}"))
+            .Options;
+
+        return new {{ModuleName}}DbContext(options);
+    }
+}

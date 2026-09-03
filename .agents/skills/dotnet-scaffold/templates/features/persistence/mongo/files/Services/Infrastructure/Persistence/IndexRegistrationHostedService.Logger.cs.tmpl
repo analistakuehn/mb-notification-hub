@@ -1,0 +1,7 @@
+namespace {{NamespacePrefix}}.Services.Infrastructure.Persistence;
+
+internal sealed partial class IndexRegistrationHostedService
+{
+    [LoggerMessage(EventId = 2000, Level = LogLevel.Information, Message = "Ensuring Mongo indexes for {Registration}")]
+    private partial void EnsuringIndexes(string registration);
+}
