@@ -387,7 +387,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 27 | Implementar o preflight antes do ponto irreversível | Implementation | Senior Dev | 5 | 24h | 26 | Done |
 | 28 | Evoluir o contrato de despacho com representação neutra do conjunto | Implementation | Senior Dev | 5 | 24h | 27 | Done |
 | 29 | Implementar a submissão do conjunto integral no adaptador de e-mail | Implementation | Senior Dev | 8 | 40h | 9, 28 | Done |
-| 30 | Produzir a evidência dos bytes submetidos | Implementation | Senior Dev | 3 | 16h | 29 | To Do |
+| 30 | Produzir a evidência dos bytes submetidos | Implementation | Senior Dev | 3 | 16h | 29 | Done |
 | 31 | Implementar roteamento e fallback com terminação explícita | Implementation | Senior Dev | 5 | 24h | 27 | To Do |
 | 32 | Implementar a reconciliação de falhas parciais e a convergência de órfãos | Implementation | Senior Dev | 8 | 40h | 21, 30 | To Do |
 | 33 | Implementar o descarte seguro de abandonados | Implementation | Senior Dev | 5 | 24h | 17, 32 | To Do |
@@ -851,6 +851,14 @@ sem circuito aberto, então a tentativa **estaciona em desconhecido**.
 - **Pontos de história**: 3
 - **Estimativa**: 16h
 - **Depende de**: 29
+- **Estado**: Done em 2026-09-03.
+- **Independência dos dois lados, medida e não argumentada**: o lado submetido vem de um hash incremental alimentado com exatamente os trechos entregues ao codificador, dentro da passagem que o escritor já fazia; o lado liberado vem da coluna da linha de geração, escrita na captura do upload. A mutação que recalcula o lado submetido a partir do próprio registro derruba **três** oráculos de divergência e deixa os de igualdade verdes, que é a assinatura exata de uma réplica comparada consigo mesma.
+- **Limite declarado da testemunha**: ela mede os bytes entregues ao codificador, não os lidos do soquete pelo destinatário. Essa costura é fechada por outro oráculo, que compara contra o corpo decodificado da requisição capturada no servidor falso. A afirmação completa é a composição das duas, e isso está dito em vez de afirmado como cobertura única.
+- **Onde a evidência mora**: a comparação acontece no módulo dono e só o veredito atravessa. Um veredito não é um digest, e por isso ele cabe numa linha operacional. Três moradias foram recusadas com motivo: coluna nova exigiria migração, a trilha de auditoria exigiria transação que o adaptador não possui e tomaria o bloqueio da cadeia no caminho de envio, e a resposta pública é vedada pelo oráculo de vazamento. Que esse oráculo não é vazio foi medido: fazer a linha carregar o digest em hexadecimal o derruba nomeando o valor.
+- **Uma reversão de mutação falhou e ficou em pé**, e o registro importa mais que o incidente: a mutação era um predicado sempre verdadeiro, que **compila** e portanto atravessa o portão de build, e as rodadas seguintes usaram filtros estreitos que nunca tocaram o teste que ela derruba. Foi encontrada lendo o diff completo antes de escrever o recibo, revertida, e **todas as oito suítes foram refeitas do zero sobre a árvore limpa**.
+- **Uma reprovação real, não mutação**: a igualdade sintetizada do tipo novo comparava região de memória e não conteúdo, o mesmo defeito que a revisão da tarefa de identidade já tinha medido. Foi reparado com igualdade própria, e não registrado como quebra admitida. O oráculo desse reparo caiu na armadilha da sobrecarga de coleção da biblioteca de asserções, que percorre elementos e nunca pergunta ao tipo, e foi corrigido para perguntar ao comparador.
+- **O que os oráculos não provam**, declarado: nada sobre o provedor real; nada sobre leitura remota sob latência, porque a custódia do braço de ponta a ponta é dublê local; nada sobre concorrência de envios com anexo; e um oráculo é declarado **sem falsificador de runtime possível** e não promovido, porque a guarda que ele descreve é inalcançável hoje, já que um corpo interrompido lança antes de a liquidação ser chamada.
+- **Risco central**: a divergência é registrada e **não age**. Quando ela pode ser conhecida, os bytes já saíram, e não há chamada a reter nem veredito do provedor a revisar.
 - **Aceitação**: A evidência permite comparar os bytes submetidos aos bytes liberados sem conter o conteúdo.
 
 ### Tarefa 31: Implementar roteamento e fallback com terminação explícita

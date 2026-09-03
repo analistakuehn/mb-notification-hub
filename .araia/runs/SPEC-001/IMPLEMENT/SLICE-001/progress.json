@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-03T23:55:00Z",
+ "updated_at": "2026-09-04T01:30:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 29,
+  "completed_tasks": 30,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,23 +23,22 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-03T23:55:00Z",
-  "task": "Task 29",
-  "checkpoint": "provider-submission-accepted",
+  "at": "2026-09-04T01:30:00Z",
+  "task": "Task 30",
+  "checkpoint": "submission-witness-accepted",
   "status": "done",
   "reason_codes": [
-   "the-sender-driven-expansion-vector-is-closed-by-the-writer-call-not-by-the-encoder",
-   "the-adversarial-corpus-is-mandatory-the-readable-one-passes-green-on-the-exploitable-form",
-   "twenty-two-single-axis-mutations-three-came-back-green-and-exposed-weak-oracles",
-   "an-unknown-handle-test-was-passing-because-the-table-was-empty-in-a-filtered-run",
-   "the-provider-ceiling-is-a-different-question-from-the-product-rule-and-is-not-a-second-authority",
-   "wiring-the-processor-was-deliberately-left-to-the-routing-task-with-two-measured-reasons",
-   "timeout-measured-the-approved-envelope-needs-sustained-throughput-or-the-attempt-parks-unknown"
+   "the-two-sides-are-independent-and-a-replica-of-itself-was-measured-to-red-three-oracles",
+   "the-witness-measures-what-was-handed-to-the-encoder-and-a-second-oracle-closes-the-seam",
+   "a-mutation-revert-failed-silently-because-an-always-true-predicate-compiles",
+   "the-full-diff-caught-it-and-all-eight-suites-were-rerun-clean",
+   "synthesized-equality-over-a-memory-region-failed-for-real-and-was-repaired-not-admitted",
+   "divergence-is-recorded-and-does-not-act-because-the-bytes-have-already-left"
   ]
  },
  "task": {
-  "id": "Task 29",
-  "title": "Implementar a submissão do conjunto integral no adaptador de e-mail",
+  "id": "Task 30",
+  "title": "Produzir a evidencia dos bytes submetidos",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -193,7 +192,7 @@
   {
    "id": "Task 30",
    "title": "Produzir a evidência dos bytes submetidos",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 31",
