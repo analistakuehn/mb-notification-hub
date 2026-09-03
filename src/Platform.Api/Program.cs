@@ -4,6 +4,7 @@ using NotificationHub.Api.Composition;
 using NotificationHub.Api.Infrastructure.Cryptography;
 using NotificationHub.Api.Infrastructure.EndpointFilters;
 using NotificationHub.Api.Infrastructure.Messaging;
+using NotificationHub.Api.Infrastructure.OpenApi;
 using NotificationHub.Api.Infrastructure.RateLimiting;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -38,7 +39,7 @@ builder.Services.AddEnvelopeEncryption(builder.Configuration);
 builder.Services.AddModules(builder.Configuration, SolutionAssemblies.All);
 
 builder.Services.AddScoped<RequestLoggingFilter>();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.UseModuleQualifiedSchemaNames());
 builder.Services.AddOpenApiRateLimiting();
 
 WebApplication app = builder.Build();
