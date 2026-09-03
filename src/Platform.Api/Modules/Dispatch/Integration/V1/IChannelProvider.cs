@@ -25,6 +25,26 @@ public interface IChannelProvider
     string ProviderKey { get; }
 
     /// <summary>
+    /// Whether a send through this adapter composes the accepted set it is
+    /// handed into the call it makes to the provider.
+    /// <para>
+    /// The adapter answers because the adapter is the only thing that knows:
+    /// the answer is a property of the call it builds, and a table kept
+    /// anywhere else would be a second statement about it, free to keep saying
+    /// yes after the composition stopped carrying the members. It is a member
+    /// of this contract and not a default, so an adapter added later cannot
+    /// compile without deciding, and a decorator that forgot to forward it
+    /// would answer for an adapter it is not.
+    /// </para>
+    /// <para>
+    /// False is not a licence to drop the set. It is the statement a route
+    /// reads to refuse the plan before the send exists, and this adapter is
+    /// never handed a set it does not carry.
+    /// </para>
+    /// </summary>
+    bool CarriesAttachments { get; }
+
+    /// <summary>
     /// Performs one send. Every provider verdict, including permanent
     /// rejection, returns as a <see cref="ProviderResult"/>; exceptions are
     /// reserved for caller defects and misconfiguration.

@@ -46,6 +46,38 @@ internal enum AttachmentPreflightOutcome
 }
 
 /// <summary>
+/// What the revalidation concluded and, when it cleared the send, the very set
+/// it concluded it over.
+/// <para>
+/// The two travel together because the caller must submit the set that was
+/// verified and not a second reading of the document. Reading the row again
+/// between the verdict and the call would open a window for the row to change,
+/// and the send would then carry a composition nothing checked.
+/// </para>
+/// <para>
+/// The set is null whenever the send may not happen, and also on the ordinary
+/// path of a notification that named no attachments: there is no set to
+/// submit in either case, and a caller that reads it as absence of attachments
+/// is right both times.
+/// </para>
+/// </summary>
+internal readonly record struct AttachmentPreflightResult(
+    AttachmentPreflightOutcome Outcome,
+    AcceptedAttachmentSet? Accepted)
+{
+    internal static AttachmentPreflightResult Refused(AttachmentPreflightOutcome outcome)
+        => new(outcome, null);
+
+    /// <summary>The send may happen and carries nothing.</summary>
+    internal static AttachmentPreflightResult ClearWithoutAttachments()
+        => new(AttachmentPreflightOutcome.Clear, null);
+
+    /// <summary>The send may happen and carries exactly this set.</summary>
+    internal static AttachmentPreflightResult Clear(AcceptedAttachmentSet accepted)
+        => new(AttachmentPreflightOutcome.Clear, accepted);
+}
+
+/// <summary>
 /// Revalidates the accepted set in the window between the claim of an attempt
 /// and the call that cannot be taken back.
 /// <para>
@@ -69,7 +101,7 @@ internal sealed class AttachmentPreflight(
     IAttachmentReleaseCheck releaseCheck,
     ILogger<AttachmentPreflight> logger)
 {
-    internal async Task<AttachmentPreflightOutcome> VerifyAsync(
+    internal async Task<AttachmentPreflightResult> VerifyAsync(
         Notification notification,
         CancellationToken cancellationToken)
     {
@@ -79,7 +111,7 @@ internal sealed class AttachmentPreflight(
             notification.AcceptedAttachmentsJson);
         if (stored is AcceptedManifestRead.Absent)
         {
-            return AttachmentPreflightOutcome.Clear;
+            return AttachmentPreflightResult.ClearWithoutAttachments();
         }
 
         if (stored is not AcceptedManifestRead.Present present)
@@ -91,25 +123,29 @@ internal sealed class AttachmentPreflight(
             // that reports the defect on the redelivery, loudly and with the
             // attempt still claimable.
             logger.PreflightMetAnUnreadableSet(notification.Id);
-            return AttachmentPreflightOutcome.Undecided;
+            return AttachmentPreflightResult.Refused(AttachmentPreflightOutcome.Undecided);
         }
 
         if (envelopeCheck.Measure(present.Accepted) != AttachmentEnvelopeVerdict.WithinEnvelope)
         {
-            return AttachmentPreflightOutcome.OverCapacity;
+            return AttachmentPreflightResult.Refused(AttachmentPreflightOutcome.OverCapacity);
         }
 
         AttachmentReleaseVerdict verdict = await releaseCheck.VerifyAsync(
             present.Accepted, cancellationToken);
         return verdict switch
         {
-            AttachmentReleaseVerdict.Deliverable => AttachmentPreflightOutcome.Clear,
-            AttachmentReleaseVerdict.Withheld => AttachmentPreflightOutcome.Withheld,
+            // The set that clears is the set that was measured and asked
+            // about, handed back so the caller submits this object and never
+            // a second reading of the row.
+            AttachmentReleaseVerdict.Deliverable => AttachmentPreflightResult.Clear(present.Accepted),
+            AttachmentReleaseVerdict.Withheld =>
+                AttachmentPreflightResult.Refused(AttachmentPreflightOutcome.Withheld),
 
             // Every other answer, including one this code does not know yet,
             // is the absence of a statement rather than a statement. Throwing
             // on it would strand an attempt this worker has already claimed.
-            _ => AttachmentPreflightOutcome.Undecided,
+            _ => AttachmentPreflightResult.Refused(AttachmentPreflightOutcome.Undecided),
         };
     }
 }

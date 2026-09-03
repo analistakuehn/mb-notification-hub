@@ -9,6 +9,8 @@ internal sealed class FakeChannelProvider(Channel channel, string providerKey) :
 
     public string ProviderKey => providerKey;
 
+    public bool CarriesAttachments { get; init; }
+
     public Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken cancellationToken)
         => Task.FromResult(ProviderResult.Accepted("fake-id"));
 }

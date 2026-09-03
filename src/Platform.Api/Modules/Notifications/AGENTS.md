@@ -30,7 +30,8 @@ language: pt-BR
   `Modules.ContactConsent.Integration.V1` (diretório de destinatários, revelação
   de contato e token, ciclo de vida do token do dispositivo, ledger de
   supressão),
-  `Modules.Dispatch.Integration.V1` (providers de canais e sua resolução, mais
+  `Modules.Dispatch.Integration.V1` (providers de canais e sua resolução, a
+  pergunta de quais canais transportam o conjunto aceito de anexos, mais
   a verificação de assinatura e a normalização de feedback de provedor) e
   `Modules.Audit.Integration.V1` (acréscimo transacional de auditoria). Nunca
   acesse o armazenamento de dados nem os tipos internos de outro contexto.
@@ -429,6 +430,20 @@ curta própria.
   rejeição: `no-consent`, `channel-suppressed`, `duplicate-window` e
   `no-valid-contact`. Uma proteção rígida no código impede o adiamento de
   fluxos críticos e de autenticação.
+- Estágio Route: além de escolher ponto de contato, prazo de fallback e fila de
+  destino, é onde uma notificação aceita com anexos encontra a única pergunta
+  que o plano não responde sozinho, que é se o canal do primeiro passo compõe o
+  conjunto na chamada que faz. Quem responde é o adaptador, por
+  `IChannelAttachmentSupport`, e por isso o papel `core` compõe a superfície de
+  providers do Dispatch para perguntar e nunca para enviar. Um canal que não
+  transporta encerra a notificação com `attachments-not-carried-by-channel`:
+  o plano não é filtrado nem reordenado, nenhum anexo é removido, nada vira
+  link e nenhum outro canal é tentado, porque transportar o conjunto é
+  propriedade da mensagem e não do destinatário. O `FallbackRequestHandler`
+  encerra pela mesma palavra quando é o passo seguinte que não transporta, e o
+  `DispatchMessageProcessor` recusa a chamada com o mesmo código quando o
+  adaptador resolvido responde que não transporta, de modo que a propriedade
+  vale sobre o objeto que faz a chamada e não apenas sobre quem planejou.
 - `SuppressionGate` retira os canais cujos endereços ativos estão todos
   suprimidos, lendo `RecipientSnapshot.Suppressions`, que o estágio Resolve já
   carregou. A posição é decisão de política: depois do consentimento, porque

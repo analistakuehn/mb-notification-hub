@@ -59,6 +59,31 @@ internal static class ClaimableAttachments
         => SeedAsync(
             host, application, AttachmentStates.Released, fileName, mediaType, length, grantedAt);
 
+    /// <summary>
+    /// The same, with the bytes really in custody: the object is written
+    /// through the module's own store and the generation is pinned to the
+    /// version that write returned, exactly as an upload pins it.
+    /// <para>
+    /// It exists because a send that carries an accepted set opens every
+    /// member on its way to the provider. An arrangement whose generation
+    /// names a coordinate nobody wrote to would make each of those sends fail
+    /// on custody, and a suite about anything else would be measuring an
+    /// environment with no bytes in it. The digest recorded on the generation
+    /// is the digest of these bytes, so the witness of what was submitted has
+    /// a truthful side to be compared against.
+    /// </para>
+    /// </summary>
+    internal static Task<SeededAttachment> ReleasedWithContentAsync(
+        WebApplicationFactory<Program> host,
+        string application,
+        string fileName = DefaultFileName,
+        string mediaType = DefaultMediaType,
+        long length = DefaultLength,
+        DateTimeOffset? grantedAt = null)
+        => SeedAsync(
+            host, application, AttachmentStates.Released, fileName, mediaType, length, grantedAt,
+            withContent: true);
+
     /// <summary>An attachment whose content arrived and was never approved.</summary>
     internal static Task<SeededAttachment> ReceivedAsync(
         WebApplicationFactory<Program> host,
@@ -105,6 +130,24 @@ internal static class ClaimableAttachments
             .CountAsync(dependency => dependency.AttachmentId == attachmentId);
     }
 
+    /// <summary>
+    /// Bytes of one attachment, derived from its own content identifier so two
+    /// seeded attachments never hold the same content, and exactly as long as
+    /// the length the release is granted over: the writer of the message
+    /// refuses a source that delivers any other number of bytes.
+    /// </summary>
+    private static byte[] ContentOf(Guid contentId, long length)
+    {
+        var content = new byte[checked((int)length)];
+        var seed = contentId.ToByteArray();
+        for (var index = 0; index < content.Length; index++)
+        {
+            content[index] = seed[index % seed.Length];
+        }
+
+        return content;
+    }
+
     private static async Task<SeededAttachment> SeedAsync(
         WebApplicationFactory<Program> host,
         string application,
@@ -112,7 +155,8 @@ internal static class ClaimableAttachments
         string fileName,
         string mediaType,
         long length,
-        DateTimeOffset? grantedAt = null)
+        DateTimeOffset? grantedAt = null,
+        bool withContent = false)
     {
         ArgumentNullException.ThrowIfNull(host);
         using IServiceScope scope = host.Services.CreateScope();
@@ -132,15 +176,36 @@ internal static class ClaimableAttachments
             .ShouldNotBeNull();
         attachment.MarkReceived(length, now).ShouldBe(AttachmentReceiveOutcome.Received);
 
+        AttachmentObjectLocator locator = AttachmentObjectLocator.FromStoredRow(
+            "attachment-store",
+            $"attachments/{Guid.NewGuid():N}",
+            $"generation-{Guid.NewGuid():N}");
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(fileName + length));
+        if (withContent)
+        {
+            var content = ContentOf(attachment.ContentId, length);
+            AttachmentObjectCapture capture = await scope.ServiceProvider
+                .GetRequiredService<IAttachmentObjectStore>()
+                .PutAsync(
+                    new AttachmentObjectRequest(attachment.ContentId, mediaType, length),
+                    new MemoryStream(content),
+                    CancellationToken.None);
+
+            // Asserted rather than tolerated: a capture that did not happen
+            // would leave the arrangement claiming bytes it never wrote, and
+            // every send over it would fail for a reason nobody arranged.
+            capture.Status.ShouldBe(
+                AttachmentObjectCaptureStatus.Captured,
+                "o arranjo precisa dos bytes realmente na custódia; sem eles todo envio que "
+                + "carrega o conjunto falha ao abrir o conteúdo.");
+            locator = capture.Locator.ShouldNotBeNull();
+            digest = SHA256.HashData(content);
+        }
+
         AttachmentObjectGeneration generation = AttachmentObjectGeneration.Capture(
             attachment.Id,
-            AttachmentObjectLocator.FromStoredRow(
-                "attachment-store",
-                $"attachments/{Guid.NewGuid():N}",
-                $"generation-{Guid.NewGuid():N}"),
-            AttachmentContentProof.Sha256Of(
-                SHA256.HashData(Encoding.UTF8.GetBytes(fileName + length)),
-                length),
+            locator,
+            AttachmentContentProof.Sha256Of(digest, length),
             mediaType,
             now);
         dbContext.Attachments.Add(attachment);

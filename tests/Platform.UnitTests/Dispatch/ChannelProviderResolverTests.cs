@@ -74,6 +74,8 @@ public sealed class ChannelProviderResolverTests
 
         public string ProviderKey => providerKey;
 
+        public bool CarriesAttachments => false;
+
         public Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken cancellationToken)
             => Task.FromResult(ProviderResult.Accepted("fake-id"));
     }

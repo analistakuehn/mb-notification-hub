@@ -67,6 +67,14 @@ internal sealed class SendGridChannelProvider(
 
     public string ProviderKey => Key;
 
+    /// <summary>
+    /// Yes: the composition below turns every member of the set into an
+    /// attachment field of the one body it sends, in the order the set was
+    /// claimed in, and the send does not happen at all when a member cannot be
+    /// written whole.
+    /// </summary>
+    public bool CarriesAttachments => true;
+
     public async Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);

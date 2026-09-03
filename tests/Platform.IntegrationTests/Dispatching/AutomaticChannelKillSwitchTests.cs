@@ -270,6 +270,8 @@ public sealed class AutomaticChannelKillSwitchTests(CorePipelineFixture fixture)
 
         public string ProviderKey => "twilio";
 
+        public bool CarriesAttachments => false;
+
         public Task<ProviderResult> SendAsync(
             DispatchRequest request,
             CancellationToken cancellationToken)

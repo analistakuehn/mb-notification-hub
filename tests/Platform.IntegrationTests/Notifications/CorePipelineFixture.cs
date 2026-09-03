@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using Amazon.Runtime;
+using Amazon.S3;
+using Amazon.S3.Model;
 using Amazon.SQS;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -60,6 +62,21 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
     public const string RedisKeyPrefix = "it-core:";
 
     /// <summary>
+    /// Bucket the custody of attachments runs on in this environment.
+    /// <para>
+    /// It exists because a send that carries an accepted set opens the bytes of
+    /// every member on its way to the provider. Without a store behind the
+    /// handle, every such send would fail on custody, and a suite about routing
+    /// or about a verdict would be reporting an environment that has no bytes.
+    /// </para>
+    /// </summary>
+    public const string AttachmentBucket = "core-pipeline-attachments";
+
+    private const string AwsAccessKey = "test";
+
+    private const string AwsSecretKey = "test";
+
+    /// <summary>
     /// Queues the fixture provisions; queue creation belongs to infrastructure,
     /// never to code under test. The delivery feedback queue is here because a
     /// provider callback announces its evidence through the outbox, and a relay
@@ -92,6 +109,7 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
         .Build();
 
     private AmazonSQSClient? _sqs;
+    private AmazonS3Client? _s3;
 
     public string PostgresConnectionString => _postgres.GetConnectionString();
 
@@ -101,6 +119,10 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
 
     /// <summary>Client the tests use to seed queues and read messages back.</summary>
     public IAmazonSQS Sqs => _sqs
+        ?? throw new InvalidOperationException("O LocalStack ainda não foi iniciado.");
+
+    /// <summary>Client the arrangements use to put attachment bytes in custody.</summary>
+    public IAmazonS3 S3 => _s3
         ?? throw new InvalidOperationException("O LocalStack ainda não foi iniciado.");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -117,6 +139,12 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
                 // anywhere else, the schema the claim writes to would not be
                 // the schema the module's own endpoints write to.
                 ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
+                ["Modules:AttachmentManagement:Storage:S3:Bucket"] = AttachmentBucket,
+                ["Modules:AttachmentManagement:Storage:S3:ServiceUrl"] = _localStack.GetConnectionString(),
+                ["Modules:AttachmentManagement:Storage:S3:Region"] = "us-east-1",
+                ["Modules:AttachmentManagement:Storage:S3:AccessKey"] = AwsAccessKey,
+                ["Modules:AttachmentManagement:Storage:S3:SecretKey"] = AwsSecretKey,
+                ["Modules:AttachmentManagement:Storage:S3:ForcePathStyle"] = "true",
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,
                 ["Modules:ContactConsent:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
@@ -164,6 +192,16 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
             ["Modules:AttachmentManagement:Capacity:MaxAttachmentBytes"] = "7340032",
             ["Modules:AttachmentManagement:Capacity:MaxEnvelopeBytes"] = "7340032",
             ["Modules:AttachmentManagement:Capacity:MaxAttachmentsPerNotification"] = "10",
+
+            // And the custody itself, because the send composes the message out
+            // of the bytes: the worker side reads them through the owning
+            // module's port exactly as the host writes them through it.
+            ["Modules:AttachmentManagement:Storage:S3:Bucket"] = AttachmentBucket,
+            ["Modules:AttachmentManagement:Storage:S3:ServiceUrl"] = SqsEndpoint,
+            ["Modules:AttachmentManagement:Storage:S3:Region"] = "us-east-1",
+            ["Modules:AttachmentManagement:Storage:S3:AccessKey"] = AwsAccessKey,
+            ["Modules:AttachmentManagement:Storage:S3:SecretKey"] = AwsSecretKey,
+            ["Modules:AttachmentManagement:Storage:S3:ForcePathStyle"] = "true",
         };
         if (overrides is not null)
         {
@@ -359,11 +397,28 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
             ServiceURL = SqsEndpoint,
             AuthenticationRegion = "us-east-1",
         };
-        _sqs = new AmazonSQSClient(new BasicAWSCredentials("test", "test"), config);
+        var credentials = new BasicAWSCredentials(AwsAccessKey, AwsSecretKey);
+        _sqs = new AmazonSQSClient(credentials, config);
         foreach (var queue in Queues)
         {
             await _sqs.CreateQueueAsync(queue);
         }
+
+        // Versioned on purpose: the custody pins a generation by version, so a
+        // bucket without versioning hands back no version and the capture is
+        // refused as unidentified.
+        _s3 = new AmazonS3Client(credentials, new AmazonS3Config
+        {
+            ServiceURL = SqsEndpoint,
+            AuthenticationRegion = "us-east-1",
+            ForcePathStyle = true,
+        });
+        await _s3.PutBucketAsync(new PutBucketRequest { BucketName = AttachmentBucket });
+        await _s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = AttachmentBucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = VersionStatus.Enabled },
+        });
 
         using IServiceScope scope = Services.CreateScope();
 
@@ -390,6 +445,7 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
     {
         await base.DisposeAsync();
         _sqs?.Dispose();
+        _s3?.Dispose();
         await _postgres.DisposeAsync();
         await _redis.DisposeAsync();
         await _localStack.DisposeAsync();

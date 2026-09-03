@@ -16,6 +16,12 @@ public static class DispatchProviderConfigSetup
         services.AddSingleton<IProviderConfigStore, CachedProviderConfigStore>();
         services.AddSingleton<IChannelProviderResolver, ChannelProviderResolver>();
 
+        // Registered beside the resolution and never apart from it: the
+        // question it answers is answered by the adapter the resolution
+        // returns, so a role composed with one and not the other would have a
+        // planner reading a different deployment than the one that sends.
+        services.AddSingleton<IChannelAttachmentSupport, ChannelAttachmentSupport>();
+
         return services;
     }
 }

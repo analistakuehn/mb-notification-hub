@@ -62,6 +62,16 @@ public sealed class CoreWorkerRole : IWorkerRoleModule
         services.AddNotificationsKillSwitch();
         services.AddNotificationsKillSwitchHolds();
 
+        // The provider surface of Dispatch, for one question and no send: a
+        // notification carrying an accepted set may only be planned onto a
+        // channel whose adapter composes that set. The answer has to come from
+        // the adapter this deployment would call, so this role hosts the same
+        // adapters the dispatcher does and calls none of them. A table of
+        // channels kept here instead would be a second statement about their
+        // behaviour, and it would keep saying yes after a channel was pointed
+        // at an adapter that carries nothing.
+        services.AddDispatchProviderSurface(configuration);
+
         services.AddOptions<NotificationsRedisOptions>()
             .Bind(configuration.GetSection(NotificationsRedisOptions.SectionName))
             .ValidateDataAnnotations()

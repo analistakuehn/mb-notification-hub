@@ -5,6 +5,7 @@ using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Fallback;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.IntegrationTests.AttachmentManagement;
 using NotificationHub.IntegrationTests.Dispatch;
 using NotificationHub.IntegrationTests.Dispatching;
@@ -28,8 +29,6 @@ namespace NotificationHub.IntegrationTests.Notifications.AcceptedAttachments;
 [Collection(AcceptedAttachmentFlowCollectionDefinition.Name)]
 public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlowFixture fixture)
 {
-    private const string FcmAccepted = """{"name":"projects/test-project/messages/0:1"}""";
-
     private static readonly (string Channel, string? Timeout)[] EmailThenPush =
         [("email", "30s"), ("push", null)];
 
@@ -40,10 +39,19 @@ public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlo
     /// attempt row, every outbox row and every queue body read back and
     /// searched for the values only the manifest carries.
     /// <para>
-    /// The walk covers the first attempt, a failed step, the fallback that
-    /// bought the next one and the fan-out that turned it into siblings,
-    /// because each of those is a place where something could have decided the
-    /// next writer needs a copy of the set to work from.
+    /// The walk covers the first attempt, its failed verdict and the fallback
+    /// that concluded the notification, because each of those is a place where
+    /// something could have decided the next writer needs a copy of the set to
+    /// work from.
+    /// </para>
+    /// <para>
+    /// It stops there because that is where a notification carrying a set now
+    /// stops: the second step of this plan is push, push composes no
+    /// attachment into its call, and the fallback ends the notification instead
+    /// of queueing it. The surfaces a later step would have written are
+    /// therefore out of reach of a notification that has a set to copy, and
+    /// this rule no longer says anything about them. It is a reduction of what
+    /// was measured here, recorded rather than papered over.
     /// </para>
     /// <para>
     /// Every absence below is asserted next to a presence. A capture that came
@@ -56,7 +64,7 @@ public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlo
     public async Task No_attempt_no_outbox_row_and_no_queue_message_carries_the_accepted_set()
     {
         AttachedNotification accepted = await AcceptedAttachmentFlow.AcceptAsync(
-            fixture, attachmentCount: 2, EmailThenPush, deviceCount: 2);
+            fixture, attachmentCount: 2, EmailThenPush);
         await AcceptedAttachmentFlow.DispatchAsync(fixture);
 
         List<string> firstAttemptQueue = await AcceptedAttachmentFlow.PeekAsync(
@@ -65,11 +73,8 @@ public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlo
             fixture, accepted.NotificationId)).ShouldHaveSingleItem().Id;
 
         await using FakeProviderServer provider = await FakeProviderServer.StartAsync();
-        provider.Handler = request => Task.FromResult(request.Path == DispatchApi.FcmTokenPath
-            ? new FakeProviderResponse(200, DispatchApi.FcmTokenBody, null)
-            : request.Path.Contains("mail", StringComparison.Ordinal)
-                ? new FakeProviderResponse(400, """{"errors":[{"message":"invalid"}]}""", null)
-                : new FakeProviderResponse(200, FcmAccepted, null));
+        provider.Handler = _ => Task.FromResult(
+            new FakeProviderResponse(400, """{"errors":[{"message":"invalid"}]}""", null));
         await using ServiceProvider dispatcher = fixture.BuildDispatcherWorkerProvider(
             DispatchApi.ProviderSettings(provider.BaseAddress, provider.BaseAddress));
 
@@ -82,23 +87,16 @@ public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlo
             .ShouldBeOfType<MessageDisposition.Processed>();
         await AcceptedAttachmentFlow.RelayAsync(fixture);
 
-        Guid pushAttemptId = (await AcceptedAttachmentFlow.AttemptsAsync(
-                fixture, accepted.NotificationId))
-            .Single(attempt => attempt.Channel == "push")
-            .Id;
-        (await RunDispatchAsync(
-                dispatcher,
-                AcceptedAttachmentFlow.DispatchTrigger(accepted.NotificationId, pushAttemptId)))
-            .ShouldBeOfType<MessageDisposition.Processed>();
-        await AcceptedAttachmentFlow.RelayAsync(fixture);
-
-        // The walk reached what it had to reach: two channels and the fan-out
-        // sibling the second device produced. Without this, everything below
-        // would be a scan over a notification that never left its first step.
+        // The walk reached the end of what this notification can reach: the
+        // attempt, the failed verdict of the provider, and the conclusion the
+        // fallback wrote. Without this, everything below would be a scan over a
+        // notification that never left its acceptance.
         List<NotificationAttempt> attempts = await AcceptedAttachmentFlow.AttemptsAsync(
             fixture, accepted.NotificationId);
-        attempts.Count.ShouldBe(3);
-        attempts.Count(attempt => attempt.Channel == "push").ShouldBe(2);
+        attempts.ShouldHaveSingleItem().Channel.ShouldBe("email");
+        attempts[0].Status.ShouldBe(NotificationAttemptStatuses.Failed);
+        (await AcceptedAttachmentFlow.StatusAsync(fixture, accepted.NotificationId))
+            .ShouldBe(NotificationStatuses.Failed);
 
         List<string> attemptRows = await AcceptedAttachmentFlow.AttemptRowsAsync(
             fixture, accepted.NotificationId);
@@ -113,7 +111,7 @@ public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlo
         // Each capture is proved non-empty by something that has to be in it,
         // and the notification identifier is exactly that: every one of these
         // surfaces carries identifiers, and only identifiers.
-        attemptRows.Count.ShouldBe(3);
+        attemptRows.Count.ShouldBe(1);
         outboxRows.Count(row => row.Contains(accepted.NotificationId.ToString(), StringComparison.Ordinal))
             .ShouldBeGreaterThanOrEqualTo(3);
         queueBodies.Count(body => body.Contains(accepted.NotificationId.ToString(), StringComparison.Ordinal))
@@ -188,12 +186,16 @@ public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlo
     /// asserting that an unchanged world stayed unchanged.
     /// </para>
     /// <para>
-    /// The fallback goes on and queues the next step, and that is deliberate.
-    /// The snapshot answers what was accepted and never whether it may still be
+    /// The fallback never reads the revocation, and that is deliberate. The
+    /// snapshot answers what was accepted and never whether it may still be
     /// used, so a revoked release has to be caught by the reading that happens
     /// immediately before the call to the provider, not by a document frozen
-    /// weeks earlier. Ending the notification here would be this code deciding
-    /// eligibility from a place that cannot see it.
+    /// weeks earlier. What ends the notification here is the other question
+    /// entirely: the next step of the plan is push, and push composes no
+    /// attachment into its call. The reason on the published event is what
+    /// separates the two, and it is asserted for exactly that: an eligibility
+    /// reason there would mean this code decided the release from a place that
+    /// cannot see it.
     /// </para>
     /// </summary>
     [RequiresDockerFact]
@@ -240,7 +242,13 @@ public sealed class AcceptedAttachmentSingleAuthorityTests(AcceptedAttachmentFlo
 
         (await AcceptedAttachmentFlow.AttemptsAsync(fixture, accepted.NotificationId))
             .Select(attempt => attempt.Channel)
-            .ShouldBe(["email", "push"]);
+            .ShouldBe(["email"]);
+        await AcceptedAttachmentFlow.RelayAsync(fixture);
+        (await AcceptedAttachmentFlow.PublishedFailureReasonAsync(fixture, accepted.RecipientId))
+            .ShouldBe(
+                NotificationRejectionReasons.AttachmentsNotCarriedByChannel,
+                "a revogação não é pergunta do fallback; o que encerrou a notificação foi o "
+                + "canal do passo seguinte não transportar o conjunto.");
     }
 
     /// <summary>

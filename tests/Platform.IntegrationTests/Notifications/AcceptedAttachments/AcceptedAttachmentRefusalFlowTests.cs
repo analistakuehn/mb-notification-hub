@@ -4,6 +4,7 @@ using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
 using NotificationHub.Api.Modules.Notifications.Features.Fallback;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.IntegrationTests.Dispatch;
 using NotificationHub.IntegrationTests.Dispatching;
 using NotificationHub.IntegrationTests.TemplateManagement;
@@ -199,6 +200,14 @@ public sealed class AcceptedAttachmentRefusalFlowTests(AcceptedAttachmentFlowFix
     /// nothing would leave the notification with no later step and no attempt
     /// to reach it by: the repair would arrive too late.
     /// </para>
+    /// <para>
+    /// The repaired run settles the notification instead of queueing the push
+    /// step, and that is the correct conclusion rather than a second defect:
+    /// push composes no attachment into its call, so a notification carrying a
+    /// set ends on that step. What the pairing shows is unchanged: the refused
+    /// run wrote nothing and left the trigger replayable, and the repaired one,
+    /// over the very same trigger, read the set and reached a conclusion.
+    /// </para>
     /// </summary>
     [RequiresDockerFact]
     public async Task The_fallback_queues_no_next_attempt_when_the_accepted_set_no_longer_reads()
@@ -231,11 +240,14 @@ public sealed class AcceptedAttachmentRefusalFlowTests(AcceptedAttachmentFlowFix
 
         (await RunFallbackAsync(trigger)).ShouldBeOfType<MessageDisposition.Processed>();
 
-        List<NotificationAttempt> advanced = await AcceptedAttachmentFlow.AttemptsAsync(
-            fixture, accepted.NotificationId);
-        advanced.Select(attempt => attempt.Channel).ShouldBe(["email", "push"]);
-        advanced[0].PlanAdvancedAt.ShouldNotBeNull();
-        advanced[1].Status.ShouldBe(NotificationAttemptStatuses.Queued);
+        (await AcceptedAttachmentFlow.StatusAsync(fixture, accepted.NotificationId))
+            .ShouldBe(NotificationStatuses.Failed);
+        (await AcceptedAttachmentFlow.AttemptsAsync(fixture, accepted.NotificationId))
+            .ShouldHaveSingleItem()
+            .Id.ShouldBe(failedAttemptId);
+        await AcceptedAttachmentFlow.RelayAsync(fixture);
+        (await AcceptedAttachmentFlow.PublishedFailureReasonAsync(fixture, accepted.RecipientId))
+            .ShouldBe(NotificationRejectionReasons.AttachmentsNotCarriedByChannel);
     }
 
     /// <summary>

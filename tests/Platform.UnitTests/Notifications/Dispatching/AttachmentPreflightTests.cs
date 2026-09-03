@@ -37,14 +37,16 @@ public sealed class AttachmentPreflightTests
         IAttachmentEnvelopeCheck envelope = Envelope(AttachmentEnvelopeVerdict.WithinEnvelope);
         IAttachmentReleaseCheck release = Release(AttachmentReleaseVerdict.Deliverable);
 
-        (await Preflight(envelope, release).VerifyAsync(Accepted(), CancellationToken.None))
-            .ShouldBe(AttachmentPreflightOutcome.Clear);
+        AttachmentPreflightResult withoutASet = await Preflight(envelope, release)
+            .VerifyAsync(Accepted(), CancellationToken.None);
+        withoutASet.Outcome.ShouldBe(AttachmentPreflightOutcome.Clear);
+        withoutASet.Accepted.ShouldBeNull();
 
         envelope.DidNotReceiveWithAnyArgs().Measure(default!);
         await release.DidNotReceiveWithAnyArgs().VerifyAsync(default!, default);
 
         (await Preflight(envelope, release).VerifyAsync(WithSet(), CancellationToken.None))
-            .ShouldBe(AttachmentPreflightOutcome.Clear);
+            .Outcome.ShouldBe(AttachmentPreflightOutcome.Clear);
 
         envelope.ReceivedWithAnyArgs(1).Measure(default!);
         await release.ReceivedWithAnyArgs(1).VerifyAsync(default!, default);
@@ -65,7 +67,7 @@ public sealed class AttachmentPreflightTests
         notification.FreezeAcceptedAttachments("""{"schemaVersion":9,"items":[]}""");
 
         (await Preflight(envelope, release).VerifyAsync(notification, CancellationToken.None))
-            .ShouldBe(AttachmentPreflightOutcome.Undecided);
+            .Outcome.ShouldBe(AttachmentPreflightOutcome.Undecided);
 
         envelope.DidNotReceiveWithAnyArgs().Measure(default!);
         await release.DidNotReceiveWithAnyArgs().VerifyAsync(default!, default);
@@ -83,7 +85,7 @@ public sealed class AttachmentPreflightTests
         IAttachmentReleaseCheck release = Release(AttachmentReleaseVerdict.Deliverable);
 
         (await Preflight(envelope, release).VerifyAsync(WithSet(), CancellationToken.None))
-            .ShouldBe(AttachmentPreflightOutcome.OverCapacity);
+            .Outcome.ShouldBe(AttachmentPreflightOutcome.OverCapacity);
 
         envelope.ReceivedWithAnyArgs(1).Measure(default!);
         await release.DidNotReceiveWithAnyArgs().VerifyAsync(default!, default);
@@ -98,6 +100,76 @@ public sealed class AttachmentPreflightTests
     public async Task A_set_the_owning_module_withholds_ends_the_attempt()
         => (await VerifyAsync(AttachmentReleaseVerdict.Withheld))
             .ShouldBe(AttachmentPreflightOutcome.Withheld);
+
+    /// <summary>
+    /// What clears the send is handed back, and it is the very object the two
+    /// checks were asked about rather than a set equal to it.
+    /// <para>
+    /// Identity is the claim, not equality. The caller submits what it gets
+    /// here, and a second reading of the row would be a second set: equal for
+    /// as long as nothing changed the row between the verdict and the call,
+    /// and that window is exactly what this shape exists to close.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task The_set_that_clears_the_send_is_the_object_the_checks_were_asked_about()
+    {
+        AcceptedAttachmentSet? measured = null;
+        AcceptedAttachmentSet? verified = null;
+        IAttachmentEnvelopeCheck envelope = Substitute.For<IAttachmentEnvelopeCheck>();
+        envelope.Measure(Arg.Do<AcceptedAttachmentSet>(set => measured = set))
+            .Returns(AttachmentEnvelopeVerdict.WithinEnvelope);
+        IAttachmentReleaseCheck release = Substitute.For<IAttachmentReleaseCheck>();
+        release
+            .VerifyAsync(
+                Arg.Do<AcceptedAttachmentSet>(set => verified = set),
+                Arg.Any<CancellationToken>())
+            .Returns(AttachmentReleaseVerdict.Deliverable);
+
+        AttachmentPreflightResult result = await Preflight(envelope, release)
+            .VerifyAsync(WithSet(), CancellationToken.None);
+
+        result.Outcome.ShouldBe(AttachmentPreflightOutcome.Clear);
+        measured.ShouldNotBeNull();
+        verified.ShouldNotBeNull();
+        result.Accepted.ShouldBeSameAs(measured);
+        result.Accepted.ShouldBeSameAs(verified);
+    }
+
+    /// <summary>
+    /// Every refusal hands back nothing, whichever refusal it is. The member
+    /// is what the caller submits, so a refused verdict that still carried the
+    /// set would put the composition of a send that may not happen in reach of
+    /// a caller that only looked at the outcome.
+    /// </summary>
+    [Theory]
+    [InlineData(AttachmentReleaseVerdict.Withheld)]
+    [InlineData(AttachmentReleaseVerdict.Unavailable)]
+    public async Task A_refused_verdict_hands_back_no_set_at_all(AttachmentReleaseVerdict verdict)
+    {
+        AttachmentPreflightResult refused = await Preflight(
+                Envelope(AttachmentEnvelopeVerdict.WithinEnvelope), Release(verdict))
+            .VerifyAsync(WithSet(), CancellationToken.None);
+
+        refused.Outcome.ShouldNotBe(AttachmentPreflightOutcome.Clear);
+        refused.Accepted.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The same for the capacity refusal, which never reaches the release
+    /// check at all and is therefore a different path to the same rule.
+    /// </summary>
+    [Fact]
+    public async Task A_set_past_the_capacity_hands_back_no_set_at_all()
+    {
+        AttachmentPreflightResult refused = await Preflight(
+                Envelope(AttachmentEnvelopeVerdict.Exceeded),
+                Release(AttachmentReleaseVerdict.Deliverable))
+            .VerifyAsync(WithSet(), CancellationToken.None);
+
+        refused.Outcome.ShouldBe(AttachmentPreflightOutcome.OverCapacity);
+        refused.Accepted.ShouldBeNull();
+    }
 
     /// <summary>
     /// A check that did not conclude holds the attempt rather than ending it.
@@ -122,7 +194,7 @@ public sealed class AttachmentPreflightTests
                 Envelope(AttachmentEnvelopeVerdict.WithinEnvelope),
                 Release((AttachmentReleaseVerdict)int.MaxValue))
             .VerifyAsync(WithSet(), CancellationToken.None))
-            .ShouldBe(AttachmentPreflightOutcome.Undecided);
+            .Outcome.ShouldBe(AttachmentPreflightOutcome.Undecided);
 
     /// <summary>
     /// Stand-ins nobody configured, which is what a composition that forgot to
@@ -135,7 +207,7 @@ public sealed class AttachmentPreflightTests
                 Substitute.For<IAttachmentEnvelopeCheck>(),
                 Substitute.For<IAttachmentReleaseCheck>())
             .VerifyAsync(WithSet(), CancellationToken.None))
-            .ShouldBe(AttachmentPreflightOutcome.OverCapacity);
+            .Outcome.ShouldBe(AttachmentPreflightOutcome.OverCapacity);
 
     [Fact]
     public async Task A_preflight_over_nothing_is_refused_outright()
@@ -146,8 +218,8 @@ public sealed class AttachmentPreflightTests
 
     private static async Task<AttachmentPreflightOutcome> VerifyAsync(
         AttachmentReleaseVerdict verdict)
-        => await Preflight(Envelope(AttachmentEnvelopeVerdict.WithinEnvelope), Release(verdict))
-            .VerifyAsync(WithSet(), CancellationToken.None);
+        => (await Preflight(Envelope(AttachmentEnvelopeVerdict.WithinEnvelope), Release(verdict))
+            .VerifyAsync(WithSet(), CancellationToken.None)).Outcome;
 
     private static AttachmentPreflight Preflight(
         IAttachmentEnvelopeCheck envelope,

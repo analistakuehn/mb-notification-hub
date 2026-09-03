@@ -8,6 +8,7 @@ using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.KillSwitch;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
+using NotificationHub.Api.Modules.Notifications.Integration.V1;
 using NotificationHub.Api.Modules.TemplateManagement.Integration.V1;
 using NotificationHub.SharedKernel;
 
@@ -107,6 +108,21 @@ internal sealed class DispatchMessageProcessor(
     /// capacity this hub allows itself to spend.
     /// </summary>
     internal const string ErrorAttachmentsOverCapacity = "attachments-over-capacity";
+
+    /// <summary>
+    /// Stable code of an attempt whose channel does not compose the accepted
+    /// set into the call it makes. It is the word the route refuses such a
+    /// plan with, reached rather than spelled again: the condition is one
+    /// condition, and an operator reading a failed attempt beside a rejected
+    /// notification must not have to learn two names for it.
+    /// <para>
+    /// Reaching it here means the plan was already wrong, so the failure is
+    /// permanent for this attempt: no redelivery composes a message the
+    /// adapter would carry.
+    /// </para>
+    /// </summary>
+    internal const string ErrorAttachmentsNotCarried =
+        NotificationRejectionReasons.AttachmentsNotCarriedByChannel;
 
     /// <summary>
     /// Stable reason of a send held back because nothing could be established
@@ -265,12 +281,33 @@ internal sealed class DispatchMessageProcessor(
         // refusal needs an attempt this worker owns, and before the reveal
         // because a send that is not going to happen is not worth a plaintext
         // destination in memory.
-        AttachmentPreflightOutcome preflight = await attachmentPreflight.VerifyAsync(
+        AttachmentPreflightResult preflight = await attachmentPreflight.VerifyAsync(
             notification, cancellationToken);
-        if (preflight != AttachmentPreflightOutcome.Clear)
+        if (preflight.Outcome != AttachmentPreflightOutcome.Clear)
         {
             return await SettlePreflightAsync(
-                attempt, notification, envelope.MessageId, preflight, cancellationToken);
+                attempt, notification, envelope.MessageId, preflight.Outcome, cancellationToken);
+        }
+
+        // Last line, and it exists precisely because the route may have been
+        // wrong. The route refuses a plan whose channel does not carry the set,
+        // and this asks the very adapter that is about to be called; a
+        // configuration changed after the admission, or a defect in the plan,
+        // would otherwise put an incomplete message in front of the recipient.
+        // It fails the attempt with a stable code instead of sending, so the
+        // property holds on the object that decides it and not on the one that
+        // planned it.
+        if (preflight.Accepted is not null && !provider.Value!.CarriesAttachments)
+        {
+            var uncarried = await writer.RecordFailureAsync(
+                attempt, notification, ErrorAttachmentsNotCarried, envelope.MessageId, cancellationToken);
+            if (uncarried)
+            {
+                logger.DispatchAttemptFailed(
+                    attempt.Id, notification.Id, ErrorAttachmentsNotCarried);
+            }
+
+            return uncarried ? new MessageDisposition.Processed() : new MessageDisposition.Duplicate();
         }
 
         Result<DeliveryTarget> target = await ResolveTargetAsync(
@@ -292,7 +329,13 @@ internal sealed class DispatchMessageProcessor(
             content.ToRenderedMessage(),
             new DispatchCorrelation(notification.Id, attempt.Id),
             remainingValidity,
-            notification.Application);
+            notification.Application,
+
+            // The set the revalidation just cleared, and that object rather
+            // than a fresh reading of the row: what is submitted has to be
+            // what was verified, or the window between the two is a window the
+            // composition can change in.
+            preflight.Accepted);
 
         stopped = await channelKillSwitchGate.EvaluateAsync(
             notification, attempt, envelope, claimed: true, cancellationToken);

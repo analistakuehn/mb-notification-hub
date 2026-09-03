@@ -35,6 +35,14 @@ internal sealed class TwilioChannelProvider(
 
     public string ProviderKey => Key;
 
+    /// <summary>
+    /// No: the message this adapter builds is text and nothing else, so a set
+    /// handed to it would leave without a single member and the recipient
+    /// would read a message its producer believes carries documents. The route
+    /// that plans the send refuses the plan instead.
+    /// </summary>
+    public bool CarriesAttachments => false;
+
     public async Task<ProviderResult> SendAsync(
         DispatchRequest request,
         CancellationToken cancellationToken)

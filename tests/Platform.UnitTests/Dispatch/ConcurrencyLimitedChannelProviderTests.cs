@@ -63,6 +63,25 @@ public sealed class ConcurrencyLimitedChannelProviderTests
         limited.ProviderKey.ShouldBe("blocking-fake");
     }
 
+    /// <summary>
+    /// Waiting for a slot changes nothing about what a message carries, so the
+    /// decorator forwards the adapter's answer and does not have one of its
+    /// own. Both values are asked, because a decorator hard-wired to either of
+    /// them would pass the half that matches it: false would refuse every send
+    /// with a set on a deployment whose adapter carries one, and true would let
+    /// one through on a deployment whose adapter does not.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Forwards_the_attachment_answer_of_the_adapter_it_wraps(bool carries)
+    {
+        var inner = new BlockingProvider { CarriesAttachments = carries };
+        using var limited = new ConcurrencyLimitedChannelProvider(inner, maxConcurrency: 3);
+
+        limited.CarriesAttachments.ShouldBe(carries);
+    }
+
     private sealed class BlockingProvider : IChannelProvider
     {
         private readonly TaskCompletionSource _release =
@@ -74,6 +93,8 @@ public sealed class ConcurrencyLimitedChannelProviderTests
         public Channel Channel => Channel.Email;
 
         public string ProviderKey => "blocking-fake";
+
+        public bool CarriesAttachments { get; init; }
 
         public int MaxObservedInFlight => Volatile.Read(ref _maxObservedInFlight);
 

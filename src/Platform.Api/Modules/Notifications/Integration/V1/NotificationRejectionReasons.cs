@@ -62,6 +62,24 @@ public static class NotificationRejectionReasons
     /// </summary>
     public const string RenderedContentTooLarge = "rendered-content-too-large";
 
+    /// <summary>
+    /// The notification carries an accepted set of attachments and the channel
+    /// the plan takes does not compose that set into the call it makes. The
+    /// notification ends here: no member is dropped, nothing becomes a link,
+    /// and no other channel is tried, because carrying the set is a property
+    /// of the message and not of the recipient, so a channel behind this one
+    /// would deliver the same incomplete message to the same person.
+    /// <para>
+    /// Separate from <see cref="NoValidContact"/> because the recipient is
+    /// perfectly reachable, and separate from
+    /// <see cref="RenderedContentTooLarge"/> because nothing was measured: the
+    /// channel would not carry the set at any size. The word names no channel,
+    /// so a channel that gains or loses the capability reuses it instead of
+    /// widening a closed catalog.
+    /// </para>
+    /// </summary>
+    public const string AttachmentsNotCarriedByChannel = "attachments-not-carried-by-channel";
+
     /// <summary>The producer principal is outside the registry, or the class is not allowed for it.</summary>
     public const string ProducerNotAuthorized = "producer-not-authorized";
 
@@ -121,6 +139,7 @@ public static class NotificationRejectionReasons
         AuthenticationSmsLink,
         LayoutDisabled,
         RenderedContentTooLarge,
+        AttachmentsNotCarriedByChannel,
         ProducerNotAuthorized,
         ProducerDisabled,
         ClassNotAllowedForPrincipal,

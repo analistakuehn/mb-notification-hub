@@ -139,6 +139,25 @@ public sealed class RateLimitedChannelProviderTests
         }
     }
 
+    /// <summary>
+    /// Spending a token changes nothing about what a message carries, so the
+    /// decorator forwards the adapter's answer and does not have one of its
+    /// own. Both values are asked, because a decorator hard-wired to either of
+    /// them would pass the half that matches it: false would refuse every send
+    /// with a set on a deployment whose adapter carries one, and true would let
+    /// one through on a deployment whose adapter does not.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Forwards_the_attachment_answer_of_the_adapter_it_wraps(bool carries)
+    {
+        var inner = new CountingProvider { CarriesAttachments = carries };
+        using var limited = new RateLimitedChannelProvider(inner, new FakeBudget(allowed: true));
+
+        limited.CarriesAttachments.ShouldBe(carries);
+    }
+
     private sealed class CountingProvider : IChannelProvider, IDisposable
     {
         internal const string Key = "rate-limit-fake";
@@ -149,6 +168,8 @@ public sealed class RateLimitedChannelProviderTests
         public Channel Channel => Channel.Sms;
 
         public string ProviderKey => Key;
+
+        public bool CarriesAttachments { get; init; }
 
         internal int CallCount => Volatile.Read(ref _callCount);
 

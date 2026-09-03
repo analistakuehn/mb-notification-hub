@@ -38,6 +38,14 @@ internal sealed class FcmChannelProvider(
 
     public string ProviderKey => Key;
 
+    /// <summary>
+    /// No: the message this adapter builds carries a notification body and a
+    /// small data payload, and neither is a place a document can travel in.
+    /// The route that plans the send refuses the plan instead of sending a set
+    /// nobody would receive.
+    /// </summary>
+    public bool CarriesAttachments => false;
+
     public async Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);

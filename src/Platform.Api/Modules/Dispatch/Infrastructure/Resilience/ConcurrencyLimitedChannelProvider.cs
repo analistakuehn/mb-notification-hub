@@ -26,6 +26,14 @@ internal sealed class ConcurrencyLimitedChannelProvider : IChannelProvider, IDis
 
     public string ProviderKey => _inner.ProviderKey;
 
+    /// <summary>
+    /// The adapter's own answer, forwarded. Waiting for a slot changes nothing
+    /// about what a message carries, and a decorator that answered for itself
+    /// would say no for every adapter it wraps: every send with a set would
+    /// then be refused by the route, on a deployment whose adapter carries it.
+    /// </summary>
+    public bool CarriesAttachments => _inner.CarriesAttachments;
+
     public async Task<ProviderResult> SendAsync(DispatchRequest request, CancellationToken cancellationToken)
     {
         await _slots.WaitAsync(cancellationToken);

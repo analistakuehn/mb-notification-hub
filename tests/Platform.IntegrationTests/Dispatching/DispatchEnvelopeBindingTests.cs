@@ -242,6 +242,8 @@ public sealed class DispatchEnvelopeBindingTests(CorePipelineFixture fixture)
 
         public string ProviderKey => Key;
 
+        public bool CarriesAttachments => true;
+
         internal int CallCount => Volatile.Read(ref _callCount);
 
         public Task<ProviderResult> SendAsync(

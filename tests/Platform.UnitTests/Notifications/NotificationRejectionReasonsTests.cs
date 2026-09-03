@@ -1,3 +1,5 @@
+using NotificationHub.Api.Modules.Notifications.Features.Dispatching;
+using NotificationHub.Api.Modules.Notifications.Features.Fallback;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Rules;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
@@ -111,6 +113,57 @@ public sealed class NotificationRejectionReasonsTests
         // mode if it drifts: the stage would map a message that is too large
         // onto a render failure and no consumer could tell the two apart.
         RenderStage.ReasonRenderedContentTooLarge.ShouldBe(RenderedContentRejectionReasons.TooLarge);
+    }
+
+    /// <summary>
+    /// The refusal of a plan whose channel does not carry the accepted set is
+    /// catalogued, and it is its own word.
+    /// <para>
+    /// Collapsing it into the reachability refusal would send the producer to
+    /// the recipient's registration, which is intact; collapsing it into the
+    /// size refusal would send it to a variable it can shorten, and no length
+    /// makes that channel carry a document.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_refusal_of_a_channel_that_carries_no_attachment_keeps_its_own_reason()
+    {
+        NotificationRejectionReasons.IsCanonical(RouteStage.ReasonAttachmentsNotCarried)
+            .ShouldBeTrue();
+        NotificationRejectionReasons.AttachmentsNotCarriedByChannel
+            .ShouldNotBe(NotificationRejectionReasons.NoValidContact);
+        NotificationRejectionReasons.AttachmentsNotCarriedByChannel
+            .ShouldNotBe(NotificationRejectionReasons.RenderedContentTooLarge);
+    }
+
+    /// <summary>
+    /// The word names no channel, so the day a channel gains or loses the
+    /// capability the catalog does not have to grow a second member for the
+    /// same condition, and no consumer has to be told that one of the words is
+    /// obsolete.
+    /// </summary>
+    [Fact]
+    public void The_attachment_refusal_names_no_channel()
+        => Channel.All.ShouldAllBe(channel =>
+            !NotificationRejectionReasons.AttachmentsNotCarriedByChannel.Contains(
+                channel.Value, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The three places that answer this condition answer it with the same
+    /// word: the route that refuses the first step, the fallback that ends the
+    /// notification on a later one, and the send that refuses to call an
+    /// adapter that would drop the set. They live in three files and are
+    /// joined by a value, so a spelling that drifted would show an operator
+    /// two names for one fact and a producer a reason that depends on where
+    /// the notification was when it happened.
+    /// </summary>
+    [Fact]
+    public void The_route_the_fallback_and_the_send_refuse_with_one_word()
+    {
+        FallbackRequestHandler.ReasonAttachmentsNotCarried
+            .ShouldBe(RouteStage.ReasonAttachmentsNotCarried);
+        DispatchMessageProcessor.ErrorAttachmentsNotCarried
+            .ShouldBe(RouteStage.ReasonAttachmentsNotCarried);
     }
 
     [Fact]

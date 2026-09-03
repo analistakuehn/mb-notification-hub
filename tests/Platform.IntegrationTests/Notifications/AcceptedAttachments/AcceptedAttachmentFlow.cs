@@ -5,6 +5,7 @@ using System.Text.Json;
 using Amazon.SQS.Model;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
@@ -103,6 +104,12 @@ internal static class AcceptedAttachmentFlow
     internal const string NotificationClass = "transactional";
     internal const string Purpose = "order-updates";
 
+    /// <summary>Type of the event that reports a notification that ended on failed.</summary>
+    internal const string FailedEventType = "araia.notification.failed.v1";
+
+    /// <summary>Type of the event that reports a notification the pipeline refused.</summary>
+    internal const string RejectedEventType = "araia.notification.rejected.v1";
+
     /// <summary>
     /// A document the column accepts and the reader refuses: valid JSON, whole
     /// in every member, and versioned for a reader that does not exist. It is
@@ -187,7 +194,12 @@ internal static class AcceptedAttachmentFlow
         var attachments = new List<SeededAttachment>();
         for (var index = 0; index < attachmentCount; index++)
         {
-            attachments.Add(await ClaimableAttachments.ReleasedAsync(
+            // With the bytes in custody, because every path below that reaches
+            // a provider composes the message out of them. Seeding the record
+            // alone would leave each of those sends failing on a coordinate
+            // nobody ever wrote to, and the suites would be measuring an
+            // environment with no content in it rather than the rule they name.
+            attachments.Add(await ClaimableAttachments.ReleasedWithContentAsync(
                 fixture,
                 arrangement.Application,
                 fileName: $"manifesto-{Guid.NewGuid():N}.pdf",
@@ -214,6 +226,43 @@ internal static class AcceptedAttachmentFlow
         NotificationId.TryParse(answer.GetProperty("notificationId").GetString(), out Guid id)
             .ShouldBeTrue();
         return new AttachedNotification(id, arrangement.Application, recipientId, attachments);
+    }
+
+    /// <summary>
+    /// Accepts one notification under an existing arrangement, naming no
+    /// attachment at all.
+    /// <para>
+    /// It exists to stand beside a notification that names some. Every refusal
+    /// this flow measures is a negative, and a negative over a plan, a
+    /// recipient and a template that could not have worked anyway proves
+    /// nothing; the neighbour is the same arrangement, the same plan and the
+    /// same channels, differing in the one thing under test.
+    /// </para>
+    /// </summary>
+    internal static async Task<AttachedNotification> AcceptWithoutAttachmentsAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        AttachmentArrangement arrangement)
+    {
+        ArgumentNullException.ThrowIfNull(arrangement);
+        (var recipientId, _, _) = await DispatchApi.RegisterRecipientAsync(
+            fixture, deviceCount: arrangement.DeviceCount);
+
+        HttpClient producer = fixture.CreateProducerClient(
+            "attachment-producer", NotificationsApi.SendTransactional);
+        HttpResponseMessage accepted = await NotificationsApi.PostNotificationAsync(
+            producer,
+            Body(arrangement.Application, arrangement.TemplateKey, recipientId, []),
+            Guid.NewGuid().ToString("N"));
+        if (!accepted.IsSuccessStatusCode)
+        {
+            accepted.StatusCode.ShouldBe(
+                HttpStatusCode.Accepted, await accepted.Content.ReadAsStringAsync());
+        }
+
+        JsonElement answer = await NotificationsApi.ReadJsonAsync(accepted);
+        NotificationId.TryParse(answer.GetProperty("notificationId").GetString(), out Guid id)
+            .ShouldBeTrue();
+        return new AttachedNotification(id, arrangement.Application, recipientId, []);
     }
 
     /// <summary>Runs the acceptance message through the pipeline and publishes what it wrote.</summary>
@@ -320,6 +369,43 @@ internal static class AcceptedAttachmentFlow
             .OrderBy(candidate => candidate.Sequence)
             .ToListAsync());
 
+    /// <summary>
+    /// The reason the published rejection event carries for one notification,
+    /// read the same way and keyed the same way as the failure above.
+    /// </summary>
+    internal static async Task<string?> PublishedRejectionReasonAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        string recipientId)
+        => await PublishedReasonAsync(fixture, recipientId, RejectedEventType);
+
+    /// <summary>
+    /// The reason the published failure event carries for one notification,
+    /// read off the outbox row the settlement wrote.
+    /// <para>
+    /// Keyed by the recipient because that is the key the event is published
+    /// under, and every notification arranged here gets a recipient of its
+    /// own, so the row belongs to this notification and to no neighbour.
+    /// </para>
+    /// </summary>
+    internal static async Task<string?> PublishedFailureReasonAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        string recipientId)
+        => await PublishedReasonAsync(fixture, recipientId, FailedEventType);
+
+    private static async Task<string?> PublishedReasonAsync(
+        AcceptedAttachmentFlowFixture fixture,
+        string recipientId,
+        string eventType)
+    {
+        OutboxMessage published = await fixture.QueryPlatformDbAsync(db => db.OutboxMessages
+            .AsNoTracking()
+            .SingleAsync(message => message.EventType == eventType
+                && message.MessageKey == recipientId));
+        CloudEventParse parse = CloudEventParser.Parse(published.PayloadJson);
+        parse.InvalidReason.ShouldBeNull();
+        return parse.Event!.Data.GetProperty("reason").GetString();
+    }
+
     internal static async Task<string> StatusAsync(
         AcceptedAttachmentFlowFixture fixture,
         Guid notificationId)
@@ -399,7 +485,9 @@ internal static class AcceptedAttachmentFlow
                 VisibilityTimeout = 0,
                 WaitTimeSeconds = 1,
             });
-        return [.. received.Messages.Select(message => message.Body)];
+        // An empty receive answers with no list at all, not with an empty
+        // one, and a queue this walk never wrote to is exactly that case.
+        return [.. (received.Messages ?? []).Select(message => message.Body)];
     }
 
     /// <summary>
@@ -519,8 +607,9 @@ internal static class AcceptedAttachmentFlow
         string application,
         string templateKey,
         string recipientId,
-        IReadOnlyList<SeededAttachment> attachments)
-        => new(StringComparer.Ordinal)
+        List<SeededAttachment> attachments)
+    {
+        var body = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["application"] = application,
             ["recipientId"] = recipientId,
@@ -529,6 +618,16 @@ internal static class AcceptedAttachmentFlow
             ["locale"] = "pt-BR",
             ["variables"] = new { code = "123456" },
             ["ttlSeconds"] = 300,
-            ["attachments"] = attachments.Select(attachment => attachment.Reference).ToArray(),
         };
+
+        // The member is omitted rather than sent empty: an empty list is a
+        // malformed request, and what a neighbour without attachments has to
+        // be is a request that named none.
+        if (attachments.Count > 0)
+        {
+            body["attachments"] = attachments.Select(attachment => attachment.Reference).ToArray();
+        }
+
+        return body;
+    }
 }

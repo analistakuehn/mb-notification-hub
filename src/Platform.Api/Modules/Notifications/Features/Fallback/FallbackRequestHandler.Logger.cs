@@ -25,4 +25,7 @@ internal static partial class FallbackRequestHandlerLogger
 
     [LoggerMessage(EventId = 7147, Level = LogLevel.Warning, Message = "O plano admitido da notificação {NotificationId} está ilegível (recusado: '{Refused}'); a decisão seguiu pelo plano publicado, que pode nomear canal já removido na admissão.")]
     internal static partial void FallbackAdmittedPlanUnreadable(this ILogger logger, Guid notificationId, string refused);
+
+    [LoggerMessage(EventId = 7148, Level = LogLevel.Information, Message = "Fallback encerrou a notificação {NotificationId}: o canal '{Channel}' do próximo passo não transporta o conjunto aceito de anexos, e nenhum canal seguinte foi tentado.")]
+    internal static partial void FallbackStepCannotCarryAttachments(this ILogger logger, Guid notificationId, string channel);
 }

@@ -448,6 +448,8 @@ public sealed class KillSwitchReleaserTests(CorePipelineFixture fixture)
 
         public string ProviderKey => "fake-email";
 
+        public bool CarriesAttachments => true;
+
         internal int TargetCallCount => _targetCallCount;
 
         public Task<ProviderResult> SendAsync(

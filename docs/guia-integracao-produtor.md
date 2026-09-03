@@ -334,8 +334,8 @@ ao menos uma referência não branca, sem repetição ordinal. O hub preserva or
 caixa e grafia, e esses três aspectos participam da identidade idempotente.
 
 Isso **não significa que o envio com anexos esteja liberado**. A configuração
-versionada não admite nenhum tipo de conteúdo, e o contrato de despacho ainda
-não transporta anexos ao provedor. O fluxo de gestão possui rotas de registro,
+versionada não admite nenhum tipo de conteúdo, então nenhum anexo alcança o estado
+liberado e nenhuma solicitação com anexos passa do aceite. O fluxo de gestão possui rotas de registro,
 upload e validação, mas o caminho completo ainda não sustenta onboarding de
 produtor. Até o time do hub confirmar a habilitação no ambiente:
 
@@ -347,6 +347,11 @@ produtor. Até o time do hub confirmar a habilitação no ambiente:
   cada envio, e um conjunto que não passa faz a tentativa falhar sem chamada ao
   provedor, com `attachments-over-capacity` ou `attachments-withheld` em
   `attempts[].errorCode`;
+- saiba que o transporte do conjunto é propriedade do canal: um plano cujo canal
+  não transporta anexos recusa a notificação com
+  `attachments-not-carried-by-channel`, e o mesmo motivo encerra a notificação
+  quando é o passo seguinte do plano que não transporta. Nenhum canal alternativo
+  é tentado e nenhum anexo é convertido em link;
 - espere `400 payload-invalid` para uma lista malformada e
   `422 attachments-not-claimable` quando o conjunto não puder ser vinculado;
   no Kafka, essa última condição vai para a dead letter e não gera evento
@@ -946,6 +951,7 @@ dele; a matriz no fim desta seção mostra como cada transporte as expõe.
 | `authentication-sms-link` | O SMS renderizado de um template de autenticação contém um link | Corrija o valor da variável que produziu o endereço. Um código de autenticação por SMS não carrega link nesta plataforma, e a recusa vale também quando o link chega por valor de variável |
 | `layout-disabled` | O layout que a versão publicada fixa está desativado, então a mensagem não tem moldura aprovada | Não é corrigível pelo produtor. Acione o time dono do template, que precisa republicar a versão apontando para um layout ativo |
 | `rendered-content-too-large` | A mensagem renderizada ultrapassa o limite do canal. Em SMS o limite é contado em segmentos, e o mesmo texto custa mais que o dobro de segmentos quando carrega acento, porque a operadora troca a codificação | Reduza o valor da variável que fez o texto crescer. Renderize a versão pelo preview com as mesmas variáveis para conferir antes de solicitar |
+| `attachments-not-carried-by-channel` | A notificação foi aceita com anexos e o canal que o plano usa não transporta anexos na chamada ao provedor. A notificação termina aí: nenhum anexo é removido, nada vira link e nenhum outro canal é tentado, porque transportar o conjunto é propriedade da mensagem e não do destinatário | Não retente igual. Solicite sem o membro `attachments`, ou trate com o time do hub um plano de entrega cujo canal transporte anexos |
 | `producer-not-authorized` | A identidade do produtor está fora do registro, ou pede classe que o registro não concede | Peça o registro ou o ajuste de concessão. Só ocorre no caminho Kafka |
 | `class-not-allowed-for-principal` | O token não carrega o papel da classe pedida, ou não carrega identidade estável | Peça a atribuição do papel ao seu principal. Só ocorre no caminho REST |
 | `sensitive-variables-on-bus` | O template declara variáveis sensíveis e a solicitação veio pelo barramento | Migre a solicitação desse template para REST |
@@ -988,8 +994,8 @@ dela.
 Alguns motivos do catálogo **não** aparecem como status HTTP, porque são
 decididos depois do aceite, no pipeline: `no-valid-contact`, `no-consent`,
 `channel-suppressed`, `duplicate-window`, `authentication-sms-link`,
-`layout-disabled`, `rendered-content-too-large`, além de
-`template-render-failed`. Eles chegam pelo evento `rejected` e pela consulta.
+`layout-disabled`, `rendered-content-too-large`,
+`attachments-not-carried-by-channel`, além de `template-render-failed`. Eles chegam pelo evento `rejected` e pela consulta.
 `expired` segue outro caminho: aparece como `reason` do evento
 `araia.notification.failed.v1` e como estado `expired` na consulta.
 

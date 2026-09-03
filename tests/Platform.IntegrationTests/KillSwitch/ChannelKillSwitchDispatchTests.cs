@@ -413,6 +413,8 @@ public sealed class ChannelKillSwitchDispatchTests(CorePipelineFixture fixture)
 
         public string ProviderKey => "fake-channel";
 
+        public bool CarriesAttachments => true;
+
         internal int TargetCallCount => Volatile.Read(ref _targetCallCount);
 
         public Task<ProviderResult> SendAsync(

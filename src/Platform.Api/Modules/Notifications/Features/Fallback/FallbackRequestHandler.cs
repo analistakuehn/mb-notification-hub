@@ -7,6 +7,7 @@ using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
+using NotificationHub.Api.Modules.Dispatch.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Rules;
 using NotificationHub.Api.Modules.Notifications.Features.Pipeline.Stages;
@@ -41,6 +42,7 @@ internal sealed class FallbackRequestHandler(
     IPublishedCatalog catalog,
     IPublishedTemplateRenderer renderer,
     IRecipientDirectory recipientDirectory,
+    IChannelAttachmentSupport attachmentSupport,
     IEnvelopeCipher cipher,
     TimeProvider timeProvider,
     ILogger<FallbackRequestHandler> logger)
@@ -77,6 +79,15 @@ internal sealed class FallbackRequestHandler(
     /// template and hide the only case the rule exists for.
     /// </summary>
     internal const string ReasonAuthenticationSmsLink = RenderStage.ReasonAuthenticationSmsLink;
+
+    /// <summary>
+    /// Stable reason of a next step whose channel does not carry the accepted
+    /// set. It is the word the route stage refuses the first step with,
+    /// reached here rather than spelled again, because the producer meets one
+    /// condition and must read one word for it wherever the notification was
+    /// when it happened.
+    /// </summary>
+    internal const string ReasonAttachmentsNotCarried = RouteStage.ReasonAttachmentsNotCarried;
 
     public async Task<MessageDisposition> ProcessAsync(
         MessageEnvelope envelope,
@@ -206,6 +217,24 @@ internal sealed class FallbackRequestHandler(
                 terminal: PipelineResult.Failed, reason: blockedReason!, now, cancellationToken);
         }
 
+        // The step the plan takes is the step that is asked. It is never
+        // skipped in search of a channel that carries the set: eligibility is
+        // about the recipient and carrying the set is about the message, so
+        // walking past this step would let the presence of an attachment
+        // reorder a plan that was published without it, and the notification
+        // would leave by a channel nobody planned for. It ends here instead,
+        // with the same word the route refuses the first step with.
+        if (AcceptedAttachmentManifest.Read(notification.AcceptedAttachmentsJson)
+                is AcceptedManifestRead.Present
+            && !await ChannelCarriesTheSetAsync(nextStep.Channel, cancellationToken))
+        {
+            logger.FallbackStepCannotCarryAttachments(notification.Id, nextStep.Channel.Value);
+            return await SettleTerminalAsync(
+                envelope, notification, failedAttempt,
+                terminal: PipelineResult.Failed, reason: ReasonAttachmentsNotCarried,
+                now, cancellationToken);
+        }
+
         var channel = nextStep.Channel.Value;
         Guid? contactPointId = null;
         if (!string.Equals(channel, AttemptDispatchWriter.PushChannel, StringComparison.Ordinal))
@@ -277,6 +306,23 @@ internal sealed class FallbackRequestHandler(
         AdmittedPlanRead admitted,
         IReadOnlyList<DeliveryPlanStep> published)
         => admitted is AdmittedPlanRead.Present present ? present.Plan : published;
+
+    /// <summary>
+    /// Whether the adapter this deployment would call for the next step
+    /// composes the accepted set into its call. A resolution failure is a
+    /// deployment defect and travels as one: the trigger returns with backoff
+    /// instead of ending a notification for a reason that is ours.
+    /// </summary>
+    private async Task<bool> ChannelCarriesTheSetAsync(
+        Channel channel,
+        CancellationToken cancellationToken)
+    {
+        Result<bool> carries = await attachmentSupport.CarriesAttachmentsAsync(
+            channel, cancellationToken);
+        return carries.IsFailure
+            ? throw new InvalidOperationException(carries.Error)
+            : carries.Value;
+    }
 
     /// <summary>The step after the failed channel in the plan; null when none follows.</summary>
     internal static DeliveryPlanStep? NextStep(IReadOnlyList<DeliveryPlanStep> plan, string failedChannel)
