@@ -6,8 +6,6 @@ using Amazon.S3.Model;
 using Amazon.SQS;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -432,13 +430,9 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
         await scope.ServiceProvider.GetRequiredService<DispatchDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<PlatformMessagingDbContext>().Database.MigrateAsync();
 
-        // Attachments have no migration history of their own yet, so the
-        // schema is created from the model, exactly as the module's own
-        // fixture creates it.
         await scope.ServiceProvider
             .GetRequiredService<AttachmentManagementDbContext>()
-            .Database.GetService<IRelationalDatabaseCreator>()
-            .CreateTablesAsync();
+            .Database.MigrateAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

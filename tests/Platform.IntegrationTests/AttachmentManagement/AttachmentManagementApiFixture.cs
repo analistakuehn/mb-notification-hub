@@ -5,8 +5,6 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -201,9 +199,12 @@ public sealed class AttachmentManagementApiFixture : WebApplicationFactory<Progr
         using IServiceScope scope = Services.CreateScope();
         AttachmentManagementDbContext dbContext = scope.ServiceProvider
             .GetRequiredService<AttachmentManagementDbContext>();
-        IRelationalDatabaseCreator databaseCreator = dbContext.Database
-            .GetService<IRelationalDatabaseCreator>();
-        await databaseCreator.CreateTablesAsync();
+
+        // Migrated, never created from the model: creating from the model
+        // builds tables, indexes and constraints and no triggers at all, so
+        // every guard that lives in a trigger would be absent here and any
+        // oracle over one would pass by not existing.
+        await dbContext.Database.MigrateAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

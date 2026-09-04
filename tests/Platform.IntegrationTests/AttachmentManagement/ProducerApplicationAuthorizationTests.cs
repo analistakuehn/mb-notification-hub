@@ -7,8 +7,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -515,9 +513,10 @@ internal static class AttachmentAuthorizationTestData
             using IServiceScope isolatedScope = host.Services.CreateScope();
             AttachmentManagementDbContext dbContext = isolatedScope.ServiceProvider
                 .GetRequiredService<AttachmentManagementDbContext>();
-            IRelationalDatabaseCreator databaseCreator = dbContext.Database
-                .GetService<IRelationalDatabaseCreator>();
-            await databaseCreator.CreateTablesAsync();
+
+            // Migrated, never created from the model: the arrangement runs no
+            // schema statement production does not run.
+            await dbContext.Database.MigrateAsync();
         }
 
         return new AuthorizationTestHost(

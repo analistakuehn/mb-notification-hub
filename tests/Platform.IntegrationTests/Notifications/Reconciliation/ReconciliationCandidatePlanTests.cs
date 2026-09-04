@@ -88,7 +88,7 @@ public sealed class ReconciliationCandidatePlanTests : IAsyncLifetime
         await using (NotificationsDbContext db = CreateContext())
         {
             await db.Database.ExecuteSqlRawAsync(
-                AddDeliverySuppressionReportState.ReconciliationDueIndexSql);
+                InitialSchema.ReconciliationDueIndexSql);
         }
 
         await ShouldUseAsync(await ExplainAsync(captured), CandidateIndex);

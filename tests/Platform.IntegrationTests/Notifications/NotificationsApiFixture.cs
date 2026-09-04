@@ -2,8 +2,6 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -180,13 +178,9 @@ public sealed class NotificationsApiFixture : WebApplicationFactory<Program>, IA
             .GetRequiredService<PlatformMessagingDbContext>()
             .Database.MigrateAsync();
 
-        // Attachments have no migration history of their own yet, so the
-        // schema is created from the model, exactly as the module's own
-        // fixture creates it.
         await scope.ServiceProvider
             .GetRequiredService<AttachmentManagementDbContext>()
-            .Database.GetService<IRelationalDatabaseCreator>()
-            .CreateTablesAsync();
+            .Database.MigrateAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

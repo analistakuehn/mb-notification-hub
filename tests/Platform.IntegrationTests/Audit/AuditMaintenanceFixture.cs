@@ -11,6 +11,7 @@ using Npgsql;
 using NotificationHub.Api.Modules.Audit.Infrastructure.AuditTrail;
 using NotificationHub.Api.Modules.Audit.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.IntegrationTests.TemplateManagement;
@@ -30,9 +31,15 @@ public sealed class AuditMaintenanceFixture : IAsyncLifetime, IDisposable
     /// <summary>Bucket the tests export into; created with Object Lock enabled.</summary>
     public const string Bucket = "notification-hub-audit-worm-tests";
 
-    /// <summary>Tables of the notification schema partitioned by month on their creation instant.</summary>
+    /// <summary>
+    /// Tables of the notification schema partitioned by month on their creation
+    /// instant, taken from the production constant rather than copied. A copy
+    /// had already fallen two tables behind it, so a partitioned table added
+    /// later would have left this arrangement provisioning less than the schema
+    /// holds, and the gap would surface as a row without a partition.
+    /// </summary>
     private static readonly string[] NotificationsPartitionedTables =
-        ["notification", "notification_attempt", "policy_evaluation"];
+        NotificationsPartitionManagerService.PartitionedTables;
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:17-alpine")

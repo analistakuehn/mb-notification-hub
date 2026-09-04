@@ -325,6 +325,133 @@ public sealed class AttachmentObjectGenerationTests(AttachmentManagementApiFixtu
             "ck_attachment_object_generation_version_not_blank");
     }
 
+    /// <summary>
+    /// The freeze on the mapping refuses a revision made through a tracked
+    /// instance and never sees a statement that goes around the tracker. A
+    /// set-based update is exactly that statement: it reaches the durable row
+    /// with no entity loaded, and until the guard moved into the database it
+    /// rewrote the recorded proof of the bytes in silence.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_set_based_update_of_a_recorded_generation_is_refused_by_the_database()
+    {
+        Attachment attachment = await UploadAsync("set-update-producer", "set-based-update");
+        AttachmentObjectGeneration recorded =
+            (await GenerationsAsync(attachment.Id)).ShouldHaveSingleItem();
+
+        using IServiceScope scope = fixture.Services.CreateScope();
+        AttachmentManagementDbContext dbContext = scope.ServiceProvider
+            .GetRequiredService<AttachmentManagementDbContext>();
+
+        var forgedDigest = new byte[32];
+        forgedDigest[0] = 0xFF;
+        PostgresException rejection = await Should.ThrowAsync<PostgresException>(async () =>
+            await dbContext.Database.ExecuteSqlAsync(
+                $"""
+                 UPDATE attachmentmanagement.attachment_object_generation
+                 SET digest = {forgedDigest}, length_bytes = {0L}
+                 WHERE id = {recorded.Id}
+                 """));
+
+        rejection.MessageText.ShouldContain("append-only");
+
+        AttachmentObjectGeneration durable =
+            (await GenerationsAsync(attachment.Id)).ShouldHaveSingleItem();
+        Convert.ToHexString(durable.Digest).ShouldBe(Convert.ToHexString(recorded.Digest));
+        durable.LengthBytes.ShouldBe(recorded.LengthBytes);
+        durable.Version.ShouldBe(recorded.Version);
+    }
+
+    [RequiresDockerFact]
+    public async Task A_set_based_delete_of_a_recorded_generation_is_refused_by_the_database()
+    {
+        Attachment attachment = await UploadAsync("set-delete-producer", "set-based-delete");
+        AttachmentObjectGeneration recorded =
+            (await GenerationsAsync(attachment.Id)).ShouldHaveSingleItem();
+
+        using IServiceScope scope = fixture.Services.CreateScope();
+        AttachmentManagementDbContext dbContext = scope.ServiceProvider
+            .GetRequiredService<AttachmentManagementDbContext>();
+
+        PostgresException rejection = await Should.ThrowAsync<PostgresException>(async () =>
+            await dbContext.Database.ExecuteSqlAsync(
+                $"""
+                 DELETE FROM attachmentmanagement.attachment_object_generation
+                 WHERE id = {recorded.Id}
+                 """));
+
+        rejection.MessageText.ShouldContain("append-only");
+        (await GenerationsAsync(attachment.Id)).ShouldHaveSingleItem()
+            .Id.ShouldBe(recorded.Id);
+    }
+
+    /// <summary>
+    /// What the refusal of a delete costs, stated rather than discovered later.
+    /// The generation line points at the attachment under a restrictive foreign
+    /// key, so removing the attachment needs the line removed first, and the
+    /// line refuses. An attachment that ever held content therefore cannot be
+    /// removed from this schema at all.
+    /// <para>
+    /// The two halves that keep this from being a schema nobody can operate are
+    /// measured with it: an attachment that never held content is removable,
+    /// and the guard covers only the generation table, so the state of an
+    /// attachment still moves.
+    /// </para>
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task An_attachment_that_holds_a_generation_cannot_be_removed_and_one_without_can()
+    {
+        Attachment withContent = await UploadAsync("indelible-producer", "indelible");
+        (await GenerationsAsync(withContent.Id)).ShouldHaveSingleItem();
+
+        using IServiceScope scope = fixture.Services.CreateScope();
+        AttachmentManagementDbContext dbContext = scope.ServiceProvider
+            .GetRequiredService<AttachmentManagementDbContext>();
+
+        PostgresException blockedByTheKey = await Should.ThrowAsync<PostgresException>(async () =>
+            await dbContext.Database.ExecuteSqlAsync(
+                $"DELETE FROM attachmentmanagement.attachment WHERE id = {withContent.Id}"));
+        blockedByTheKey.SqlState.ShouldBe(PostgresErrorCodes.ForeignKeyViolation);
+
+        // And the way around the key is closed too, which is what turns "needs
+        // an order" into "cannot be done".
+        PostgresException blockedByTheTrigger = await Should.ThrowAsync<PostgresException>(async () =>
+            await dbContext.Database.ExecuteSqlAsync(
+                $"""
+                 DELETE FROM attachmentmanagement.attachment_object_generation
+                 WHERE attachment_id = {withContent.Id}
+                 """));
+        blockedByTheTrigger.MessageText.ShouldContain("append-only");
+
+        // The row is still there for a reader, which is the point of refusing.
+        (await GenerationsAsync(withContent.Id)).ShouldHaveSingleItem();
+
+        // The state of the attachment still moves: the guard is on the line
+        // that records the bytes, never on the row that records the lifecycle.
+        (await dbContext.Database.ExecuteSqlAsync(
+            $"""
+             UPDATE attachmentmanagement.attachment
+             SET reconciliation_liability = {"content-orphan"}
+             WHERE id = {withContent.Id}
+             """)).ShouldBe(1);
+
+        // An attachment registered and never uploaded owns no generation line,
+        // so nothing holds it and it is removable like any other row.
+        var withoutContent = Guid.CreateVersion7();
+        await dbContext.Database.ExecuteSqlAsync(
+            $"""
+             INSERT INTO attachmentmanagement.attachment
+                 (id, reference, application, file_name, content_type, size_bytes,
+                  content_id, state, created_at)
+             VALUES ({withoutContent}, {Guid.CreateVersion7().ToString()}, {"indelible-app"},
+                     {"never-uploaded.pdf"}, {"application/pdf"}, {1L},
+                     {Guid.CreateVersion7()}, {"registered"}, {DateTimeOffset.UtcNow})
+             """);
+        (await dbContext.Database.ExecuteSqlAsync(
+            $"DELETE FROM attachmentmanagement.attachment WHERE id = {withoutContent}"))
+            .ShouldBe(1);
+    }
+
     [RequiresDockerFact]
     public async Task A_store_that_never_versioned_is_refused_and_records_no_identity()
     {

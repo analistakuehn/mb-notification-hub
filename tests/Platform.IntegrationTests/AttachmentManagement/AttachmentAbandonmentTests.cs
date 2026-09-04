@@ -403,11 +403,18 @@ public sealed class AttachmentAbandonmentTests(AttachmentManagementApiFixture fi
 
     /// <summary>
     /// Why no line of the record is purged with the bytes, measured rather
-    /// than argued. A release names the exact generation it was granted over,
-    /// and the database refuses to remove a line a release names; an
-    /// attachment that was released and then had its release taken back never
-    /// had a dependency at all, so a purge keyed on that would fail on exactly
-    /// the population it was written for.
+    /// than argued. Two refusals stand behind the line and they are measured
+    /// one at a time, because the first one shadows the second.
+    /// <para>
+    /// The row trigger refuses every removal from the generation table,
+    /// whatever else points at the row. Behind it, a release names the exact
+    /// generation it was granted over and the key refuses to leave that name
+    /// dangling; that one is measured with the trigger held off, which is the
+    /// only way to reach it. An attachment that was released and then had its
+    /// release taken back never had a dependency at all, so a purge keyed on
+    /// the dependency register would fail on exactly the population it was
+    /// written for.
+    /// </para>
     /// </summary>
     [RequiresDockerFact]
     public async Task The_line_a_release_names_cannot_be_purged_even_with_the_bytes_gone()
@@ -419,11 +426,32 @@ public sealed class AttachmentAbandonmentTests(AttachmentManagementApiFixture fi
         await RunRoundAsync(DeadlineOf(AttachmentStates.Revoked));
         (await StoredVersionsAsync(seeded)).ShouldBeEmpty();
 
-        DbUpdateException failure = await Should.ThrowAsync<DbUpdateException>(
+        DbUpdateException stoppedByTheTrigger = await Should.ThrowAsync<DbUpdateException>(
             () => PurgeGenerationAsync(seeded.Id));
+        PostgresException raised = stoppedByTheTrigger.InnerException
+            .ShouldBeOfType<PostgresException>();
+        raised.MessageText.ShouldContain("append-only");
+        (await RecordedGenerationsAsync(seeded.Id)).ShouldBe(1);
 
-        failure.InnerException.ShouldBeOfType<PostgresException>()
-            .SqlState.ShouldBe(PostgresErrorCodes.ForeignKeyViolation);
+        await SetGenerationTriggerAsync(enabled: false);
+        try
+        {
+            DbUpdateException stoppedByTheKey = await Should.ThrowAsync<DbUpdateException>(
+                () => PurgeGenerationAsync(seeded.Id));
+            stoppedByTheKey.InnerException.ShouldBeOfType<PostgresException>()
+                .SqlState.ShouldBe(PostgresErrorCodes.ForeignKeyViolation);
+        }
+        finally
+        {
+            await SetGenerationTriggerAsync(enabled: true);
+        }
+
+        // The restore is asserted, not assumed: a trigger left off would make
+        // every neighbour in this collection measure a schema nobody deploys.
+        DbUpdateException stoppedAgain = await Should.ThrowAsync<DbUpdateException>(
+            () => PurgeGenerationAsync(seeded.Id));
+        stoppedAgain.InnerException.ShouldBeOfType<PostgresException>()
+            .MessageText.ShouldContain("append-only");
         (await RecordedGenerationsAsync(seeded.Id)).ShouldBe(1);
     }
 
@@ -742,6 +770,23 @@ public sealed class AttachmentAbandonmentTests(AttachmentManagementApiFixture fi
             generation.Version.ShouldNotBeNullOrWhiteSpace();
             generation.Digest.ShouldBe(SHA256.HashData(Encoding.UTF8.GetBytes(Content)));
         }
+    }
+
+    /// <summary>
+    /// Holds the append-only trigger off, or puts it back. It exists so a
+    /// refusal that sits behind the trigger can be reached at all, and it is
+    /// the one schema statement in this suite production never runs.
+    /// </summary>
+    private async Task SetGenerationTriggerAsync(bool enabled)
+    {
+        await using var connection = new NpgsqlConnection(fixture.PostgresConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlCommand command = connection.CreateCommand();
+        command.CommandText =
+            "ALTER TABLE attachmentmanagement.attachment_object_generation "
+            + (enabled ? "ENABLE" : "DISABLE")
+            + " TRIGGER trg_attachment_object_generation_append_only";
+        await command.ExecuteNonQueryAsync();
     }
 
     private async Task PurgeGenerationAsync(Guid attachmentId)

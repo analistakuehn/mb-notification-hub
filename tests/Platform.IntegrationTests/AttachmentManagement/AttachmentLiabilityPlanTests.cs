@@ -2,8 +2,6 @@ using System.Data.Common;
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reconciliation;
@@ -71,7 +69,10 @@ public sealed class AttachmentLiabilityPlanTests : IAsyncLifetime
 
         await _postgres.StartAsync();
         await using AttachmentManagementDbContext db = CreateContext();
-        await db.Database.GetService<IRelationalDatabaseCreator>().CreateTablesAsync();
+
+        // Migrated, never created from the model: the plan under test is the
+        // plan over the schema production ships, triggers included.
+        await db.Database.MigrateAsync();
         await SeedAsync(db);
     }
 

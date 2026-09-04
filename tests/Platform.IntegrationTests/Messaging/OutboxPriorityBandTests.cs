@@ -1,10 +1,7 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using NotificationHub.Api.Infrastructure.Messaging;
-using NotificationHub.Api.Infrastructure.Messaging.Migrations;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Events;
 using NotificationHub.Api.Modules.Notifications;
@@ -18,13 +15,17 @@ using Testcontainers.PostgreSql;
 namespace NotificationHub.IntegrationTests.Messaging;
 
 /// <summary>
-/// The band the relay claims by is stored, not derived, and three questions
-/// follow: whether the planner answers the claim with the index, whether the
-/// expression the database computes agrees with the classification the reader
-/// applies, and whether a row written before the column existed comes out of
-/// the migration in the right band. The database is this class's own because
-/// two of the answers change the schema under the claim, and a plan read on an
-/// almost empty table would grade the size of the table instead of the index.
+/// The band the relay claims by is stored, not derived, and two questions
+/// follow: whether the planner answers the claim with the index, and whether
+/// the expression the database computes agrees with the classification the
+/// reader applies. The database is this class's own because one of the answers
+/// changes the schema under the claim, and a plan read on an almost empty table
+/// would grade the size of the table instead of the index.
+/// <para>
+/// No writer anywhere names the band, because a stored generated column refuses
+/// to be assigned, so the confrontation below already covers the only insert
+/// shape there is.
+/// </para>
 /// </summary>
 public sealed class OutboxPriorityBandTests : IAsyncLifetime
 {
@@ -35,19 +36,6 @@ public sealed class OutboxPriorityBandTests : IAsyncLifetime
     private const string PendingIndexName = "ix_outbox_pending";
 
     private const string UnknownPriorityClass = "misspelled";
-
-    /// <summary>
-    /// The insert as the writer shaped it before the band column existed: the
-    /// column list names every column of the row and none of them is the band.
-    /// </summary>
-    private const string PreBandInsertSql = """
-        INSERT INTO platform.outbox
-            (id, destination, transport, event_type, message_key, headers, payload,
-             priority_class, created_at, sent_at)
-        VALUES
-            (@id, @destination, 'sqs', 'notification.accepted', @messageKey, '{}'::jsonb,
-             '{}'::jsonb, @priorityClass, @createdAt, NULL)
-        """;
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:17-alpine")
@@ -125,60 +113,6 @@ public sealed class OutboxPriorityBandTests : IAsyncLifetime
         // the one the plan cannot see: an authentication destination belongs to
         // the top band whatever class the producer stored on the row.
         disagreements.ShouldBeEmpty(string.Join(Environment.NewLine, disagreements));
-    }
-
-    [RequiresDockerFact]
-    public async Task Rows_written_before_the_band_existed_leave_the_migration_in_their_band()
-    {
-        await using PlatformMessagingDbContext db = CreateContext();
-        await MigrateToTheVersionBeforeTheBandAsync(db);
-
-        // Without this the test would still pass against a schema that already
-        // had the column, and it would be proving nothing about the migration:
-        // the insert below omits the band either way.
-        (await BandColumnsAsync(db)).ShouldBe(0);
-
-        (string Destination, string PriorityClass)[] rows =
-        [
-            ("core-auth", "transactional"),
-            ("core-critical", "critical"),
-            ("core-transactional", "transactional"),
-            ("core-operational", "operational"),
-            ("dispatch-push-auth", "critical"),
-            ("dispatch-email-critical", "critical"),
-            ("contacts-changed", UnknownPriorityClass),
-        ];
-        foreach ((var destination, var priorityClass) in rows)
-        {
-            await InsertWithoutBandAsync(db, destination, priorityClass);
-        }
-
-        await db.Database.MigrateAsync();
-
-        (await BandColumnsAsync(db)).ShouldBe(1);
-        IReadOnlyList<string> disagreements = await DisagreementsWithTheReaderAsync(db);
-        (await db.OutboxMessages.CountAsync()).ShouldBe(rows.Length);
-        disagreements.ShouldBeEmpty(string.Join(Environment.NewLine, disagreements));
-    }
-
-    /// <summary>How many band columns the outbox has right now: none before the migration, one after.</summary>
-    private static async Task<int> BandColumnsAsync(PlatformMessagingDbContext db)
-    {
-        await db.Database.OpenConnectionAsync();
-        DbConnection connection = db.Database.GetDbConnection();
-        await using (DbCommand command = connection.CreateCommand())
-        {
-            command.CommandText = """
-                SELECT count(*)
-                FROM information_schema.columns
-                WHERE table_schema = 'platform'
-                  AND table_name = 'outbox'
-                  AND column_name = 'priority_band'
-                """;
-            var count = Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
-            await db.Database.CloseConnectionAsync();
-            return count;
-        }
     }
 
     /// <summary>
@@ -261,39 +195,6 @@ public sealed class OutboxPriorityBandTests : IAsyncLifetime
                     npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "platform"))
                 .Options;
         return new PlatformMessagingDbContext(options);
-    }
-
-    /// <summary>
-    /// Stops the history one migration short of the band, found by position
-    /// instead of by name so a later migration never turns this into a test of
-    /// a schema nobody runs anymore.
-    /// </summary>
-    private static async Task MigrateToTheVersionBeforeTheBandAsync(PlatformMessagingDbContext db)
-    {
-        List<string> history = [.. db.Database.GetMigrations()];
-        var band = history.FindIndex(
-            migration => migration.EndsWith(nameof(AddOutboxPriorityBand), StringComparison.Ordinal));
-        band.ShouldBeGreaterThan(0);
-        await db.Database.GetService<IMigrator>().MigrateAsync(history[band - 1]);
-    }
-
-    private static async Task InsertWithoutBandAsync(
-        PlatformMessagingDbContext db, string destination, string priorityClass)
-    {
-        await db.Database.OpenConnectionAsync();
-        DbConnection connection = db.Database.GetDbConnection();
-        await using (DbCommand command = connection.CreateCommand())
-        {
-            command.CommandText = PreBandInsertSql;
-            AddParameter(command, "id", Guid.CreateVersion7());
-            AddParameter(command, "destination", destination);
-            AddParameter(command, "messageKey", $"cus_{Guid.NewGuid():N}");
-            AddParameter(command, "priorityClass", priorityClass);
-            AddParameter(command, "createdAt", DateTimeOffset.UtcNow);
-            await command.ExecuteNonQueryAsync();
-        }
-
-        await db.Database.CloseConnectionAsync();
     }
 
     /// <summary>
