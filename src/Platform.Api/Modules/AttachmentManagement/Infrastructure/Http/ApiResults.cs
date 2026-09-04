@@ -22,6 +22,13 @@ internal static class ApiResults
             [ErrorCodes.AlreadyReceived] = "O anexo já foi recebido.",
             [ErrorCodes.UploadConflict] = "Não foi possível concluir o upload do anexo.",
             [ErrorCodes.StoreUnavailable] = "O armazenamento de anexos está indisponível.",
+
+            // The one line here whose next step is not the producer's. Every
+            // other refusal asks for a different file, a different reference
+            // or a later retry; this one says the capability is not switched
+            // on in this deployment, and no producer can change that.
+            [ErrorCodes.CapabilityNotEnabled] =
+                "A capacidade de anexos não está habilitada nesta implantação.",
             [ErrorCodes.StoreUnidentifiedGeneration] =
                 "O armazenamento aceitou o conteúdo sem identificar a geração gravada.",
             [ErrorCodes.GenerationUnreadable] =

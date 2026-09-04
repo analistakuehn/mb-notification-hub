@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capability;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Release;
@@ -58,9 +59,20 @@ public static class IntegrationSurfaceSetup
     /// caller is already committing to. A role that consumes it needs the
     /// contract and nothing else.
     /// </para>
+    /// <para>
+    /// What it does take is configuration, for the one question the claim
+    /// asks before it takes a set nobody holds yet: whether this deployment
+    /// takes new attachments at all. Left to resolve on its own the answer
+    /// would still be the closed one, and it is bound here so a role that
+    /// consumes the claim reads the same section the module's own host reads
+    /// instead of an unbound default that happens to agree.
+    /// </para>
     /// </summary>
-    public static IServiceCollection AddAttachmentClaimSurface(this IServiceCollection services)
+    public static IServiceCollection AddAttachmentClaimSurface(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
+        services.AddAttachmentCapability(configuration);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IAttachmentClaim, TransactionalAttachmentClaim>();
         return services;

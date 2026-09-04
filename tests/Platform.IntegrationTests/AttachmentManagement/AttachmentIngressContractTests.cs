@@ -15,15 +15,15 @@ namespace NotificationHub.IntegrationTests.AttachmentManagement;
 public sealed partial class AttachmentIngressContractTests(TestApplicationFactory factory)
     : IClassFixture<TestApplicationFactory>
 {
-    // Refrozen deliberately. The document grew three addresses: two producer
-    // transitions the lifecycle already had and nothing could reach, and the
-    // authorized reading that the single public reason for content refusals
-    // depends on. The semantic assertions beside this digest name every one of
-    // them, so a change that arrives without them fails there first and this
+    // Refrozen deliberately. The registration now publishes the status it
+    // answers while this deployment takes no new attachments, and that is the
+    // whole of the difference: no address appeared, no body member changed and
+    // no other operation moved. The semantic assertion beside this digest names
+    // that status, so a change arriving without it fails there first and this
     // constant never becomes the only thing standing between a published
     // contract and a body nobody meant to publish.
     private const string OpenApiDocumentSha256 =
-        "8c47c7468acc222c9c6bf89c7d241e9804efc14e22b29d527dae70489057755a";
+        "51ea71b2e5e8489038f6f83175d034205df237676301eee71acca89bf2ac3bca";
 
     private const string KafkaRecordSnapshot =
         """{"specversion":"1.0","id":"\u003Cevent-id\u003E","source":"urn:araia:integration-tests","type":"araia.notification.requested.v1","time":"\u003Cevent-time\u003E","subject":"cus-contract","datacontenttype":"application/json","data":{"application":"billing-app","recipientId":"cus-contract","idempotencyKey":"idem-contract","class":"transactional","templateKey":"payment-confirmed","locale":"pt-BR","variables":{"code":"123456"},"ttlSeconds":300}}""";
@@ -253,6 +253,11 @@ public sealed partial class AttachmentIngressContractTests(TestApplicationFactor
             .ToArray()
             .ShouldBe(["/v1/attachment-operations/{reference}"]);
 
+        // The 409 is the deployment state of the capability, named here so the
+        // published document carries a status this route really answers. It is
+        // the module's own word and it never reaches the bus: the vocabulary a
+        // producer looks up for a rejected notification is a different catalog,
+        // and this refusal is not a member of it.
         JsonObject register = AssertOperation(
             paths,
             "/v1/attachments",
@@ -261,6 +266,7 @@ public sealed partial class AttachmentIngressContractTests(TestApplicationFactor
             "400",
             "401",
             "403",
+            "409",
             "503");
         JsonObject get = AssertOperation(
             paths,

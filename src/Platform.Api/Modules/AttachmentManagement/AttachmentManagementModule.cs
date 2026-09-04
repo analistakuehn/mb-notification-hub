@@ -4,6 +4,7 @@ using NotificationHub.Api.Composition;
 using NotificationHub.Api.Modules.AttachmentManagement.Features.Attachments;
 using NotificationHub.Api.Modules.AttachmentManagement.Features.Operations;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Authorization;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capability;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.RateLimiting;
@@ -31,6 +32,7 @@ public sealed class AttachmentManagementModule : IModule, IEndpointModule
             typeof(AttachmentManagementModule).Assembly,
             includeInternalTypes: true);
         services.AddAttachmentObjectStore(configuration);
+        services.AddAttachmentCapability(configuration);
         services.AddAttachmentCapacity(configuration);
         services.AddAttachmentValidation(configuration);
         services.AddAttachmentReconciliation(configuration);

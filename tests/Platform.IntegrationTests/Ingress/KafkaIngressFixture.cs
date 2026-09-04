@@ -77,6 +77,10 @@ public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsync
                 // holds, so the attachment schema has to live in the same
                 // physical database as the ingestion.
                 ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
+
+                // The capability ships switched off, so an acceptance that
+                // claims a set only exists in a host that says otherwise.
+                ["Modules:AttachmentManagement:Capability:AcceptsNewAttachments"] = "true",
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,
                 ["Platform:Messaging:Ef:ConnectionString"] = _postgres.GetConnectionString(),
@@ -115,6 +119,10 @@ public sealed class KafkaIngressFixture : WebApplicationFactory<Program>, IAsync
             ["Modules:Notifications:KafkaIngress:Bindings:1:Topic"] = SecondaryRequestedTopic,
             ["Modules:Notifications:KafkaIngress:Bindings:1:LogicalProducer"] = SecondaryRequestedProducer,
             ["Modules:TemplateManagement:Persistence:Ef:ConnectionString"] = PostgresConnectionString,
+
+            // The bus ingress composes the claim, and the claim takes no set
+            // for a deployment that has not switched the capability on.
+            ["Modules:AttachmentManagement:Capability:AcceptsNewAttachments"] = "true",
         };
         if (overrides is not null)
         {

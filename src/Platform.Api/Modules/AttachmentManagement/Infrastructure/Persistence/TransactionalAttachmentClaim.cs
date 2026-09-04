@@ -2,6 +2,7 @@ using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capability;
 using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
@@ -37,7 +38,10 @@ namespace NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persis
 /// already serializes on the chain lock of the audit trail.
 /// </para>
 /// </summary>
-internal sealed class TransactionalAttachmentClaim(TimeProvider timeProvider) : IAttachmentClaim
+internal sealed class TransactionalAttachmentClaim(
+    AttachmentCapability capability,
+    TimeProvider timeProvider,
+    ILogger<TransactionalAttachmentClaim> logger) : IAttachmentClaim
 {
     /// <summary>
     /// Prefix of the durable identity of a claim hold. It is what keeps the
@@ -144,6 +148,20 @@ internal sealed class TransactionalAttachmentClaim(TimeProvider timeProvider) : 
                 ? AttachmentClaimOutcome.Claimed(await SnapshotAsync(
                     connection, transaction, references, byReference, cancellationToken))
                 : AttachmentClaimOutcome.Refused(AttachmentClaimStatus.ClaimKeyConflict);
+        }
+
+        // The second of the two doors a new attachment passes, and it stands
+        // exactly here: after the answer a claim that already happened gets,
+        // and before the first row this call would write. A set already held
+        // is an acceptance that is done, and refusing it would turn every
+        // retry of an accepted notification into a rejection the day the
+        // capability was switched off. A set nobody holds yet is a new
+        // acceptance, and that is what this door closes, whether or not the
+        // attachments in it were released while the capability was on.
+        if (!capability.AcceptsNewAttachments)
+        {
+            logger.AttachmentClaimNotEnabled(request.NotificationId, references.Length);
+            return AttachmentClaimOutcome.Refused(AttachmentClaimStatus.NotClaimable);
         }
 
         if (locked.Any(row => !string.Equals(

@@ -137,6 +137,12 @@ public class CorePipelineFixture : WebApplicationFactory<Program>, IAsyncLifetim
                 // anywhere else, the schema the claim writes to would not be
                 // the schema the module's own endpoints write to.
                 ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
+
+                // The capability ships switched off, so the acceptance path
+                // that claims a set only exists in a host that says otherwise.
+                // Stated here so every suite over this fixture measures the
+                // enabled deployment on purpose instead of by inheritance.
+                ["Modules:AttachmentManagement:Capability:AcceptsNewAttachments"] = "true",
                 ["Modules:AttachmentManagement:Storage:S3:Bucket"] = AttachmentBucket,
                 ["Modules:AttachmentManagement:Storage:S3:ServiceUrl"] = _localStack.GetConnectionString(),
                 ["Modules:AttachmentManagement:Storage:S3:Region"] = "us-east-1",

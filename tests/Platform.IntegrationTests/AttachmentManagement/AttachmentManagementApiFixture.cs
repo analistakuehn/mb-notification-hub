@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capability;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.IntegrationTests.TemplateManagement;
@@ -57,6 +58,14 @@ public sealed class AttachmentManagementApiFixture : WebApplicationFactory<Progr
             {
                 [$"{AttachmentManagementEfOptions.SectionName}:ConnectionString"] =
                     _postgres.GetConnectionString(),
+
+                // Stated by this fixture rather than inherited, because the
+                // capability ships switched off and a suite that exercised it
+                // by accident would be measuring a deployment nobody has. Every
+                // test under this collection runs with it on; the ones that
+                // measure the closed state build a host of their own and turn
+                // it back off.
+                [$"{AttachmentCapabilityOptions.SectionName}:AcceptsNewAttachments"] = "true",
                 [$"{AttachmentObjectStoreOptions.SectionName}:Bucket"] = Bucket,
                 [$"{AttachmentObjectStoreOptions.SectionName}:ServiceUrl"] = AwsEndpoint,
                 [$"{AttachmentObjectStoreOptions.SectionName}:Region"] = "us-east-1",

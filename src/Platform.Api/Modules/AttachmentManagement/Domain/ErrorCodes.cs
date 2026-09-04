@@ -29,6 +29,20 @@ public static class ErrorCodes
     public const string GenerationUnreadable = "attachment-generation-unreadable";
 
     /// <summary>
+    /// New attachments are not taken by this deployment. It is not an
+    /// emergency stop and it is not a refusal of the file: nothing about the
+    /// attachment was even looked at, because the capability itself has not
+    /// been switched on here.
+    /// <para>
+    /// A word of its own beside every refusal in this list, because it is the
+    /// only one whose next step belongs to whoever runs the service rather
+    /// than to the producer. Every other word tells a producer to change
+    /// something and retry; this one tells it that there is nothing to change.
+    /// </para>
+    /// </summary>
+    public const string CapabilityNotEnabled = "attachment-capability-not-enabled";
+
+    /// <summary>
     /// The one public reason for the whole family of content refusals: an
     /// unrecognized file, a declaration the bytes contradict, a type nobody
     /// admitted, and a verdict that never concluded all leave under this word.

@@ -60,6 +60,12 @@ public sealed class NotificationsApiFixture : WebApplicationFactory<Program>, IA
                 // anywhere else, the schema the claim writes to would not be
                 // the schema the module's own endpoints write to.
                 ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] = _postgres.GetConnectionString(),
+
+                // The capability ships switched off, so an acceptance that
+                // claims a set only exists in a host that says otherwise.
+                // Stated here so the suites over this fixture measure the
+                // enabled deployment on purpose instead of by inheritance.
+                ["Modules:AttachmentManagement:Capability:AcceptsNewAttachments"] = "true",
                 ["Modules:Notifications:Redis:ConnectionString"] = _redis.GetConnectionString(),
                 ["Modules:Notifications:Redis:KeyPrefix"] = RedisKeyPrefix,
                 ["Platform:Messaging:Ef:ConnectionString"] = _postgres.GetConnectionString(),
