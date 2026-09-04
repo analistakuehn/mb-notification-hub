@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-04T16:10:00Z",
+ "updated_at": "2026-09-04T21:30:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 35,
+  "completed_tasks": 36,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,23 +23,22 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-04T16:10:00Z",
-  "task": "Task 35",
-  "checkpoint": "squashed-migrations-accepted",
+  "at": "2026-09-04T21:30:00Z",
+  "task": "Task 36",
+  "checkpoint": "progressive-enablement-accepted",
   "status": "done",
   "reason_codes": [
-   "seventy-six-files-became-twenty-one-and-attachments-got-its-first-chain",
-   "the-append-only-freeze-moved-from-the-mapping-into-the-database",
-   "the-trigger-and-not-the-restrict-key-is-what-makes-an-attachment-undeletable",
-   "six-fixtures-had-to-migrate-because-schema-creation-makes-zero-triggers",
-   "the-lock-ceremony-is-suspended-by-the-owner-decision-and-was-declared-not-staged",
-   "a-test-was-deleted-because-a-mutation-could-not-tell-it-from-its-sibling",
-   "a-copied-partition-list-had-already-fallen-two-tables-behind-production"
+   "absence-means-disabled-here-and-allowed-in-the-kill-switch-so-they-cannot-share-a-table",
+   "the-claim-gate-sits-after-the-branch-that-answers-an-already-made-claim",
+   "five-paths-the-gate-never-reaches-each-measured-as-a-pair",
+   "the-rollback-was-read-back-from-the-database-not-inferred-from-a-missing-delete",
+   "two-switches-not-one-because-admitted-types-still-governs-release",
+   "the-claim-refusal-reuses-a-generic-word-because-the-brief-was-stricter-than-needed"
   ]
  },
  "task": {
-  "id": "Task 35",
-  "title": "Esmagar as migracoes numa inicial por contexto",
+  "id": "Task 36",
+  "title": "Implementar a habilitacao progressiva e o rollback logico",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -223,7 +222,7 @@
   {
    "id": "Task 36",
    "title": "Implementar a habilitação progressiva e o rollback lógico",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 37",

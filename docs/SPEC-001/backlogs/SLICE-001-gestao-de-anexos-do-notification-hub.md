@@ -393,7 +393,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 33 | Implementar o descarte seguro de abandonados | Implementation | Senior Dev | 5 | 24h | 17, 32 | Done |
 | 34 | Implementar a evidência operacional reconstruível | Implementation | Senior Dev | 5 | 24h | 30, 32 | Done |
 | 35 | Esmagar as migrações numa inicial e regenerar o snapshot de modelo | Implementation | Senior Dev | 3 | 16h | 25 | Done |
-| 36 | Implementar a habilitação progressiva e o rollback lógico | Implementation | Senior Dev | 5 | 24h | 24, 31, 34, 35 | To Do |
+| 36 | Implementar a habilitação progressiva e o rollback lógico | Implementation | Senior Dev | 5 | 24h | 24, 31, 34, 35 | Done |
 | 37 | Executar o ensaio de habilitação e reversão | Test | Senior Dev | 5 | 24h | 36, 38 | To Do |
 | 38 | Atualizar o guia do produtor e os motivos de recusa | Docs | Senior Dev | 2 | 8h | 24, 31 | To Do |
 
@@ -980,6 +980,15 @@ sem circuito aberto, então a tentativa **estaciona em desconhecido**.
 - **Estimativa**: 24h
 - **Depende de**: 24, 31, 34, 35
 - **Obrigação de rollout acrescentada em 2026-09-02**: habilitar o versionamento no bucket de produção é pré-requisito da funcionalidade e não tem decisão de infraestrutura registrada. Enquanto ele não existir, o upload falha fechado, porque a resposta de escrita não traz versão e a captura recusa. A habilitação traz custo de armazenamento acumulativo e exige política de ciclo de vida.
+- **Estado**: Done em 2026-09-04.
+- **Não é o kill switch, e o motivo é o padrão de ausência**: lá a ausência de linha significa permitido, aqui significa desabilitado. As duas na mesma tabela dariam consequências opostas à mesma ausência, e um operador que apagasse uma linha habilitaria a capacidade sem querer. Além disso as palavras se leem diferente num incidente: bloqueado é emergência, não habilitado é estado de implantação. O controle é seção própria do módulo com um booleano **sem inicializador**, de modo que quem responde por uma implantação que não nomeia a seção é o padrão do tipo, que é falso.
+- **Dois pontos de bloqueio, nenhum a mais**: o registro de anexo novo, antes de julgar metadados, e o claim, **depois** do ramo que responde a um claim já realizado. A ordem no claim é o que impede que desligar a capacidade transforme toda retentativa de notificação já aceita numa rejeição.
+- **Cinco caminhos que o portão não alcança**, cada um com o par medido, isto é, funciona desligado e a mutação que faz o portão alcançá-lo derruba o teste: despacho de tentativa já aceita, com o conjunto inteiro chegando ao provedor; fallback; rodada de reconciliação; varredura de abandono; e leitura de evidência. Mais o caminho sem anexos, aceito no mesmo host que recusa um conjunto.
+- **A reversão foi lida de volta do banco**, e não afirmada pela ausência de um comando de exclusão: anexo, gerações, liberações, dependências e o documento do manifesto conferido byte a byte.
+- **Duas chaves, não uma**, e isso precisa estar claro para quem operar: ligar a aceitação **não** habilita anexos, porque a lista vazia de tipos de conteúdo admitidos continua impedindo qualquer liberação. A primeira governa o aceite, a segunda governa a validação.
+- **Limitação declarada, com causa no encaminhamento e não no construtor**: no registro, a recusa por capacidade desligada tem palavra própria; no claim, ela sai como a mesma palavra genérica de anexo não reivindicável, porque o encaminhamento proibiu tocar o vocabulário voltado ao produtor para não colidir com a tarefa do guia. O efeito é que produtor e trilha não distinguem capacidade desligada de anexo revogado, e as ações corretas são opostas: uma pede espera, a outra pede não repetir. A restrição era mais estrita que o necessário, porque código de transporte não passa pelo teste de adequação do catálogo, e a correção pertence à janela da tarefa do guia.
+- **Onze reprovações não planejadas** revelaram que quatro arranjos precisavam declarar a chave, o que também prova que as linhas de arranjo não são decorativas.
+- **O que os oráculos não provam**, declarado: sem versionamento no bucket, cada upload deixa um objeto durável órfão que o módulo não consegue remover, e habilitar o versionamento é pré-requisito para sequer alcançar essa falha; e nada aqui mede o custo acumulativo de armazenamento nem a política de ciclo de vida que ele exige.
 - **Aceitação**: Os controles são implantados desabilitados; o caminho sem anexos e os itens já aceitos continuam processáveis; desabilitar novos aceites mantém leitura, tentativa, reconciliação e investigação dos itens existentes; a reversão lógica não apaga dados; nenhuma habilitação operacional ocorre antes do ensaio da Tarefa 37 e da publicação da documentação do produtor.
 
 ### Tarefa 37: Executar o ensaio de habilitação e reversão
