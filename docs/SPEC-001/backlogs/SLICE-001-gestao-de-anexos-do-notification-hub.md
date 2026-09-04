@@ -390,7 +390,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 30 | Produzir a evidência dos bytes submetidos | Implementation | Senior Dev | 3 | 16h | 29 | Done |
 | 31 | Implementar roteamento e fallback com terminação explícita | Implementation | Senior Dev | 5 | 24h | 27 | Done |
 | 32 | Implementar a reconciliação de falhas parciais e a convergência de órfãos | Implementation | Senior Dev | 8 | 40h | 21, 30 | Done |
-| 33 | Implementar o descarte seguro de abandonados | Implementation | Senior Dev | 5 | 24h | 17, 32 | To Do |
+| 33 | Implementar o descarte seguro de abandonados | Implementation | Senior Dev | 5 | 24h | 17, 32 | Done |
 | 34 | Implementar a evidência operacional reconstruível | Implementation | Senior Dev | 5 | 24h | 30, 32 | To Do |
 | 35 | Esmagar as migrações numa inicial e regenerar o snapshot de modelo | Implementation | Senior Dev | 3 | 16h | 25 | To Do |
 | 36 | Implementar a habilitação progressiva e o rollback lógico | Implementation | Senior Dev | 5 | 24h | 24, 31, 34, 35 | To Do |
@@ -914,6 +914,16 @@ sem circuito aberto, então a tentativa **estaciona em desconhecido**.
 - **Estimativa**: 24h
 - **Depende de**: 17, 32
 - **Entrada obrigatória da Tarefa 16**: o descarte é por versão exata. Foi medido que a exclusão sem versão não apaga nada, cria marcador e devolve sucesso, deixando a geração durável e legível. Marcadores de exclusão são entrada distinta na enumeração, e o indicador que os identifica chega nulo para versão normal, não falso. A política de expurgo das linhas de geração pertence a esta tarefa.
+- **Estado**: Done em 2026-09-04.
+- **Portão de produto fechado por delegação**: a regra de descarte estava registrada como decisão externa à engenharia. Os prazos viraram configuração **sem padrão que fecha**, pelo precedente que o módulo já tinha na capacidade: zero é a marca de valor que ninguém definiu, a partida recusa a seção ausente e o agregado recusa de novo. Um prazo que ninguém configurou não pode significar descarte imediato, porque seria decisão de produto tomada por omissão.
+- **Um número é derivado, os outros são escolha, e o recibo separa os dois**: o piso é a soma do prazo de obsolescência com o intervalo da reconciliação de entrega, e um teste lê o `appsettings.json` publicado para reprovar se aquele ciclo crescer. Os prazos de cada estado são escolha registrada, não derivação.
+- **O órfão de amplificação passou a ser recolhido**, o que fecha a lacuna que a tarefa anterior deixou declarada. A varredura enumera por prefixo e não apenas as gerações registradas, medido em zero geração registrada, uma durável antes e nenhuma depois.
+- **Achado que mudou a forma da tarefa**: remover os bytes é exatamente o que **reabre** o caminho do upload. O que impedia repetir o envio sobre um anexo já resolvido não era estado nenhum, era a escrita condicional encontrando a chave ocupada. Uma varredura que apenas removesse bytes, como a descrição pedia, devolveria toda referência descartada ao produtor como enviável de novo, e **nenhum oráculo que verificasse apenas o sumiço dos bytes veria isso**. Daí o estado terminal próprio e a guarda no caminho de upload, medida nos dois sentidos.
+- **A regra de expurgo que o orquestrador propôs foi medida e recusada**: a linha de liberação tem chave estrangeira restritiva para a linha de geração, então um anexo liberado e depois revogado, que nunca teve dependência e portanto caía exatamente na regra proposta, reprova na integridade referencial. Nenhuma linha de registro é expurgada; quem diz que o conteúdo saiu é o estado. O registro sobrevive aos bytes, que é o que a evidência reconstruível vai precisar.
+- **A recusa continua sendo do descarte, e não da varredura**: a operação ganhou entrada para quem já detém a linha e a transação, porque decidir que um anexo está abandonado e remover os bytes têm que acontecer sob uma trava só, ou a decisão age sobre leitura que um upload tornou falsa no meio. Nenhum argumento dessa entrada desliga a leitura das dependências: uma segunda leitura dessa regra em outro lugar seria um segundo lugar para ela estar errada.
+- **Matriz de preservação**: quatro estados por quatro razões de dependência, com o relógio um ano além do prazo, todas preservadas, e cada zero acompanhado do um, porque encerrar a dependência e rodar de novo remove.
+- **Onze mutações de um eixo, onze vermelhos, nenhuma verde**, com reversão conferida por resumo criptográfico e recompilação forçada.
+- **O que os oráculos não provam**, declarado: nada sobre o custo da varredura sob carga real; a enumeração por prefixo é medida contra o dublê local e não contra o provedor; e o piso derivado protege contra o ciclo de reconciliação crescer, não contra alguém configurar prazo curto de propósito.
 - **Aceitação**: A varredura remove apenas abandonados sem dependência viva, e nunca um anexo vinculado a notificação ativa.
 
 ### Tarefa 34: Implementar a evidência operacional reconstruível
