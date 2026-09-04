@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-04T23:10:00Z",
+ "updated_at": "2026-09-05T01:20:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 37,
+  "completed_tasks": 38,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,21 +23,23 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-04T23:10:00Z",
-  "task": "Task 38",
-  "checkpoint": "producer-guide-accepted",
+  "at": "2026-09-05T01:20:00Z",
+  "task": "Task 37",
+  "checkpoint": "rollout-rehearsal-accepted",
   "status": "done",
   "reason_codes": [
-   "the-fitness-function-was-one-way-and-the-brief-asserted-otherwise",
-   "an-orphan-row-naming-a-word-the-code-never-emits-used-to-pass",
-   "the-producer-now-tells-capability-off-from-attachment-revoked",
-   "four-guide-statements-were-wrong-not-merely-stale",
-   "an-orphan-error-message-exists-in-code-and-nothing-catches-that-class"
+   "the-forbidden-arm-reads-one-row-by-two-models-and-absence-is-what-lets-it-ship-without-attachments",
+   "the-switch-off-implication-was-measured-end-to-end-not-asserted",
+   "the-golden-vectors-predate-the-change-and-went-red-under-mutation",
+   "the-old-reader-and-writer-are-a-double-and-the-limit-is-declared",
+   "one-arm-is-weak-by-the-rule-the-previous-task-established",
+   "the-void-clause-was-declared-void-instead-of-satisfied-by-invention",
+   "no-production-defect-and-no-production-line-changed"
   ]
  },
  "task": {
-  "id": "Task 38",
-  "title": "Atualizar o guia do produtor e os motivos de recusa",
+  "id": "Task 37",
+  "title": "Executar o ensaio de habilitacao e reversao",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -226,7 +228,7 @@
   {
    "id": "Task 37",
    "title": "Executar o ensaio de versões mistas",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 38",

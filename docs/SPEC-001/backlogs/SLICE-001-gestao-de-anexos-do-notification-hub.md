@@ -394,7 +394,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 34 | Implementar a evidência operacional reconstruível | Implementation | Senior Dev | 5 | 24h | 30, 32 | Done |
 | 35 | Esmagar as migrações numa inicial e regenerar o snapshot de modelo | Implementation | Senior Dev | 3 | 16h | 25 | Done |
 | 36 | Implementar a habilitação progressiva e o rollback lógico | Implementation | Senior Dev | 5 | 24h | 24, 31, 34, 35 | Done |
-| 37 | Executar o ensaio de habilitação e reversão | Test | Senior Dev | 5 | 24h | 36, 38 | To Do |
+| 37 | Executar o ensaio de habilitação e reversão | Test | Senior Dev | 5 | 24h | 36, 38 | Done |
 | 38 | Atualizar o guia do produtor e os motivos de recusa | Docs | Senior Dev | 2 | 8h | 24, 31 | Done |
 
 ### Tarefa 1: Congelar vetores dourados do hash de ingestão
@@ -999,6 +999,16 @@ sem circuito aberto, então a tentativa **estaciona em desconhecido**.
 - **Pontos de história**: 5
 - **Estimativa**: 24h
 - **Depende de**: 36, 38
+- **Estado**: Done em 2026-09-04.
+- **Uma cláusula da aceitação abaixo está vencida e foi declarada nula**: "a versão V1 continua recusando anexos" é anterior à decisão ratificada de que não existe V2. Há uma versão de contrato só, e ela aceita anexos. No lugar dela foram medidas as duas propriedades que protegem o mesmo bem: nenhum corpo que nomeie o manifesto é aceito sem que o manifesto seja transportado, e o caminho sem anexos permanece idêntico.
+- **A combinação proibida foi medida como implicação, e não afirmada**: com a chave desligada, a referência que a requisição nomeou não aparece em documento nenhum da tabela inteira, enquanto o braço ligado deixa a dele em exatamente um. O segundo número é o arame da varredura, sem o qual o zero seria a resposta de quem nunca encontra nada.
+- **O leitor e o escritor antigos são dublê, e o limite está escrito**: um contexto derivado que ignora a propriedade, sobre o esquema vigente. Cobre consulta que não nomeia a coluna, inserção que a deixa nula, tolerância do leitor vigente e a leitura cega sobre linha com documento. Não cobre binário anterior, contrato anterior, réplicas simultâneas nem a ordem de implantação, que é procedimento.
+- **O dano da combinação quatro foi medido, e não só proibido**: a mesma linha, no mesmo instante, lê o conjunto inteiro por este build e lê ausência pelo modelo sem a coluna, e ausência é a resposta que deixa a notificação seguir até o provedor sem anexo.
+- **O caminho sem anexos foi comparado com vetores dourados anteriores à mudança**: os dois digests congelados em `60c6530`, antes de o manifesto entrar no contrato publicado. Eles ficaram vermelhos sob a mutação que escreve o membro sempre, o que os qualifica como âncoras vivas. O vetor de bytes canônicos comparado contra o host nasceu nesta tarefa e está declarado como posterior.
+- **A retentativa atravessa a virada da chave**: uma requisição com conjunto aceita no host que aceita anexos, repetida com o mesmo corpo e a mesma chave no host que não aceita, recebe a resposta de repetição com o mesmo identificador. O replay é resolvido pela admissão, antes do claim, portanto o portão de capacidade nunca é alcançado por ela.
+- **Nenhum defeito de produção foi encontrado**, e nenhuma linha de produção foi alterada. A única correção foi de arranjo, na expectativa do código de resposta da repetição.
+- **O que os oráculos não provam**, declarado: compatibilidade com binário anterior, porque o dublê compartilha deste build o validador, a forma canônica, o claim e o tipo de entidade; ordenação entre réplicas simultâneas; a ordem de implantação, que nenhum portão no repositório impõe; o caminho sem anexos no barramento, medido só no ingresso REST; e uma reprovação intermitente de unidade cujo nome não foi capturado, seguida de quatro rodadas verdes.
+- **Recibo completo** em `.araia/runs/SPEC-001/IMPLEMENT/SLICE-001/experiments/task-37-rollout-rehearsal.md`.
 - **Aceitação**: As três combinações compatíveis passam, a combinação proibida é bloqueada antes da habilitação operacional, a versão V1 continua recusando anexos, o caminho sem anexos permanece idêntico e nenhum replay legítimo devolve conflito.
 
 ### Tarefa 38: Atualizar o guia do produtor e os motivos de recusa
