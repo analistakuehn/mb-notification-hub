@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-04T21:30:00Z",
+ "updated_at": "2026-09-04T23:10:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 36,
+  "completed_tasks": 37,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,22 +23,21 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-04T21:30:00Z",
-  "task": "Task 36",
-  "checkpoint": "progressive-enablement-accepted",
+  "at": "2026-09-04T23:10:00Z",
+  "task": "Task 38",
+  "checkpoint": "producer-guide-accepted",
   "status": "done",
   "reason_codes": [
-   "absence-means-disabled-here-and-allowed-in-the-kill-switch-so-they-cannot-share-a-table",
-   "the-claim-gate-sits-after-the-branch-that-answers-an-already-made-claim",
-   "five-paths-the-gate-never-reaches-each-measured-as-a-pair",
-   "the-rollback-was-read-back-from-the-database-not-inferred-from-a-missing-delete",
-   "two-switches-not-one-because-admitted-types-still-governs-release",
-   "the-claim-refusal-reuses-a-generic-word-because-the-brief-was-stricter-than-needed"
+   "the-fitness-function-was-one-way-and-the-brief-asserted-otherwise",
+   "an-orphan-row-naming-a-word-the-code-never-emits-used-to-pass",
+   "the-producer-now-tells-capability-off-from-attachment-revoked",
+   "four-guide-statements-were-wrong-not-merely-stale",
+   "an-orphan-error-message-exists-in-code-and-nothing-catches-that-class"
   ]
  },
  "task": {
-  "id": "Task 36",
-  "title": "Implementar a habilitacao progressiva e o rollback logico",
+  "id": "Task 38",
+  "title": "Atualizar o guia do produtor e os motivos de recusa",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -232,7 +231,7 @@
   {
    "id": "Task 38",
    "title": "Atualizar o guia do produtor e os motivos de recusa",
-   "status": "pending"
+   "status": "completed"
   }
  ],
  "evidence": {

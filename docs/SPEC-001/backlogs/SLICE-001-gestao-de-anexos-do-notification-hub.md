@@ -395,7 +395,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 35 | Esmagar as migrações numa inicial e regenerar o snapshot de modelo | Implementation | Senior Dev | 3 | 16h | 25 | Done |
 | 36 | Implementar a habilitação progressiva e o rollback lógico | Implementation | Senior Dev | 5 | 24h | 24, 31, 34, 35 | Done |
 | 37 | Executar o ensaio de habilitação e reversão | Test | Senior Dev | 5 | 24h | 36, 38 | To Do |
-| 38 | Atualizar o guia do produtor e os motivos de recusa | Docs | Senior Dev | 2 | 8h | 24, 31 | To Do |
+| 38 | Atualizar o guia do produtor e os motivos de recusa | Docs | Senior Dev | 2 | 8h | 24, 31 | Done |
 
 ### Tarefa 1: Congelar vetores dourados do hash de ingestão
 
@@ -1009,6 +1009,13 @@ sem circuito aberto, então a tentativa **estaciona em desconhecido**.
 - **Pontos de história**: 2
 - **Estimativa**: 8h
 - **Depende de**: 24, 31
+- **Estado**: Done em 2026-09-04.
+- **A função de adequação era unidirecional, e a premissa do encaminhamento estava errada.** O encaminhamento afirmou que a tabela era verificada nos dois sentidos; a medição mostrou o contrário: remover a linha de um motivo reprova, mas **inserir linha nomeando palavra que o código nunca emite passa**. A tabela podia documentar vocabulário inexistente com o portão verde. Entrou uma regra nova para o sentido que faltava, com o vermelho medido, e a suíte de arquitetura foi de 30 para 31.
+- **O produtor passa a distinguir duas situações de ação oposta.** Com a capacidade desligada, o vínculo respondia com a mesma palavra de anexo revogado, e as ações são contrárias: uma pede esperar a habilitação e reenviar o mesmo corpo, a outra pede nunca repetir o conjunto. O desfecho do claim ganhou membro próprio, acrescentado ao fim com o zero intacto, e o ingresso responde com palavra própria nos dois transportes, com trilha gravada e barramento em silêncio.
+- **A genericidade deliberada continua valendo**: a palavra antiga segue sem revelar qual referência falhou nem se era inexistente, estrangeira, não liberada ou revogada. A palavra nova não a viola, porque capacidade desligada é fato sobre a implantação, igual para todo chamador, e não fato sobre anexo de terceiro.
+- **Quatro pontos do guia estavam errados, e não apenas desatualizados**: a seção que atribuía o bloqueio à lista vazia de tipos de conteúdo, quando a causa operante é anterior e é o portão da capacidade; uma âncora de evidência que apontava para um comentário sem relação com a afirmação; uma frase que deixava supor que as rotas de anexo funcionam, quando o registro recusa de saída; e a descrição do ambiente local, cujo serviço não recebe configuração de armazenamento e por isso responde indisponível, e não pré-requisito incompleto.
+- **Um código órfão foi encontrado e deixado fora, com registro**: existe mensagem no mapa de respostas do módulo que nenhum caminho de produtor devolve, porque toda rota que nomeia referência mapeia referência malformada para outro código. Nada no repositório pega essa classe de defeito em código; agora só em documentação.
+- **O que os oráculos não provam**, declarado: a regra nova cobre a tabela do catálogo publicado e não as demais tabelas do guia; e nenhum portão liga mensagem declarada no módulo a caminho que a devolva.
 - **Aceitação**: A função de adequação do catálogo do guia passa; a proibição vigente foi revista para refletir a capacidade.
 
 ## Prompt semente para IA
