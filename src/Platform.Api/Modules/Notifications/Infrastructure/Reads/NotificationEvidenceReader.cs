@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NotificationHub.Api.Infrastructure.Cryptography;
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
+using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Auditing;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Privacy;
@@ -19,6 +21,7 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Reads;
 /// </summary>
 internal sealed class NotificationEvidenceReader(
     NotificationsReadDbContext db,
+    IAttachmentEvidence attachments,
     IEnvelopeCipher cipher) : INotificationEvidence
 {
     /// <summary>
@@ -51,6 +54,7 @@ internal sealed class NotificationEvidenceReader(
                 candidate.CorrelationId,
                 candidate.RequestedBy,
                 candidate.VariablesMaskedJson,
+                candidate.AcceptedAttachmentsJson,
                 candidate.ReleaseAt,
                 candidate.ExpiresAt,
                 candidate.CreatedAt))
@@ -99,6 +103,9 @@ internal sealed class NotificationEvidenceReader(
                 evaluation.EvaluatedAt))
             .ToListAsync(cancellationToken);
 
+        AcceptedAttachmentsEvidenceView accepted = await ReadAcceptedAttachmentsAsync(
+            notification.AcceptedAttachmentsJson, cancellationToken);
+
         return Result.Success(new NotificationEvidence
         {
             Id = notification.Id,
@@ -117,6 +124,8 @@ internal sealed class NotificationEvidenceReader(
             CreatedAt = notification.CreatedAt,
             Attempts = [.. attempts.Select(attempt => ToAttempt(attempt, feedback[attempt.Id]))],
             PolicyEvaluations = [.. evaluations.Select(ToEvaluation)],
+            AcceptedAttachments = accepted.Accepted,
+            AcceptedAttachmentsRefusal = accepted.Refusal,
         });
     }
 
@@ -167,6 +176,44 @@ internal sealed class NotificationEvidenceReader(
                 content.Subject, content.Body, content.BodyText),
             CompleteFormStillStored = content.CarriesMaskedForm,
         });
+    }
+
+    /// <summary>
+    /// Reads the set the notification was accepted over, completing each member
+    /// with what the owning module still records about the content it was
+    /// accepted with.
+    /// <para>
+    /// The row is asked first and it is the only authority on the composition.
+    /// The owning module is asked one question, about the exact handles that
+    /// document froze, so nothing here can answer with attachments the
+    /// acceptance never agreed to.
+    /// </para>
+    /// <para>
+    /// A document that does not read stops nothing here, unlike on the paths
+    /// that could still reach a provider. Those refuse because sending over a
+    /// set nobody can name is the expensive failure; this one reports the
+    /// defect, because an auditor who is told nothing learns less than one who
+    /// is told the row is corrupt.
+    /// </para>
+    /// <para>
+    /// A failure of the owning module is not caught. Answering with the members
+    /// unresolved would state that this module no longer records them, which is
+    /// a claim about the durable record rather than about a store that could
+    /// not be reached, and an evidence surface must not turn an outage into
+    /// that sentence.
+    /// </para>
+    /// </summary>
+    private async Task<AcceptedAttachmentsEvidenceView> ReadAcceptedAttachmentsAsync(
+        string? acceptedAttachmentsJson,
+        CancellationToken cancellationToken)
+    {
+        AcceptedManifestRead stored = AcceptedAttachmentManifest.Read(acceptedAttachmentsJson);
+        IReadOnlyList<string> handles = AcceptedAttachmentEvidenceProjection.HandlesOf(stored);
+        IReadOnlyDictionary<string, AttachmentEvidence> recorded = handles.Count == 0
+            ? new Dictionary<string, AttachmentEvidence>(StringComparer.Ordinal)
+            : await attachments.DescribeAcceptedContentAsync(handles, cancellationToken);
+
+        return AcceptedAttachmentEvidenceProjection.Project(stored, recorded);
     }
 
     /// <summary>
@@ -277,6 +324,7 @@ internal sealed class NotificationEvidenceReader(
         string? CorrelationId,
         string RequestedBy,
         string VariablesMaskedJson,
+        string? AcceptedAttachmentsJson,
         DateTimeOffset? ReleaseAt,
         DateTimeOffset ExpiresAt,
         DateTimeOffset CreatedAt);

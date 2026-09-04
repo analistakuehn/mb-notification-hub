@@ -138,6 +138,143 @@ internal static partial class GetNotificationEvidence
         public required IReadOnlyList<ApprovalView> Approvals { get; init; }
 
         public required RecipientView Recipient { get; init; }
+
+        /// <summary>
+        /// The attachments the notification was accepted over, as the snapshot
+        /// on its row froze them and as the owning module still records them.
+        /// Always present as a block, because the block is what tells an empty
+        /// set apart from a set nobody can name.
+        /// </summary>
+        public required AttachmentsView Attachments { get; init; }
+    }
+
+    /// <summary>
+    /// What the notification row says about the attachments it was accepted
+    /// over. Exactly one of the two members is ever written.
+    /// <para>
+    /// <c>accepted</c> present and empty states a fact, that the notification
+    /// named no attachments. <c>accepted</c> missing states ignorance, and
+    /// <c>unreadable</c> then names the shape of the defect in the stored
+    /// document. An answer that reported the second as an empty array would
+    /// tell an auditor that a notification carried nothing when what happened
+    /// is that its set cannot be read.
+    /// </para>
+    /// </summary>
+    internal sealed record AttachmentsView
+    {
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public IReadOnlyList<AcceptedAttachmentView>? Accepted { get; init; }
+
+        /// <summary>
+        /// Why the stored document does not read, from the closed vocabulary of
+        /// the module that owns it. It names the shape of the defect and never
+        /// quotes the document.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Unreadable { get; init; }
+    }
+
+    /// <summary>
+    /// One accepted attachment: what the acceptance froze about it, and what
+    /// the module that owns it still records about the bytes.
+    /// <para>
+    /// The name, the media type and the length appear here and are kept out of
+    /// every other surface. They are producer data, and an operational line, a
+    /// queue body or a published event is exactly where they must not surface;
+    /// this route is a single authorized disclosure whose purpose is telling an
+    /// auditor what went out, and there they are the answer.
+    /// </para>
+    /// </summary>
+    internal sealed record AcceptedAttachmentView
+    {
+        /// <summary>The opaque identity of the attachment, as the claim received it.</summary>
+        public required string Reference { get; init; }
+
+        /// <summary>
+        /// The handle the acceptance froze. It says which bytes were accepted,
+        /// it says nothing on its own, and it is neither a coordinate nor a
+        /// value that can be exchanged for content.
+        /// </summary>
+        public required string ContentIdentity { get; init; }
+
+        public required string Name { get; init; }
+
+        public required string MediaType { get; init; }
+
+        public required long Length { get; init; }
+
+        /// <summary>
+        /// What the owning module still records about the content this member
+        /// was accepted with. Absent when that module no longer answers for the
+        /// handle, which is a statement about the record and never about the
+        /// send: the members above still say what the notification carried.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public RecordedContentView? Recorded { get; init; }
+    }
+
+    /// <summary>
+    /// The durable record of one accepted content: the proof of which bytes
+    /// they were, and what the lifecycle of the attachment says about them.
+    /// <para>
+    /// The digest travels and the coordinates do not. A store, a key or a
+    /// generation of the provider is capacity to reach bytes rather than proof
+    /// of them, and this answer exists so that an auditor never has to be given
+    /// one. The bytes themselves leave through no member here in any form.
+    /// </para>
+    /// <para>
+    /// The record outlives the content. A sweep that takes the bytes of an
+    /// abandoned attachment removes no row, so this block still answers
+    /// afterwards and <c>state</c> is what says the content is gone.
+    /// </para>
+    /// </summary>
+    internal sealed record RecordedContentView
+    {
+        /// <summary>
+        /// The attachment the handle resolves to, as the owning module records
+        /// it. It is that module's own answer, so a reader compares it with the
+        /// reference the snapshot froze instead of inheriting one of the two.
+        /// </summary>
+        public required string Reference { get; init; }
+
+        public required string Application { get; init; }
+
+        public required string State { get; init; }
+
+        /// <summary>Registered name of the digest computed over these bytes.</summary>
+        public required string DigestAlgorithm { get; init; }
+
+        /// <summary>The digest of the exact generation the handle names, in lowercase hex.</summary>
+        public required string Digest { get; init; }
+
+        /// <summary>The length measured in the pass that measured the digest.</summary>
+        public required long DigestedLengthBytes { get; init; }
+
+        /// <summary>When those bytes were captured and measured.</summary>
+        public required DateTimeOffset CapturedAt { get; init; }
+
+        /// <summary>Which check refused, or which verdict did not conclude.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ValidationDetail { get; init; }
+
+        /// <summary>What the leading bytes were recognized as, when a signature matched them.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DetectedContentType { get; init; }
+
+        /// <summary>
+        /// When the release over this exact generation was granted, and never
+        /// the latest grant of the attachment: a revalidation writes a second
+        /// grant over other bytes, and reporting it would date the approval of
+        /// content this notification never carried.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DateTimeOffset? ReleasedAt { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DateTimeOffset? RevokedAt { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? RevocationReason { get; init; }
     }
 
     internal sealed record NotificationView

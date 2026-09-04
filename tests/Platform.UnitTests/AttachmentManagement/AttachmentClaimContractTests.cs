@@ -56,6 +56,14 @@ public sealed class AttachmentClaimContractTests
                 nameof(AttachmentClaimRequest),
                 nameof(AttachmentClaimStatus),
                 nameof(AttachmentEnvelopeVerdict),
+
+                // The proof of the bytes, published here on purpose and
+                // reachable through one authorized read. It is the exact
+                // statement the accepted snapshot refuses to carry, and the
+                // difference is the surface: the snapshot travels with every
+                // dispatch and every log line, while this one answers a reader
+                // entitled to know which bytes went out.
+                nameof(AttachmentEvidence),
                 nameof(AttachmentReferences),
                 nameof(AttachmentReleaseVerdict),
 
@@ -70,6 +78,7 @@ public sealed class AttachmentClaimContractTests
                 nameof(IAcceptedAttachmentContent),
                 nameof(IAttachmentClaim),
                 nameof(IAttachmentEnvelopeCheck),
+                nameof(IAttachmentEvidence),
                 nameof(IAttachmentReleaseCheck),
                 nameof(IAttachmentSubmissionWitness),
                 nameof(SubmittedAttachmentBytes),
@@ -156,6 +165,26 @@ public sealed class AttachmentClaimContractTests
             "AttachmentEnvelopeVerdict.Exceeded",
             "AttachmentEnvelopeVerdict.WithinEnvelope",
 
+            // What this module can still prove about accepted content, and
+            // nothing that reaches it. The digest, the algorithm and the
+            // measured length are the proof; the store, the key and the
+            // generation of the provider are capacity to fetch the bytes and
+            // are not published here, which is what keeps this surface a way
+            // of knowing rather than a second way in.
+            "AttachmentEvidence.Application",
+            "AttachmentEvidence.CapturedAt",
+            "AttachmentEvidence.ContentIdentity",
+            "AttachmentEvidence.DetectedContentType",
+            "AttachmentEvidence.Digest",
+            "AttachmentEvidence.DigestAlgorithm",
+            "AttachmentEvidence.DigestedLengthBytes",
+            "AttachmentEvidence.Reference",
+            "AttachmentEvidence.ReleasedAt",
+            "AttachmentEvidence.RevocationReason",
+            "AttachmentEvidence.RevokedAt",
+            "AttachmentEvidence.State",
+            "AttachmentEvidence.ValidationDetail",
+
             "AttachmentReferences.Count",
             "AttachmentReferences.Item",
 
@@ -174,6 +203,7 @@ public sealed class AttachmentClaimContractTests
             "IAcceptedAttachmentContent.OpenAsync",
             "IAttachmentClaim.ClaimAsync",
             "IAttachmentEnvelopeCheck.Measure",
+            "IAttachmentEvidence.DescribeAcceptedContentAsync",
             "IAttachmentReleaseCheck.VerifyAsync",
             "IAttachmentSubmissionWitness.SettleAsync",
 

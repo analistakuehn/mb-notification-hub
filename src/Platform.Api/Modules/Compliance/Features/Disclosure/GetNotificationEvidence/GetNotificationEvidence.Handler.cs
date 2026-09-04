@@ -80,6 +80,7 @@ internal static partial class GetNotificationEvidence
                     Template = template.IsSuccess ? ToTemplate(template.Value!) : null,
                     Approvals = [.. approvals.Select(ToApproval)],
                     Recipient = recipient,
+                    Attachments = ToAttachments(evidence),
                 },
             };
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 
 namespace NotificationHub.Api.Modules.Notifications.Integration.V1;
 
@@ -47,9 +48,87 @@ public sealed record NotificationEvidence
     /// </summary>
     public required JsonElement VariablesMasked { get; init; }
 
+    /// <summary>
+    /// The set the notification was accepted over, in the order the acceptance
+    /// froze, or nothing when the stored document does not read.
+    /// <para>
+    /// Empty and absent are different answers on purpose. An empty list states
+    /// a fact, that the notification named no attachments, and it is the
+    /// ordinary answer for most notifications and for every row older than the
+    /// column. Nothing at all states ignorance, and
+    /// <see cref="AcceptedAttachmentsRefusal"/> then names the shape of the
+    /// defect. Reading the second as the first would tell an auditor that a
+    /// notification carried no attachments when what happened is that nobody
+    /// can name the ones it carried.
+    /// </para>
+    /// </summary>
+    public required IReadOnlyList<AcceptedAttachmentEvidence>? AcceptedAttachments { get; init; }
+
+    /// <summary>
+    /// Why the stored document does not read, from the closed vocabulary of the
+    /// reader, or nothing when it reads. It names the shape of the defect and
+    /// never quotes the document: a reference, a name and a media type are
+    /// producer data, and the answer that reports the defect must not become
+    /// the way they surface.
+    /// </summary>
+    public required string? AcceptedAttachmentsRefusal { get; init; }
+
     public required IReadOnlyList<NotificationAttemptEvidence> Attempts { get; init; }
 
     public required IReadOnlyList<PolicyEvaluationEvidence> PolicyEvaluations { get; init; }
+}
+
+/// <summary>
+/// One member of the accepted set as evidence: what the acceptance froze about
+/// it, and what the module that owns it still records about the bytes.
+/// <para>
+/// The two halves come from two places and they are kept apart for that reason.
+/// The name, the media type and the length are the values the release was
+/// granted over, read from the snapshot on the notification row, which is the
+/// only authority on what was accepted. <see cref="Recorded"/> is the answer of
+/// the owning module about the exact content the handle names, and it is the
+/// half that can go missing.
+/// </para>
+/// <para>
+/// This is where the name, the media type and the length are supposed to
+/// appear. Every other surface treats them as producer data and keeps them out,
+/// and this one is a single authorized read whose whole purpose is telling an
+/// auditor what went out.
+/// </para>
+/// </summary>
+public sealed record AcceptedAttachmentEvidence
+{
+    /// <summary>The opaque identity of the attachment, as the claim received it.</summary>
+    public required string Reference { get; init; }
+
+    /// <summary>
+    /// The handle the acceptance froze, which says which bytes were accepted
+    /// and says nothing on its own. It is the join to <see cref="Recorded"/>
+    /// and there is no second key.
+    /// </summary>
+    public required string ContentIdentity { get; init; }
+
+    /// <summary>The file name the release was granted over.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>The media type the release was granted over.</summary>
+    public required string MediaType { get; init; }
+
+    /// <summary>The length, in bytes, the release was granted over.</summary>
+    public required long Length { get; init; }
+
+    /// <summary>
+    /// What the owning module still records about the content this member was
+    /// accepted with, or nothing when it no longer answers for the handle.
+    /// <para>
+    /// Absent is a statement about that module and never about the send: the
+    /// snapshot above still names what the notification carried, and it is the
+    /// proof of the bytes that is out of reach. A record whose bytes were swept
+    /// is not this case, because the sweep removes no row and the state inside
+    /// says the content is gone.
+    /// </para>
+    /// </summary>
+    public AttachmentEvidence? Recorded { get; init; }
 }
 
 /// <summary>

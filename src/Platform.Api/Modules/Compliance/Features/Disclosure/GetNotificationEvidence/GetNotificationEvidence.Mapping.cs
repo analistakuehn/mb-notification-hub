@@ -1,3 +1,4 @@
+using NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 using NotificationHub.Api.Modules.Audit.Integration.V1;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Notifications.Integration.V1;
@@ -40,6 +41,66 @@ internal static partial class GetNotificationEvidence
         CorrelationId = evidence.CorrelationId,
         ReleaseAt = evidence.ReleaseAt,
     };
+
+    /// <summary>
+    /// Projects what the notification row says about its accepted set.
+    /// <para>
+    /// The two answers stay two. A set that read whole becomes the list, empty
+    /// included, and a document that does not read becomes no list at all plus
+    /// the refusal. Folding the second into an empty list is the one mapping
+    /// this surface must never perform.
+    /// </para>
+    /// </summary>
+    internal static AttachmentsView ToAttachments(NotificationEvidence evidence)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+        return new AttachmentsView
+        {
+            Accepted = evidence.AcceptedAttachments is { } accepted
+                ? [.. accepted.Select(ToAcceptedAttachment)]
+                : null,
+            Unreadable = evidence.AcceptedAttachmentsRefusal,
+        };
+    }
+
+    /// <summary>
+    /// Projects one accepted attachment member by member. The recorded half is
+    /// left absent when the owning module answered nothing for the handle, so
+    /// the projection cannot invent a record it was never given.
+    /// </summary>
+    private static AcceptedAttachmentView ToAcceptedAttachment(AcceptedAttachmentEvidence item)
+        => new()
+        {
+            Reference = item.Reference,
+            ContentIdentity = item.ContentIdentity,
+            Name = item.Name,
+            MediaType = item.MediaType,
+            Length = item.Length,
+            Recorded = item.Recorded is null ? null : ToRecordedContent(item.Recorded),
+        };
+
+    /// <summary>
+    /// Projects the durable record of one accepted content member by member.
+    /// The store, the key and the generation of the provider have no member to
+    /// land in, which is the point: the projection cannot forward a coordinate
+    /// it never names, and neither can the contract it reads from.
+    /// </summary>
+    private static RecordedContentView ToRecordedContent(AttachmentEvidence recorded)
+        => new()
+        {
+            Reference = recorded.Reference,
+            Application = recorded.Application,
+            State = recorded.State,
+            DigestAlgorithm = recorded.DigestAlgorithm,
+            Digest = recorded.Digest,
+            DigestedLengthBytes = recorded.DigestedLengthBytes,
+            CapturedAt = recorded.CapturedAt,
+            ValidationDetail = recorded.ValidationDetail,
+            DetectedContentType = recorded.DetectedContentType,
+            ReleasedAt = recorded.ReleasedAt,
+            RevokedAt = recorded.RevokedAt,
+            RevocationReason = recorded.RevocationReason,
+        };
 
     /// <summary>
     /// Projects one attempt member by member. The list of provider feedback is

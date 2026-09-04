@@ -7,6 +7,7 @@ using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Authorizat
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.RateLimiting;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reads;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reconciliation;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Release;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Retention;
@@ -60,6 +61,13 @@ public sealed class AttachmentManagementModule : IModule, IEndpointModule
         // the content and cannot settle the comparison would deliver a set and
         // record nothing about the bytes it delivered.
         services.TryAddSingleton<IAttachmentSubmissionWitness, RecordedAttachmentSubmissionWitness>();
+
+        // The evidence read, scoped like the release check beside it because it
+        // reads the module's own context. It is composed for the disclosure
+        // surface and for nothing else: a caller that only needs to know
+        // whether a set may go out asks the release check, which answers a
+        // verdict, while this one hands over the proof of the bytes.
+        services.TryAddScoped<IAttachmentEvidence, RecordedAttachmentEvidence>();
         services.AddScoped<AttachmentDependencyRegistry>();
         services.AddScoped<AttachmentDisposal>();
         services.AddScoped<AttachmentRevocationOperation>();
