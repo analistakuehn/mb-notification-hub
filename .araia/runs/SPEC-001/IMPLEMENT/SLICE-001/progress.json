@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-04T04:20:00Z",
+ "updated_at": "2026-09-04T06:10:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 31,
+  "completed_tasks": 32,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,24 +23,24 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-04T04:20:00Z",
-  "task": "Task 31",
-  "checkpoint": "routing-refusal-accepted",
+  "at": "2026-09-04T06:10:00Z",
+  "task": "Task 32",
+  "checkpoint": "reconciliation-accepted",
   "status": "done",
   "reason_codes": [
-   "the-attachment-path-reaches-the-provider-and-the-submitted-set-is-the-verified-object",
-   "the-adapter-answers-whether-the-channel-carries-and-a-second-table-would-drift",
-   "the-route-refuses-without-filtering-reordering-or-converting-anything",
-   "the-fallback-terminates-instead-of-walking-on-because-carrying-is-about-the-message",
-   "nine-single-axis-mutations-none-came-back-green",
-   "a-false-red-proved-that-a-build-exit-code-does-not-prove-recompilation",
-   "an-attachment-notification-now-has-no-fallback-at-all-and-that-is-stated",
-   "a-gitignore-pattern-was-swallowing-production-source-so-a-clean-clone-did-not-build"
+   "custody-that-only-existed-as-a-log-line-now-converges-in-one-round",
+   "the-pair-one-then-zero-was-read-per-attachment-never-as-a-table-count",
+   "the-planned-conflict-trigger-was-removed-by-measurement-not-by-argument",
+   "row-version-means-no-concurrent-path-can-annotate-an-aggregate-under-an-in-flight-upload",
+   "the-amplification-orphan-has-no-safe-trigger-and-that-gap-is-declared",
+   "the-query-plan-was-captured-from-the-pipeline-and-explained-not-transcribed",
+   "thirteen-mutations-thirteen-reds-and-a-tool-refused-an-ambiguous-revert",
+   "the-nine-inherited-reconciliation-failures-were-a-clock-asymmetry-in-the-fixture"
   ]
  },
  "task": {
-  "id": "Task 31",
-  "title": "Implementar roteamento e fallback com terminacao explicita",
+  "id": "Task 32",
+  "title": "Implementar a reconciliacao de falhas parciais e a convergencia de orfaos",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -204,7 +204,7 @@
   {
    "id": "Task 32",
    "title": "Implementar a reconciliação de falhas parciais e a convergência de órfãos",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 33",
