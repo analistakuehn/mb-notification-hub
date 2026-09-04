@@ -21,14 +21,22 @@ namespace NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storag
 internal sealed class S3AttachmentObjectStore(
     IAmazonS3 s3,
     IAmazonS3 removals,
-    string bucket) : IAttachmentObjectStore, IDisposable
+    string bucket) : IAttachmentObjectStore, IAttachmentObjectInventory, IDisposable
 {
+    /// <summary>
+    /// How many generations one listing page asks for. A key holds one
+    /// generation in every outcome this module produces on purpose, and more
+    /// than one only where a write was amplified, so the page is sized for the
+    /// pathology and the loop below is what covers the rest.
+    /// </summary>
+    private const int InventoryPageSize = 100;
+
     public async Task<AttachmentObjectCapture> PutAsync(
         AttachmentObjectRequest request,
         Stream content,
         CancellationToken cancellationToken)
     {
-        var objectKey = ObjectKey(request.ContentId);
+        var objectKey = AttachmentObjectKeys.For(request.ContentId);
         var body = new DeclaredLengthStream(content, request.ExpectedSizeBytes);
         var putRequest = new PutObjectRequest
         {
@@ -128,6 +136,85 @@ internal sealed class S3AttachmentObjectStore(
         }
     }
 
+    /// <summary>
+    /// Enumerates the generations under one derived key.
+    /// <para>
+    /// The listing is by prefix and the answers are filtered back down to the
+    /// exact key, because the provider's enumeration takes a prefix and a
+    /// prefix that ends where a key ends still matches every longer key that
+    /// starts with it. Without the equality this would hand back generations
+    /// of a neighbouring attachment, and the caller removes what it is handed.
+    /// </para>
+    /// <para>
+    /// A page the provider truncated and a page this loop could not finish
+    /// reading are the same thing here: an incomplete inventory. It answers
+    /// unavailable rather than short, because a short answer reads as
+    /// "the store holds nothing else" to a caller that decides what to remove
+    /// by what is absent from it.
+    /// </para>
+    /// </summary>
+    public async Task<AttachmentKeyInventory> ListAsync(
+        Guid contentId,
+        CancellationToken cancellationToken)
+    {
+        var objectKey = AttachmentObjectKeys.For(contentId);
+        var generations = new List<AttachmentObjectLocator>();
+        string? keyMarker = null;
+        string? versionMarker = null;
+        try
+        {
+            do
+            {
+                ListVersionsResponse response = await s3.ListVersionsAsync(
+                    new ListVersionsRequest
+                    {
+                        BucketName = bucket,
+                        Prefix = objectKey,
+                        KeyMarker = keyMarker,
+                        VersionIdMarker = versionMarker,
+                        MaxKeys = InventoryPageSize,
+                    },
+                    cancellationToken);
+                foreach (S3ObjectVersion version in response.Versions ?? [])
+                {
+                    if (version.IsDeleteMarker == true
+                        || !string.Equals(version.Key, objectKey, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    Result<AttachmentObjectLocator> locator = AttachmentObjectLocator.Create(
+                        bucket,
+                        version.Key,
+                        version.VersionId);
+
+                    // A generation the provider named in a way this module
+                    // cannot pin is not skipped quietly. Removal is by exact
+                    // generation, so an entry nobody can name is an entry
+                    // nobody can remove, and reporting the rest as the whole
+                    // inventory would let the caller conclude the key is clean.
+                    if (locator.IsFailure || locator.Value is not { } pinned)
+                    {
+                        return AttachmentKeyInventory.Unavailable();
+                    }
+
+                    generations.Add(pinned);
+                }
+
+                var truncated = response.IsTruncated ?? false;
+                keyMarker = truncated ? response.NextKeyMarker : null;
+                versionMarker = truncated ? response.NextVersionIdMarker : null;
+            }
+            while (keyMarker is not null || versionMarker is not null);
+        }
+        catch (Exception exception) when (IsStoreFailure(exception, cancellationToken))
+        {
+            return AttachmentKeyInventory.Unavailable();
+        }
+
+        return AttachmentKeyInventory.Listed(generations);
+    }
+
     public void Dispose()
     {
         s3.Dispose();
@@ -136,9 +223,6 @@ internal sealed class S3AttachmentObjectStore(
             removals.Dispose();
         }
     }
-
-    private static string ObjectKey(Guid contentId)
-        => $"attachments/{contentId:N}";
 
     /// <summary>
     /// Every failure class this store answers for instead of letting it reach

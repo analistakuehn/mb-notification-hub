@@ -4,6 +4,8 @@ using Microsoft.Extensions.Hosting;
 using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reconciliation;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
 using NotificationHub.Api.Modules.Dispatch.Integration.V1;
@@ -224,6 +226,49 @@ public sealed class WorkerHostCompositionTests
         scope.ServiceProvider.GetRequiredService<IProviderDeliveryLookupResolver>()
             .Resolve("fcm").IsFailure.ShouldBeTrue(
                 "o provedor de push não registra consulta posterior, e a recusa é o registro disso.");
+    }
+
+    /// <summary>
+    /// The attachment maintenance role composes the repair round and nothing
+    /// that answers a caller.
+    /// <para>
+    /// The whole round resolving is the proof the role composed the surfaces
+    /// it needs: the module's own store, the custody it removes through, the
+    /// inventory it discovers unaccounted generations through, and the
+    /// validation that owns the state machine a waiting verdict ends in. A
+    /// role that composed three of the four would fail on the first round in
+    /// production and never here.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_attachment_maintenance_role_hosts_the_repair_round_and_nothing_that_answers_a_caller()
+    {
+        HostApplicationBuilder builder = CreateBuilder(new Dictionary<string, string?>
+        {
+            ["Worker:Role"] = "attachment-maintenance",
+            ["Modules:AttachmentManagement:Persistence:Ef:ConnectionString"] =
+                "Host=localhost;Database=worker_tests;Username=test",
+        });
+
+        WorkerRoleCatalog.Register(builder.Services, builder.Configuration);
+        using IHost host = builder.Build();
+
+        IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
+        hosted.OfType<AttachmentReconciliationService>().ShouldHaveSingleItem();
+        hosted
+            .Where(service => service is not AttachmentReconciliationService)
+            .ShouldAllBe(service => service.GetType().Namespace!
+                .StartsWith("Microsoft.", StringComparison.Ordinal));
+
+        using IServiceScope scope = host.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<AttachmentReconciliationScan>().ShouldNotBeNull();
+
+        // No object store is configured here, and the composition answers with
+        // a custody that claims nothing and an inventory that lists nothing,
+        // rather than with a store pointed at whatever the default credential
+        // chain would find.
+        scope.ServiceProvider.GetRequiredService<IAttachmentObjectInventory>()
+            .ShouldBeOfType<UnavailableAttachmentObjectStore>();
     }
 
     [Fact]

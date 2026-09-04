@@ -27,6 +27,14 @@ internal static partial class UploadAttachment
         /// </summary>
         private static readonly TimeSpan CompensationBudget = TimeSpan.FromSeconds(10);
 
+        /// <summary>
+        /// How long the note that this attachment owes a reclaim may take. It
+        /// runs on its own deadline for the same reason the removal above
+        /// does, and a shorter one, because it is a single indexed statement
+        /// against a database this request has already been talking to.
+        /// </summary>
+        private static readonly TimeSpan LiabilityBudget = TimeSpan.FromSeconds(5);
+
         public async Task<Result<Response>> HandleAsync(
             Command command,
             CancellationToken cancellationToken)
@@ -75,6 +83,34 @@ internal static partial class UploadAttachment
                     Locator: { } locator,
                 })
             {
+                // A write the store took without naming a generation leaves
+                // the key held by bytes this module cannot remove, and from
+                // here on every retry of this upload meets the same refusal.
+                // It is recorded against the row because nothing else will
+                // ever discover it.
+                //
+                // The conditional write is what makes this note safe: it
+                // placed these bytes, so no other request can have placed any,
+                // and there is no upload of this attachment in flight that
+                // could still succeed.
+                //
+                // The conflict is deliberately not recorded here, and the
+                // reason is measured rather than argued. A conflict means
+                // somebody else's write holds the key, and that somebody may
+                // be a request that is about to record its generation. Any
+                // committed write to this row before that request saves makes
+                // its save fail on the row version, so a note taken here turns
+                // a concurrent upload that succeeded into a refusal and
+                // removes the bytes it had already stored.
+                //
+                // The store being unreachable is not recorded either. It is
+                // the common failure and it establishes nothing about durable
+                // bytes.
+                if (capture.Status == AttachmentObjectCaptureStatus.Unidentified)
+                {
+                    await NoteUnreclaimedCustodyAsync(attachment);
+                }
+
                 return CaptureFailure(capture.Status, attachment.Reference.Value);
             }
 
@@ -85,9 +121,15 @@ internal static partial class UploadAttachment
             // handlers it sat where an exception of its own replaces the one
             // being reported. Neither is reachable from here.
             UploadAttempt attempt = await RecordAsync(attachment, locator, cancellationToken);
-            if (attempt.RequiresCompensation)
+            if (attempt.RequiresCompensation
+                && !await CompensateAsync(locator, attachment.Reference.Value))
             {
-                await CompensateAsync(locator, attachment.Reference.Value);
+                // A removal the store did not confirm, and a removal that
+                // threw, end the same way: bytes under a key that stays taken.
+                // The line each of them already wrote says so and is read by
+                // nobody on a schedule, so the fact is put where the round
+                // reads it from.
+                await NoteUnreclaimedCustodyAsync(attachment);
             }
 
             if (attempt.Fault is { } fault)
@@ -208,7 +250,15 @@ internal static partial class UploadAttachment
             }
         }
 
-        private async Task CompensateAsync(AttachmentObjectLocator locator, string reference)
+        /// <summary>
+        /// Removes the generation this upload will not keep, and answers
+        /// whether the store confirmed it. The answer is what the caller
+        /// decides by: a removal nobody confirmed is a removal that did not
+        /// happen, and the bytes go on the record as still stored.
+        /// </summary>
+        private async Task<bool> CompensateAsync(
+            AttachmentObjectLocator locator,
+            string reference)
         {
             using var deadline = new CancellationTokenSource(CompensationBudget);
             try
@@ -219,10 +269,13 @@ internal static partial class UploadAttachment
                 // is what makes those bytes findable again: the key derives
                 // from the attachment and the generation derives from nothing.
                 if (await objectStore.DiscardAsync(locator, deadline.Token)
-                    != AttachmentObjectDiscard.Removed)
+                    == AttachmentObjectDiscard.Removed)
                 {
-                    logger.AttachmentGenerationNotRemoved(reference);
+                    return true;
                 }
+
+                logger.AttachmentGenerationNotRemoved(reference);
+                return false;
             }
             catch (Exception exception)
             {
@@ -230,6 +283,47 @@ internal static partial class UploadAttachment
                 // failure it was compensating for is the one the caller has to
                 // hear, so this one is recorded and stops here.
                 logger.AttachmentCompensationFailed(exception, reference);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Records that this attachment's key holds bytes the record does not
+        /// account for, so the round that repairs them has a row to find.
+        /// <para>
+        /// Every caller reached here after this request's own write placed the
+        /// bytes, which the conditional write makes exclusive: no other
+        /// request can have placed any under this key, and none can be about
+        /// to record a generation for it. That exclusivity is what makes the
+        /// note safe to take, because any committed write to this row makes a
+        /// concurrent upload's save fail on the row version.
+        /// </para>
+        /// <para>
+        /// It never becomes the answer to the caller. This runs after a
+        /// failure that has already been decided, on a deadline of its own,
+        /// and a failure of its own is a line: what it costs is that the bytes
+        /// stay outside the backlog with nothing left to discover them.
+        /// </para>
+        /// </summary>
+        private async Task NoteUnreclaimedCustodyAsync(Attachment attachment)
+        {
+            using var deadline = new CancellationTokenSource(LiabilityBudget);
+            try
+            {
+                await using AttachmentManagementDbContext durableContext =
+                    await dbContextFactory.CreateDbContextAsync(deadline.Token);
+                if (await AttachmentLiabilityLedger.RecordAsync(
+                    durableContext,
+                    attachment.Reference,
+                    AttachmentLiabilities.CustodyUnreclaimed,
+                    deadline.Token))
+                {
+                    logger.AttachmentCustodyUnreclaimed(attachment.Reference.Value);
+                }
+            }
+            catch (Exception exception)
+            {
+                logger.AttachmentLiabilityNotRecorded(exception, attachment.Reference.Value);
             }
         }
 

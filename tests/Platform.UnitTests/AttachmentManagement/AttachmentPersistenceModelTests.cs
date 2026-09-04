@@ -76,6 +76,19 @@ public sealed class AttachmentPersistenceModelTests
         // digest, so the rule that keeps the proof of the bytes off this table
         // is untouched by the addition.
         //
+        // "reconciliation_liability" holds the repair the attachment is owed,
+        // and it is here for the reason the two above are: it describes the
+        // attachment and there is no other row to put it on. An attachment
+        // that owes custody has no generation recorded, which is precisely
+        // what makes it owe one, so a row of its own would have to be invented
+        // for the debt; and a row invented before the write is itself a write
+        // outside the transaction, which creates the debt of an intention
+        // whose write never happened.
+        //
+        // It carries a word from a closed vocabulary and never a storage
+        // coordinate, a content type or a digest, so the rule that keeps the
+        // proof of the bytes off this table is untouched by it as well.
+        //
         // Taking a release back added nothing here, and that is a decision too.
         // A revocation is an act over a grant: it names the exact release it
         // withdrew, it carries an instant and a declared reason, and none of
@@ -95,12 +108,75 @@ public sealed class AttachmentPersistenceModelTests
             "id",
             "inconclusive_until",
             "received_at",
+            "reconciliation_liability",
             "reference",
             "size_bytes",
             "state",
             "validation_detail",
             "xmin",
         ]);
+    }
+
+    /// <summary>
+    /// The measured constraint on naming a repair, read the same way the state
+    /// names are read: from the mapping, never from a number written twice. A
+    /// word longer than the column would only fail when a real failure tried
+    /// to record it, which is the worst moment for a write to fail.
+    /// </summary>
+    [Fact]
+    public void Every_liability_name_fits_the_column_that_stores_it()
+    {
+        var names = typeof(AttachmentLiabilities)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(field => field is { IsLiteral: true, FieldType: { } type }
+                && type == typeof(string))
+            .Select(field => (string)field.GetRawConstantValue()!)
+            .ToArray();
+
+        // A walk that stopped finding names would make the assertion below
+        // pass over nothing, and every repair added later would join it. The
+        // published set is held against the same walk, so a word declared and
+        // left out of it cannot reach a round that decides by that set.
+        names.Order(StringComparer.Ordinal).ShouldBe(
+        [
+            "custody-unreclaimed",
+            "verdict-open",
+        ]);
+        AttachmentLiabilities.All.Order(StringComparer.Ordinal)
+            .ShouldBe(names.Order(StringComparer.Ordinal));
+
+        var ceiling = Model
+            .FindEntityType(typeof(Attachment))
+            .ShouldNotBeNull()
+            .GetProperty(nameof(Attachment.ReconciliationLiability))
+            .GetMaxLength()
+            .ShouldNotBeNull();
+
+        names.ShouldAllBe(name => name.Length <= ceiling);
+    }
+
+    /// <summary>
+    /// The index over the outstanding repairs is partial, and the filter is
+    /// what makes it worth having. Without it the structure holds every
+    /// attachment ever registered and the round pays the size of the table to
+    /// read the size of the backlog, with nothing visible from outside.
+    /// </summary>
+    [Fact]
+    public void The_index_over_outstanding_repairs_is_filtered_on_the_column_being_present()
+    {
+        IIndex index = Model
+            .FindEntityType(typeof(Attachment))
+            .ShouldNotBeNull()
+            .GetIndexes()
+            .Single(candidate => candidate.GetDatabaseName()
+                == "ix_attachment_reconciliation_liability");
+
+        index.GetFilter().ShouldBe("reconciliation_liability IS NOT NULL");
+
+        // Keyed on the instant the round consumes by, so the order it reads in
+        // is answered by the same structure that selects the rows.
+        index.Properties.Select(property => property.Name)
+            .ShouldBe([nameof(Attachment.CreatedAt)]);
     }
 
     /// <summary>

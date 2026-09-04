@@ -103,6 +103,47 @@ public sealed class AttachmentValidationStateTests
         attachment.State.ShouldBe(settled);
     }
 
+    /// <summary>
+    /// The wait writes down the repair it creates, and both ways out of the
+    /// wait take it back. The three are asserted together because the value is
+    /// only worth anything as a pair: a transition that set it and never
+    /// cleared it would hand every later round a released attachment to close
+    /// a verdict on, and one that cleared it and never set it would leave the
+    /// wait invisible to the index the round reads.
+    /// </summary>
+    [Fact]
+    public void A_verdict_that_did_not_conclude_records_the_repair_and_both_ways_out_take_it_back()
+    {
+        Attachment released = WaitingAttachment();
+        Attachment refused = WaitingAttachment();
+
+        released.ReconciliationLiability.ShouldBe(AttachmentLiabilities.VerdictOpen);
+        refused.ReconciliationLiability.ShouldBe(AttachmentLiabilities.VerdictOpen);
+
+        released.Release().ShouldBe(AttachmentValidationTransition.Applied);
+        refused.Reject("inconclusive-window-elapsed")
+            .ShouldBe(AttachmentValidationTransition.Applied);
+
+        released.ReconciliationLiability.ShouldBeNull();
+        refused.ReconciliationLiability.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// An attachment nobody left waiting owes nothing. Without this the
+    /// assertion above would be satisfied by a value written on registration,
+    /// and every attachment ever registered would sit in the backlog.
+    /// </summary>
+    [Fact]
+    public void An_attachment_no_verdict_left_waiting_owes_no_repair()
+    {
+        Attachment received = ReceivedAttachment();
+        Attachment released = ReceivedAttachment();
+        released.Release().ShouldBe(AttachmentValidationTransition.Applied);
+
+        received.ReconciliationLiability.ShouldBeNull();
+        released.ReconciliationLiability.ShouldBeNull();
+    }
+
     [Fact]
     public void A_repeated_open_verdict_does_not_move_the_deadline_it_started()
     {

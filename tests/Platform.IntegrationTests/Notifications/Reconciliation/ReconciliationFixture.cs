@@ -12,6 +12,7 @@ using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Privacy;
 using NotificationHub.Api.Modules.Notifications;
 using NotificationHub.Api.Modules.Notifications.Domain;
 using NotificationHub.Api.Modules.Notifications.Features.DeliveryTracking.Reconciliation;
+using NotificationHub.Api.Modules.Notifications.Infrastructure.Partitioning;
 using NotificationHub.Api.Modules.Notifications.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.TemplateManagement.Infrastructure.Persistence;
 using NotificationHub.IntegrationTests.Dispatch;
@@ -276,6 +277,55 @@ public sealed class ReconciliationFixture : IAsyncLifetime
         await scope.ServiceProvider.GetRequiredService<ContactConsentDbContext>().Database.MigrateAsync();
         await scope.ServiceProvider.GetRequiredService<PlatformMessagingDbContext>()
             .Database.MigrateAsync();
+        await EnsureClockPartitionsAsync(scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// Guarantees the monthly partitions the clock of this suite writes into.
+    /// <para>
+    /// The migrations provision from the wall clock of whatever runs them,
+    /// the current month and two ahead, which is what a deployment needs and
+    /// never what a suite with a clock of its own needs. This suite reads a
+    /// fixed instant, so that the staleness window is reached by moving the
+    /// clock instead of by waiting six hours, and every row it seeds carries
+    /// that instant. The two agree only while the fixed instant happens to
+    /// fall inside the month the suite runs in, and the day they stop
+    /// agreeing every seed dies with no partition found for the row.
+    /// </para>
+    /// <para>
+    /// The month before and the month after are provisioned along with it
+    /// because a seed reaches back hours and days from the fixed instant, and
+    /// a fixed instant near either edge of a month would otherwise put those
+    /// rows outside the one window this arrangement created.
+    /// </para>
+    /// </summary>
+    private async Task EnsureClockPartitionsAsync(IServiceProvider serviceProvider)
+    {
+        DateTime anchor = Clock.GetUtcNow().UtcDateTime;
+        NotificationsDbContext notifications = serviceProvider
+            .GetRequiredService<NotificationsDbContext>();
+        AuditDbContext audit = serviceProvider.GetRequiredService<AuditDbContext>();
+        for (var offset = -1; offset <= 1; offset++)
+        {
+            DateOnly from = new DateOnly(anchor.Year, anchor.Month, 1).AddMonths(offset);
+            foreach (var table in NotificationsPartitionManagerService.PartitionedTables)
+            {
+                await notifications.Database.ExecuteSqlRawAsync(
+                    PartitionSql("notifications", table, from));
+            }
+
+            await audit.Database.ExecuteSqlRawAsync(PartitionSql("audit", "audit_event", from));
+        }
+    }
+
+    private static string PartitionSql(string schema, string table, DateOnly from)
+    {
+        DateOnly to = from.AddMonths(1);
+        return $"""
+            CREATE TABLE IF NOT EXISTS {schema}."{table}_{from.Year:D4}_{from.Month:D2}"
+            PARTITION OF {schema}."{table}"
+            FOR VALUES FROM ('{from:yyyy-MM-dd} 00:00:00+00') TO ('{to:yyyy-MM-dd} 00:00:00+00')
+            """;
     }
 
     async Task IAsyncLifetime.DisposeAsync()

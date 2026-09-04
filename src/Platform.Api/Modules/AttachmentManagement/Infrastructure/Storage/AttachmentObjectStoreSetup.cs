@@ -70,6 +70,20 @@ internal static class AttachmentObjectStoreSetup
             }
         });
 
+        // Derived from whatever custody the composition ended up with, and
+        // never built a second time. A second client would be a second
+        // credential and a second set of deadlines for the same bucket, and
+        // the two could disagree about which bucket that is.
+        //
+        // A custody that cannot enumerate leaves no inventory at all. The
+        // alternative, an empty one, reads as a key that holds nothing, and
+        // the caller that asks this question decides what to remove by what
+        // the answer leaves out.
+        services.AddSingleton<IAttachmentObjectInventory>(serviceProvider =>
+            serviceProvider.GetRequiredService<IAttachmentObjectStore>()
+                as IAttachmentObjectInventory
+                ?? new UnavailableAttachmentObjectStore());
+
         return services;
     }
 

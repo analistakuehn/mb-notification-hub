@@ -166,6 +166,24 @@ public sealed class Attachment
     public DateTimeOffset? InconclusiveUntil { get; private set; }
 
     /// <summary>
+    /// The repair this attachment is owed, or nothing when it owes none. It is
+    /// the whole reason a reconciliation exists as a round rather than as a
+    /// walk of everything: the rows that owe a repair are the ones a failure
+    /// outside the transaction left behind, and there is no other durable
+    /// place they are written down.
+    /// <para>
+    /// Two writers reach it and they are not the same kind of write. The
+    /// transitions below own it while they own the row, and they set it and
+    /// clear it in the transaction that moves the state. The upload path owns
+    /// the other value and cannot use them, because it writes precisely when
+    /// its own transaction failed and there is no aggregate left to save; it
+    /// annotates the row with a statement of its own, guarded so it never
+    /// overwrites a repair already recorded.
+    /// </para>
+    /// </summary>
+    public string? ReconciliationLiability { get; private set; }
+
+    /// <summary>
     /// Registers the metadata of an attachment whose bytes have not arrived
     /// yet, refusing anything the module could not hold.
     /// <para>
@@ -261,6 +279,11 @@ public sealed class Attachment
         // waiting, and it is read only while the waiting state is the one the
         // attachment carries.
         ValidationDetail = null;
+
+        // The wait is over, so the repair it was owed is over with it, in the
+        // same transaction that ends the wait. Left behind, it would hand the
+        // round a released attachment to close a verdict on.
+        ReconciliationLiability = null;
         return AttachmentValidationTransition.Applied;
     }
 
@@ -275,6 +298,7 @@ public sealed class Attachment
 
         State = AttachmentStates.Rejected;
         ValidationDetail = detail;
+        ReconciliationLiability = null;
         return AttachmentValidationTransition.Applied;
     }
 
@@ -300,6 +324,14 @@ public sealed class Attachment
         // push the deadline forward on every repeated verdict, and a deadline
         // every retry renews is a deadline nothing ever reaches.
         InconclusiveUntil ??= now + window;
+
+        // Written here, and not by whoever notices later, because this is the
+        // transaction that creates the wait. A round that had to find these
+        // rows by the state and the deadline would be reading two columns that
+        // describe the attachment and inferring a repair from them; the value
+        // written here is the repair itself, and it is what the index over
+        // outstanding work is built on.
+        ReconciliationLiability = AttachmentLiabilities.VerdictOpen;
         return AttachmentValidationTransition.Applied;
     }
 

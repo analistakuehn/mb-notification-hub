@@ -82,4 +82,25 @@ internal static partial class UploadAttachmentLogger
     internal static partial void AttachmentGenerationVanished(
         this ILogger logger,
         string reference);
+
+    [LoggerMessage(
+        EventId = 2417,
+        Level = LogLevel.Warning,
+        Message = "Anexo {Reference}: a chave derivada guarda bytes que o registro de gerações "
+            + "não explica, portanto o anexo passa a dever a recuperação da custódia e toda "
+            + "retentativa do envio será recusada até que a rodada a execute.")]
+    internal static partial void AttachmentCustodyUnreclaimed(
+        this ILogger logger,
+        string reference);
+
+    [LoggerMessage(
+        EventId = 2418,
+        Level = LogLevel.Warning,
+        Message = "Anexo {Reference}: não foi possível registrar o passivo de custódia, "
+            + "portanto os bytes ficam fora da fila de reparo até que uma nova tentativa de "
+            + "envio encontre o mesmo conflito.")]
+    internal static partial void AttachmentLiabilityNotRecorded(
+        this ILogger logger,
+        Exception exception,
+        string reference);
 }

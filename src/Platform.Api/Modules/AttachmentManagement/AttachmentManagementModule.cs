@@ -7,6 +7,7 @@ using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Authorizat
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Capacity;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.RateLimiting;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reconciliation;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Release;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Revocation;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
@@ -30,6 +31,7 @@ public sealed class AttachmentManagementModule : IModule, IEndpointModule
         services.AddAttachmentObjectStore(configuration);
         services.AddAttachmentCapacity(configuration);
         services.AddAttachmentValidation(configuration);
+        services.AddAttachmentReconciliation(configuration);
         services.TryAddSingleton(TimeProvider.System);
 
         // The claim is stateless and joins whatever transaction it is handed,
