@@ -223,6 +223,18 @@ internal sealed class KafkaIngressProcessor(
                     Diagnose(request, producer, IngestionProblems.AttachmentsNotClaimableType),
                     cancellationToken);
 
+            // Also permanently invalid on this transport, and for a reason of
+            // its own: redelivering the event does not switch a capability on.
+            // The record keeps the word the synchronous surface answers with,
+            // so the dead letter says the deployment took no attachments
+            // instead of saying the set was refused.
+            case RequestNotificationUseCase.Outcome.AttachmentCapabilityNotEnabled:
+                return await settlement.RefuseAsync(
+                    context,
+                    Diagnose(
+                        request, producer, IngestionProblems.AttachmentCapabilityNotEnabledType),
+                    cancellationToken);
+
             case RequestNotificationUseCase.Outcome.RateLimited:
                 // Only the recipient budget rejects on this path: the
                 // principal dimension is counted and observed, never refused.

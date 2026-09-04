@@ -187,6 +187,35 @@ public sealed class NotificationRejectionReasonsTests
         NotificationRejectionReasons.IsCanonical(IngestionProblems.PrincipalRateLimitedType).ShouldBeFalse();
     }
 
+    /// <summary>
+    /// The two attachment conditions of the ingestion are separate words and
+    /// neither is a catalog member.
+    /// <para>
+    /// They stay out because neither travels as the reason of a rejection
+    /// event: only the synchronous caller and the dead-letter record are told,
+    /// and a bus reason a producer cannot look up in the published catalog is
+    /// worse than no reason at all.
+    /// </para>
+    /// <para>
+    /// They stay apart because they ask for opposite next steps. One says this
+    /// set may not be had, so sending it again changes nothing; the other says
+    /// nothing was read about the set, and the very same request is accepted
+    /// once the capability is switched on. Collapsing them tells a producer to
+    /// stop when the answer was wait.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_two_attachment_conditions_of_the_ingestion_stay_out_of_the_catalog_and_apart()
+    {
+        NotificationRejectionReasons.IsCanonical(IngestionProblems.AttachmentsNotClaimableType)
+            .ShouldBeFalse();
+        NotificationRejectionReasons
+            .IsCanonical(IngestionProblems.AttachmentCapabilityNotEnabledType)
+            .ShouldBeFalse();
+        IngestionProblems.AttachmentCapabilityNotEnabledType
+            .ShouldNotBe(IngestionProblems.AttachmentsNotClaimableType);
+    }
+
     [Fact]
     public void Kill_switch_unavailability_stays_out_of_the_rejection_catalog()
     {

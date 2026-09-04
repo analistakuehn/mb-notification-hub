@@ -191,7 +191,17 @@ public sealed class AcceptedAttachmentCapabilityTests(AcceptedAttachmentFlowFixt
         var refused = await carrying.Content.ReadAsStringAsync();
 
         carrying.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity, refused);
-        refused.ShouldContain("attachments-not-claimable");
+
+        // The word says the capability is not switched on here, and it is not
+        // the one every unclaimable set gets. The set this request named is
+        // released and would be claimed by the very same host with the switch
+        // the other way, so answering with the generic refusal would tell the
+        // producer to stop sending a set that is perfectly good.
+        refused.ShouldContain("attachment-capability-not-enabled");
+        refused.Contains("attachments-not-claimable", StringComparison.Ordinal)
+            .ShouldBeFalse(
+                "a recusa por capacidade desligada não pode chegar com a palavra genérica de "
+                + "conjunto não vinculável.");
     }
 
     /// <summary>

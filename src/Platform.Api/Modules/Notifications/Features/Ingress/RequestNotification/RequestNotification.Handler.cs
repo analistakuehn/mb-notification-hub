@@ -277,8 +277,11 @@ internal static partial class RequestNotification
         /// <summary>
         /// Answers a claim that refused. A key that already stands for a
         /// different set is the same fact the idempotency contract already has
-        /// a word for, so it answers with that word; anything else is a set
-        /// this request may not have, which is its own answer.
+        /// a word for, so it answers with that word. A deployment that takes no
+        /// new attachments answers with a word of its own, because the step it
+        /// asks for is the opposite one: waiting for the capability to be
+        /// switched on, rather than never sending this set again. Anything else
+        /// is a set this request may not have, which is its own answer.
         /// </summary>
         private async Task<Result<Outcome>> ResolveAttachmentRefusalAsync(
             Command command,
@@ -297,22 +300,40 @@ internal static partial class RequestNotification
                 return Result.Success<Outcome>(new Outcome.IdempotencyConflict());
             }
 
-            // The trail is recorded and the bus stays quiet. The reason is not
-            // a member of the published rejection catalog yet, and a rejection
-            // event carrying a word no producer can look up is worse than no
-            // event: the synchronous answer already names it.
-            await sink.RecordTrailAsync(
-                RejectionEntry(
+            if (status == AttachmentClaimStatus.CapabilityNotEnabled)
+            {
+                await RecordUnannouncedRejectionAsync(
                     command, producer, origin, idempotencyKey,
-                    IngestionProblems.AttachmentsNotClaimableType),
+                    IngestionProblems.AttachmentCapabilityNotEnabledType, cancellationToken);
+                return Result.Success<Outcome>(new Outcome.AttachmentCapabilityNotEnabled());
+            }
+
+            await RecordUnannouncedRejectionAsync(
+                command, producer, origin, idempotencyKey,
+                IngestionProblems.AttachmentsNotClaimableType, cancellationToken);
+            return Result.Success<Outcome>(new Outcome.AttachmentsNotClaimable());
+        }
+
+        /// <summary>
+        /// Records the trail of one rejection the bus never hears about. The
+        /// reason is not a member of the published rejection catalog, and a
+        /// rejection event carrying a word no producer can look up is worse
+        /// than no event: the synchronous answer already names it.
+        /// </summary>
+        private async Task RecordUnannouncedRejectionAsync(
+            Command command,
+            string producer,
+            IngestionOrigin origin,
+            string idempotencyKey,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            await sink.RecordTrailAsync(
+                RejectionEntry(command, producer, origin, idempotencyKey, reason),
                 integrationEvent: null,
                 cancellationToken);
             logger.IngressRejected(
-                command.Application,
-                command.TemplateKey,
-                command.Class,
-                IngestionProblems.AttachmentsNotClaimableType);
-            return Result.Success<Outcome>(new Outcome.AttachmentsNotClaimable());
+                command.Application, command.TemplateKey, command.Class, reason);
         }
 
         /// <summary>Records the trail of one rejection: the audit event and the outgoing rejection event.</summary>

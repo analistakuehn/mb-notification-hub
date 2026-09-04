@@ -74,6 +74,8 @@ internal static partial class RequestNotification
                 limited.Dimension, limited.RetryAfterSeconds),
             Outcome.PayloadInvalid invalid => IngestionProblems.PayloadInvalid(invalid.Errors),
             Outcome.AttachmentsNotClaimable => IngestionProblems.AttachmentsNotClaimable(),
+            Outcome.AttachmentCapabilityNotEnabled =>
+                IngestionProblems.AttachmentCapabilityNotEnabled(),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError),
         };
     }

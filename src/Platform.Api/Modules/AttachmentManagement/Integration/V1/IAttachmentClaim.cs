@@ -3,12 +3,14 @@ using System.Data.Common;
 namespace NotificationHub.Api.Modules.AttachmentManagement.Integration.V1;
 
 /// <summary>
-/// Why a claim did not accept the set. There are two answers and no more,
-/// because the difference between an attachment that does not exist and one
-/// that exists and is not this caller's is not something a refusal is allowed
-/// to reveal, and the difference between an attachment that was never released
-/// and one whose release was taken back is a reading of the lifecycle rather
-/// than an answer to a claim.
+/// Why a claim did not accept the set. One word covers every way a set may not
+/// be had, because the difference between an attachment that does not exist and
+/// one that exists and is not this caller's is not something a refusal is
+/// allowed to reveal, and the difference between an attachment that was never
+/// released and one whose release was taken back is a reading of the lifecycle
+/// rather than an answer to a claim. The other two words say nothing about any
+/// attachment: one names a key that already stands for a different set, and one
+/// names a deployment that takes no new attachments at all.
 /// </summary>
 public enum AttachmentClaimStatus
 {
@@ -35,6 +37,31 @@ public enum AttachmentClaimStatus
     /// The whole set is claimed, and the outcome carries the snapshot of it.
     /// </summary>
     Claimed,
+
+    /// <summary>
+    /// This deployment takes no new attachments at all. Nothing in the set was
+    /// found wanting: every reference resolved and belongs to this caller, no
+    /// release was consulted, and no other set would have fared better here.
+    /// <para>
+    /// It is a word of its own beside <see cref="NotClaimable"/> because the
+    /// two ask for opposite next steps. This one waits for whoever runs the
+    /// service to switch the capability on, and the caller may send the very
+    /// same set afterwards; the other one says this set may not be had, and
+    /// sending it again changes nothing.
+    /// </para>
+    /// <para>
+    /// It withholds everything the refusal above withholds. What it reveals is
+    /// the deployment state of the capability, which is the same answer for
+    /// every caller and for every reference, so learning it teaches nobody
+    /// anything about an attachment that is not theirs.
+    /// </para>
+    /// <para>
+    /// It sits at the end of the axis and never at the value zero. Zero stays
+    /// with the refusal that lets no set through, which is what a verdict
+    /// nobody set has to mean.
+    /// </para>
+    /// </summary>
+    CapabilityNotEnabled,
 }
 
 /// <summary>

@@ -10,12 +10,13 @@ namespace NotificationHub.Api.Modules.Notifications.Infrastructure.Http;
 /// <c>type</c> carries the stable rejection code; template rejections expose
 /// the failed variable checks as the <c>checks</c> extension member.
 ///
-/// Four HTTP-only codes deliberately stay out of the canonical catalog:
+/// Five HTTP-only codes deliberately stay out of the canonical catalog:
 /// <see cref="IdempotencyKeyRequiredType"/>,
 /// <see cref="PrincipalRateLimitedType"/>,
-/// <see cref="KillSwitchUnavailableType"/>, and
-/// <see cref="AttachmentsNotClaimableType"/>. None reaches the bus as the
-/// <c>reason</c> of a rejection event. Every other code answered here is a
+/// <see cref="KillSwitchUnavailableType"/>,
+/// <see cref="AttachmentsNotClaimableType"/>, and
+/// <see cref="AttachmentCapabilityNotEnabledType"/>. None reaches the bus as
+/// the <c>reason</c> of a rejection event. Every other code answered here is a
 /// catalog member.
 /// </summary>
 internal static class IngestionProblems
@@ -27,13 +28,33 @@ internal static class IngestionProblems
 
     /// <summary>
     /// The request names attachments that cannot be claimed for it. It stays
-    /// out of the canonical catalog and off the bus for now: the catalog is
-    /// the vocabulary a producer looks up in the published integration guide,
-    /// and a member that exists in code and nowhere in that guide reaches a
-    /// producer as a word it cannot look up. The guide and the catalog entry
-    /// are published together, by the task that owns that document.
+    /// out of the canonical catalog and off the bus: the catalog is the
+    /// vocabulary of the rejection event, and this condition never becomes
+    /// one, because the synchronous answer and the dead-letter record are the
+    /// two places it is told. The published integration guide documents it
+    /// beside the other conditions that stay outside the catalog, so a
+    /// producer receiving it has somewhere to look the word up.
     /// </summary>
     internal const string AttachmentsNotClaimableType = "attachments-not-claimable";
+
+    /// <summary>
+    /// This deployment takes no new attachments at all. It is a code of its own
+    /// beside the refusal above because the two ask for opposite next steps:
+    /// that one says this set may not be had and sending it again changes
+    /// nothing, while this one found nothing wanting in the set and the very
+    /// same request works once the capability is switched on. Collapsing them
+    /// would tell a producer to stop when the answer was wait, and the trail
+    /// would record the wrong one of the two.
+    /// <para>
+    /// It is spelled exactly as the attachment surface spells the same fact, so
+    /// a producer meeting it at a registration and at an ingestion looks up one
+    /// word. The constant cannot be shared: the vocabulary of that surface
+    /// belongs to the module that owns attachments, and this module reaches
+    /// that module only through the contract it publishes.
+    /// </para>
+    /// </summary>
+    internal const string AttachmentCapabilityNotEnabledType =
+        "attachment-capability-not-enabled";
 
     /// <summary>
     /// The producer's own request budget is exhausted. It is a code of its own
@@ -114,6 +135,18 @@ internal static class IngestionProblems
             StatusCodes.Status422UnprocessableEntity,
             AttachmentsNotClaimableType,
             "Os anexos informados não podem ser vinculados a esta solicitação.");
+
+    /// <summary>
+    /// The 422 of a deployment that does not take new attachments. It names no
+    /// member of the set, for a reason simpler than the one that keeps members
+    /// out of the refusal above: nothing about the set was read.
+    /// </summary>
+    internal static IResult AttachmentCapabilityNotEnabled()
+        => Problem(
+            StatusCodes.Status422UnprocessableEntity,
+            AttachmentCapabilityNotEnabledType,
+            "A capacidade de anexos não está habilitada nesta implantação; "
+                + "solicite sem o membro attachments até o time do hub confirmar a habilitação.");
 
     /// <summary>
     /// The shape refusal of the ingestion, carrying the same per-field

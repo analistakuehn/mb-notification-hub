@@ -45,6 +45,36 @@ public sealed class ProducerGuideCatalogTests
     }
 
     /// <summary>
+    /// The other direction of the same inventory. A row naming a word the code
+    /// never emits is the first failure read backwards: a producer looks up a
+    /// reason it can never receive, and a reason that was renamed or withdrawn
+    /// leaves its old row behind as documentation of a vocabulary that is gone.
+    /// <para>
+    /// The table this reads is the one that documents the catalog and nothing
+    /// else. Conditions outside the catalog are published by the guide in a
+    /// table of their own, which this rule never reaches, so a transport code
+    /// documented there is not a violation here.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Every_row_of_the_producer_guide_names_a_reason_the_catalog_carries()
+    {
+        HashSet<string> documented = DocumentedReasons();
+
+        // Same guard as the rule above, and for the same reason: a table that
+        // was not found is an empty set, and an empty set satisfies this
+        // assertion without reading a single row.
+        documented.Count.ShouldBeGreaterThan(1);
+
+        var uncatalogued = documented
+            .Where(reason => !NotificationRejectionReasons.IsCanonical(reason))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        uncatalogued.ShouldBeEmpty();
+    }
+
+    /// <summary>
     /// The reasons the guide table names, taken from the first cell of every
     /// row under the header until the table ends. Only a cell written as a
     /// single code span counts, which is the shape every catalog row uses and

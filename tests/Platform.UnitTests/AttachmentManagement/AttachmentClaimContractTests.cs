@@ -150,10 +150,14 @@ public sealed class AttachmentClaimContractTests
             "AttachmentClaimRequest.NotificationId",
             "AttachmentClaimRequest.References",
 
-            // Two words for the refusals and one for the acceptance. A third
-            // refusal would tell a caller which of the two states it guessed
-            // at, and that is the distinction this vocabulary exists to
-            // withhold.
+            // Three words for the refusals and one for the acceptance, and only
+            // one of the three is about an attachment at all. A key that
+            // already stands for another set and a deployment that takes no
+            // new attachments are facts a caller may be told; which of the
+            // states behind the third word it guessed at is the distinction
+            // this vocabulary exists to withhold, so that one stays a single
+            // word for every way a set may not be had.
+            "AttachmentClaimStatus.CapabilityNotEnabled",
             "AttachmentClaimStatus.ClaimKeyConflict",
             "AttachmentClaimStatus.Claimed",
             "AttachmentClaimStatus.NotClaimable",

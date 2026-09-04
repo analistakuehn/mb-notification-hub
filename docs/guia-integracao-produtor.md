@@ -2,7 +2,7 @@
 language: pt-BR
 document_type: contract
 status: verified
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 ---
 
 # Guia de integração com o `mb-notification-hub`
@@ -11,8 +11,8 @@ last_verified: 2026-09-03
 |---|---|
 | Público | Times de engenharia que produzem notificações por REST ou Kafka |
 | Responsável | Time de engenharia do `mb-notification-hub` |
-| Estado | Vigente para solicitações sem anexos; capacidade de anexos publicada no contrato V1, mas ainda não liberada para integração |
-| Última verificação | 3 de setembro de 2026, contra código, configuração e testes do repositório |
+| Estado | Vigente para solicitações sem anexos. A capacidade de anexos existe no código, é implantada desligada e depende de duas chaves independentes de ambiente; enquanto o time do hub não confirmar a habilitação, não envie o membro `attachments` |
+| Última verificação | 4 de setembro de 2026, contra código, configuração e testes do repositório |
 | Versões cobertas | HTTP `/v1`, CloudEvent de entrada `araia.notification.requested.v1` e eventos de saída `.v1` |
 
 ## Objetivo, público e escopo
@@ -25,10 +25,15 @@ cabeçalhos, status e o significado de cada desfecho.
 O guia cobre o ingresso de notificações, os pré-requisitos que um produtor
 precisa cumprir, o acompanhamento do resultado e a recuperação que cabe ao
 cliente. Não cobre administração de templates, operação do pipeline, gestão de
-provedores, auditoria de Compliance nem as APIs de cadastro de contatos. O
-fluxo de anexos também permanece fora do onboarding enquanto a capacidade não
-for habilitada de ponta a ponta; a seção de esquema registra o membro público
-para preservar compatibilidade de clientes.
+provedores, auditoria de Compliance nem as APIs de cadastro de contatos.
+
+O fluxo de anexos permanece fora do onboarding enquanto a implantação não
+habilitar a capacidade, e mesmo assim está descrito aqui. A razão é simples:
+quem lê este guia é quem recebe a resposta, e uma recusa que um produtor
+consegue observar sem conseguir procurar o significado é um diagnóstico
+perdido. A seção 2.4 descreve a capacidade, as duas chaves que a governam e
+todas as recusas que ela produz; a seção 6.1 lista as que chegam pelo ingresso
+de notificações.
 
 ### Autoridade das fontes
 
@@ -129,7 +134,7 @@ Campos do corpo:
 | `correlationId` | não | Até 200 caracteres. É por ele que a consulta agrupa uma transação de negócio. |
 | `metadata` | não | Objeto JSON. Não é persistido, mas entra no hash de idempotência. No máximo 32.768 bytes na forma compacta em UTF-8, teto menor que o de `variables` porque o campo não é renderizado nem consultado, e mesmo assim é canonicalizado a cada requisição e a cada replay. |
 | `scheduledAt` | não | ISO 8601. Aceito e **sem efeito** nesta versão: veja a seção 4.2. |
-| `attachments` | não | Lista ordenada de referências opacas. Ausente ou `null` significa sem anexos. Lista vazia, referência em branco ou duplicata ordinal produz `400 payload-invalid`. **Não use enquanto o time do hub não confirmar a habilitação da capacidade no ambiente.** |
+| `attachments` | não | Lista ordenada de referências opacas obtidas nas rotas `/v1/attachments`. Ausente ou `null` significa sem anexos. Lista vazia, referência em branco ou duplicata ordinal produz `400 payload-invalid`. Numa implantação que não aceita anexos novos, uma lista bem formada produz `422 attachment-capability-not-enabled` e nenhuma notificação. **Não use enquanto o time do hub não confirmar a habilitação da capacidade no ambiente.** |
 
 O cabeçalho `Idempotency-Key` é obrigatório, com no máximo 200 caracteres.
 
@@ -196,8 +201,10 @@ mesmo tempo.
    (seção 9).
 10. Template recusa a solicitação: `422` com o motivo do catálogo no `type`
    (seção 6).
-11. Manifesto de anexos não pode ser vinculado atomicamente: `422` com `type`
-    `attachments-not-claimable`.
+11. A solicitação nomeia anexos e o conjunto não foi vinculado: `422` com
+    `type` `attachments-not-claimable`, ou `422` com `type`
+    `attachment-capability-not-enabled` quando a implantação não aceita anexos
+    novos. A seção 2.4 diz qual dos dois você recebe em cada caso.
 12. Aceite: `202`.
 
 Ponto que vale saber no REST: a idempotência autoritativa é avaliada **antes**
@@ -325,22 +332,46 @@ Na prática: OTP e alertas de segurança com segredo continuam em REST, que de
 qualquer forma já precisa da resposta síncrona. O barramento serve o resto:
 confirmação de operação, documento aprovado, status de pedido.
 
-### 2.4 Anexos: membro publicado, capacidade ainda não liberada
+### 2.4 Anexos: capacidade implantada desligada
 
-`attachments` já pertence ao contrato V1 de REST e Kafka para que clientes sem
-o membro continuem compatíveis. A lista carrega referências opacas, não bytes.
-Ausente e `null` significam sem anexos. Quando presente, a lista precisa conter
-ao menos uma referência não branca, sem repetição ordinal. O hub preserva ordem,
-caixa e grafia, e esses três aspectos participam da identidade idempotente.
+`attachments` pertence ao contrato V1 de REST e Kafka desde a publicação do
+membro, para que clientes sem ele continuem compatíveis. A lista carrega
+referências opacas, não bytes. Ausente e `null` significam sem anexos. Quando
+presente, a lista precisa conter ao menos uma referência não branca, sem
+repetição ordinal. O hub preserva ordem, caixa e grafia, e esses três aspectos
+participam da identidade idempotente.
 
-Isso **não significa que o envio com anexos esteja liberado**. A configuração
-versionada não admite nenhum tipo de conteúdo, então nenhum anexo alcança o estado
-liberado e nenhuma solicitação com anexos passa do aceite. O fluxo de gestão possui rotas de registro,
-upload e validação, mas o caminho completo ainda não sustenta onboarding de
-produtor. Até o time do hub confirmar a habilitação no ambiente:
+**O que a capacidade faz.** Ela existe inteira no código. As rotas
+`/v1/attachments` registram um anexo, recebem o conteúdo, pedem a validação e
+revogam a liberação. O aceite de uma notificação vincula o conjunto inteiro na
+mesma transação que grava notificação, idempotência, trilha e outbox, e o
+conjunto vinculado é congelado ali: é ele que viaja com a notificação, não a
+lista que a solicitação enviou. Antes de cada envio, o hub reconfere a
+liberação de cada anexo e a capacidade agregada do conjunto.
+
+**Isso não significa que o envio com anexos esteja liberado.** A capacidade é
+implantada desligada, e são duas chaves independentes de ambiente:
+
+- **A seção de capacidade do módulo** governa o aceite de coisa nova. Com ela
+  desligada, nenhuma referência é cunhada pelo registro e nenhum conjunto novo
+  é vinculado por uma aceitação. Ela não é consultada por nada que trabalhe
+  sobre anexo já existente, então ligar ou desligar não congela notificação em
+  andamento nem invalida conjunto já aceito.
+- **A lista de tipos de conteúdo admitidos**, vazia na configuração versionada,
+  governa a liberação. Um conteúdo cujo tipo não está na lista é recusado na
+  validação, o anexo nunca alcança o estado liberado, e anexo não liberado não
+  é vinculado a notificação nenhuma.
+
+Ligar a primeira **não** habilita anexos. Com a lista de tipos vazia nenhum
+anexo chega a liberado, e conjunto não liberado não passa do aceite. Habilitar
+de verdade é decisão de ambiente que passa pelas duas chaves, e o time do hub
+confirma quando estiver feita.
+
+Até essa confirmação:
 
 - omita `attachments` ou envie `null`;
 - não trate as rotas `/v1/attachments` como capacidade pronta para produção;
+- não inclua anexos no teste de habilitação da sua integração;
 - não use os valores configurados de quantidade máxima ou envelope agregado
   como limites contratuais. Eles não são conferidos no aceite: o hub mede o
   conjunto aceito e reconfere a liberação de cada anexo imediatamente antes de
@@ -351,15 +382,95 @@ produtor. Até o time do hub confirmar a habilitação no ambiente:
   não transporta anexos recusa a notificação com
   `attachments-not-carried-by-channel`, e o mesmo motivo encerra a notificação
   quando é o passo seguinte do plano que não transporta. Nenhum canal alternativo
-  é tentado e nenhum anexo é convertido em link;
-- espere `400 payload-invalid` para uma lista malformada e
-  `422 attachments-not-claimable` quando o conjunto não puder ser vinculado;
-  no Kafka, essa última condição vai para a dead letter e não gera evento
-  `araia.notification.rejected.v1`.
+  é tentado e nenhum anexo é convertido em link.
 
-O vínculo, quando habilitado, é integral: referências precisam pertencer à mesma
+**O que você recebe se enviar mesmo assim.** Uma lista malformada é
+`400 payload-invalid`, como qualquer defeito de forma. Uma lista bem formada
+alcança o vínculo, e o vínculo responde com uma de duas palavras:
+
+| Resposta | Quando | O que o produtor faz |
+|---|---|---|
+| `422 attachment-capability-not-enabled` | A implantação não aceita anexos novos. Nada foi apontado no conjunto que você nomeou | Espere a confirmação da habilitação. A mesma solicitação é aceita depois, sem alterar o corpo |
+| `422 attachments-not-claimable` | O conjunto não pode ser vinculado a esta solicitação | Não retente o mesmo conjunto. Enquanto anexos não estiverem liberados, omita o membro |
+
+A ordem entre as duas é contrato, porque decide qual você recebe quando as duas
+condições valem ao mesmo tempo. O vínculo confere primeiro a identidade do
+conjunto, depois o que a sua chave de idempotência já vincula, e só então a
+capacidade da implantação. Consequências:
+
+- uma referência inexistente ou de outra aplicação responde
+  `attachments-not-claimable` mesmo numa implantação que não aceita anexos
+  novos, porque a identidade é conferida antes;
+- uma repetição da mesma chave sobre um conjunto que ela já vinculou continua
+  respondendo o aceite original depois de a capacidade ser desligada. Desligar
+  bloqueia aceite novo e não transforma retentativa de aceite antigo em
+  rejeição.
+
+Nenhuma das duas gera evento `araia.notification.rejected.v1`. As duas gravam
+registro de auditoria, e no Kafka as duas vão para a dead letter com o mesmo
+motivo que o REST devolve no `type`.
+
+**`attachments-not-claimable` é deliberadamente genérico, e continua sendo.**
+Ele não revela qual referência falhou nem se ela era inexistente, estrangeira,
+não liberada ou revogada. A propriedade é de segurança: um produtor capaz de
+distinguir esses casos descobriria por tentativa quais referências existem e
+quais pertencem a outra aplicação. A palavra nova não abre essa porta, porque
+capacidade desligada é fato sobre a implantação, igual para todo chamador e
+para toda referência: saber que ela está desligada não ensina nada sobre anexo
+de terceiro. Para diagnóstico use a resposta REST ou as coordenadas da dead
+letter com o time do hub.
+
+**O vínculo é integral.** As referências precisam pertencer à mesma
 `application` e estar liberadas. Se uma delas falhar, nenhuma é vinculada e não
 há aceite parcial.
+
+**As recusas das rotas `/v1/attachments`.** Elas formam o vocabulário do fluxo
+de anexos e não se misturam com o catálogo de motivos de notificação da seção
+6. Cada uma chega como problema RFC 9457 com o código no `type` e no `title`.
+Essas rotas exigem token autenticado com identidade estável e uma concessão por
+aplicação registrada para o seu principal; não existe papel de aplicação que as
+abra.
+
+| Código | Status | O que significa |
+|---|---|---|
+| `attachment-capability-not-enabled` | `409` | A implantação não aceita anexos novos. Nada do arquivo foi olhado |
+| `attachment-metadata-invalid` | `400` | Nome, tipo declarado ou tamanho não passam nas regras de registro |
+| `attachment-size-mismatch` | `400` | O conteúdo enviado não tem o tamanho registrado para o anexo |
+| `attachment-access-denied` | `403` | O principal não tem concessão para a aplicação declarada no registro |
+| `attachment-not-found` | `404` | Não há anexo alcançável por este principal com essa referência |
+| `attachment-already-received` | `409` | O conteúdo desse anexo já foi recebido |
+| `attachment-upload-conflict` | `409` | O envio não pôde ser concluído. Consulte o anexo antes de repetir |
+| `attachment-content-refused` | `409` | O conteúdo não foi liberado. Uma palavra só para toda a família de recusas de conteúdo |
+| `attachment-content-missing` | `409` | Pediram validação de um anexo cujo conteúdo nunca chegou |
+| `attachment-not-released` | `409` | Pediram revogação de um anexo sem liberação vigente |
+| `attachment-revoked` | `409` | A liberação foi retirada |
+| `attachment-discarded` | `409` | O conteúdo foi descartado. Registre um anexo novo |
+| `attachment-authorization-unavailable` | `503` | A autoridade das concessões não respondeu |
+| `attachment-store-unavailable` | `503` | O armazenamento não respondeu |
+| `attachment-store-unidentified-generation` | `503` | O armazenamento aceitou os bytes sem identificar a geração gravada |
+| `attachment-generation-unreadable` | `503` | A geração recém-gravada não pôde ser lida de volta |
+| `attachment-lifecycle-unavailable` | `503` | A transição de ciclo de vida não avançou, e nada foi gravado |
+| `attachment-operation-failed` | `500` | Falha que o módulo não classificou |
+
+Três observações que mudam o que você conclui de uma resposta dessas:
+
+- **Um corpo fora das regras de forma no registro responde `400` com o
+  dicionário `errors` do framework e sem `type` do módulo.** O código
+  `attachment-metadata-invalid` é a recusa das regras de domínio, que ficam
+  atrás da validação de forma.
+- **Nas rotas que nomeiam uma referência, negação de acesso e anexo
+  inexistente respondem igual: `404`.** É deliberado, pela mesma razão da
+  genericidade acima: distinguir os dois transformaria a rota num detector de
+  referências alheias. Só o registro, que declara a aplicação no corpo,
+  responde `403`.
+- **`attachment-content-refused` também é genérico de propósito.** Arquivo
+  irreconhecível, declaração que os bytes contradizem, tipo que ninguém
+  admitiu e veredito que não concluiu saem todos com essa palavra. Qual
+  checagem recusou fica no registro durável e sai pela consulta operacional,
+  que não é papel de produtor: um produtor que lesse essa distinção saberia
+  qual checagem contornar.
+
+O teto bruto de requisições dessa superfície está na seção 9.
 
 ## 3. Idempotência
 
@@ -1039,11 +1150,26 @@ Estas condições não podem aparecer como `reason` de
 | `principal-rate-limited` | `429` com `Retry-After` | A dimensão é observada, sem rejeição | Reduza a vazão e, no REST, retente após o intervalo |
 | `kill-switch-unavailable` | `503` | Pausa transitória, sem dead letter | REST: retente com recuo exponencial e jitter. Kafka: não republique em laço; acompanhe a recuperação do hub |
 | `attachments-not-claimable` | `422` | Dead letter com o mesmo motivo | Não retente o mesmo conjunto. Enquanto anexos não forem liberados, omita o membro |
+| `attachment-capability-not-enabled` | `422` | Dead letter com o mesmo motivo | Espere a confirmação da habilitação. A mesma solicitação é aceita depois, sem alterar o corpo |
+
+As duas últimas linhas são o fluxo de anexos, e a diferença entre elas importa
+porque as ações são opostas: uma diz que este conjunto não pode ser vinculado e
+repetir não muda nada, a outra diz que a implantação não aceita anexos novos e
+nada foi apontado no conjunto. A seção 2.4 explica qual delas você recebe
+quando as duas condições valem ao mesmo tempo.
 
 `attachments-not-claimable` é deliberadamente genérico: não revela qual
 referência falhou nem se ela era inexistente, estrangeira, não liberada ou
-revogada. Também não produz evento de rejeição. Use a resposta REST ou as
-coordenadas da dead letter para o diagnóstico com o time do hub.
+revogada. Essa propriedade continua valendo, e a palavra de capacidade não a
+enfraquece, porque capacidade desligada é fato sobre a implantação, igual para
+todo chamador e para toda referência. Nenhuma das duas produz evento de
+rejeição. Use a resposta REST ou as coordenadas da dead letter para o
+diagnóstico com o time do hub.
+
+O mesmo código `attachment-capability-not-enabled` responde, com `409`, no
+registro de um anexo pela rota `/v1/attachments`. É a mesma palavra de
+propósito: o fato é o mesmo nas duas superfícies, e o status difere porque as
+superfícies são diferentes.
 
 ## 7. Dead letter
 
@@ -1054,7 +1180,8 @@ Só o caminho Kafka tem dead letter. No REST a recusa é a própria resposta.
 Vai para lá qualquer registro **permanentemente** inválido: envelope ilegível,
 `type` de envelope não suportado, evento sem `idempotencyKey`, produtor não
 autorizado ou bloqueado, recusa do catálogo, conflito de idempotência, estouro
-do orçamento por destinatário, manifesto de anexos não vinculável e recusa por
+do orçamento por destinatário, manifesto de anexos não vinculável, manifesto
+publicado para uma implantação que não aceita anexos novos e recusa por
 variável sensível. Falha transitória não vai para a dead letter; a implementação
 tenta pausar a partição, com a limitação de reposicionamento descrita na seção
 2.2.
@@ -1063,7 +1190,7 @@ Cabeçalhos de diagnóstico do registro:
 
 | Cabeçalho | Conteúdo |
 |---|---|
-| `reason` | Motivo da recusa; normalmente canônico, com exceções de transporte como `attachments-not-claimable` |
+| `reason` | Motivo da recusa; normalmente canônico, com exceções de transporte como `attachments-not-claimable` e `attachment-capability-not-enabled` |
 | `sourceTopic` | Tópico de origem |
 | `sourcePartition` | Partição de origem |
 | `sourceOffset` | Offset de origem |
@@ -1086,7 +1213,7 @@ o hub já pôde confiar no produtor e no payload:
 |---|---|---|
 | `payload-invalid`, `event-type-unsupported`, `producer-disabled`, `producer-not-authorized` | Resumo reconstruído por lista de permissão, sem o corpo original | Omite `application`, `class`, `idempotencyKey` e `traceparent`; usa o produtor lógico como key |
 | `sensitive-variables-on-bus` | Preserva o envelope, mas troca `data.variables` pelos nomes declarados como sensíveis | Mantém o contexto permitido e marca `redacted=true` |
-| Demais recusas após confiança, inclusive `attachments-not-claimable` | Preserva o corpo original | Marca `redacted=false` |
+| Demais recusas após confiança, inclusive as duas do fluxo de anexos | Preserva o corpo original | Marca `redacted=false` |
 
 Para `sensitive-variables-on-bus`, valores nunca viajam. O cabeçalho `redacted`
 vem `true` para que ninguém confunda o registro com cópia fiel.
@@ -1231,13 +1358,17 @@ Antes da primeira notificação, providencie:
 **Anexos**
 
 - Não inclua `attachments` no teste de habilitação enquanto o time do hub não
-  confirmar a liberação de ponta a ponta no ambiente.
+  confirmar a habilitação de ponta a ponta no ambiente. Numa implantação que
+  não aceita anexos novos, a solicitação responde
+  `422 attachment-capability-not-enabled` e nenhuma notificação é criada, então
+  o passo não testa nada além da própria recusa.
 - Um token que envia notificações apenas com `appid` não é suficiente para a
   autorização atual das APIs de anexos, que resolve `oid`, `sub` ou
   `NameIdentifier` e exige concessão exata por aplicação.
-- O ambiente local iniciado pelo compose não provisiona Kafka nem completa os
-  pré-requisitos de armazenamento e validação de anexos. Use-o para exercitar o
-  caminho REST sem anexos.
+- O ambiente local iniciado pelo compose não provisiona Kafka nem configura o
+  armazenamento de objetos do módulo de anexos. Sem armazenamento configurado,
+  o envio de conteúdo responde `503 attachment-store-unavailable`. Use-o para
+  exercitar o caminho REST sem anexos.
 
 ## 9. Limites e comportamento sob pressão
 
@@ -1252,8 +1383,10 @@ abuso automatizado, não o limite de negócio: quando ele dispara, o hub não di
 quanto esperar, então o cliente precisa de recuo próprio.
 
 O documento OpenAPI tem teto próprio de 60 requisições por minuto. A superfície
-de gestão de anexos possui teto de 1.000 por minuto, embora a capacidade de
-envio com anexos ainda não esteja liberada.
+de gestão de anexos possui teto de 1.000 por minuto, contado por principal
+autenticado ou por endereço de origem quando não há principal. Ele vale mesmo
+numa implantação que não aceita anexos novos, porque é um freio de borda e não
+uma consequência da capacidade estar ligada.
 
 **Limites de negócio, na ingestão.** Duas dimensões, ambas por classe canônica,
 configuráveis por ambiente. A configuração vigente no repositório é:
@@ -1384,7 +1517,9 @@ verificadas nesta revisão.
 | Esquema e validação da solicitação | [`RequestNotification.Command.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Command.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Command.cs:7`; [`RequestNotification.Validator.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Validator.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Validator.cs:33` |
 | Ordem de admissão, kill switch e aceite | [`RequestNotification.Admission.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Admission.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Admission.cs:84`; [`RequestNotification.Handler.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Handler.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.Handler.cs:79` |
 | Idempotência e manifesto de anexos | [`RequestNotification.PayloadHash.cs`](../src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.PayloadHash.cs), `src/Platform.Api/Modules/Notifications/Features/Ingress/RequestNotification/RequestNotification.PayloadHash.cs:12`; [`ADR-0021`](ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md), `docs/ADR-0021-manifesto-de-anexos-na-forma-canonica-do-ingresso-publicado.md:93` |
-| Anexos ainda não liberados | [`appsettings.json`](../src/Platform.Api/appsettings.json), `src/Platform.Api/appsettings.json:70`; [`DispatchRequest.cs`](../src/Platform.Api/Modules/Dispatch/Integration/V1/DispatchRequest.cs), `src/Platform.Api/Modules/Dispatch/Integration/V1/DispatchRequest.cs:37` |
+| As duas chaves da capacidade de anexos | [`appsettings.json`](../src/Platform.Api/appsettings.json), `src/Platform.Api/appsettings.json:72`, `src/Platform.Api/appsettings.json:85`; [`AttachmentCapability.cs`](../src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Capability/AttachmentCapability.cs), `src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Capability/AttachmentCapability.cs:30`; [`AdmittedTypeContentPolicy.cs`](../src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Validation/AdmittedTypeContentPolicy.cs), `src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Validation/AdmittedTypeContentPolicy.cs:58` |
+| Recusa por capacidade desligada, nas duas superfícies | [`RegisterAttachment.Handler.cs`](../src/Platform.Api/Modules/AttachmentManagement/Features/Attachments/RegisterAttachment/RegisterAttachment.Handler.cs), `src/Platform.Api/Modules/AttachmentManagement/Features/Attachments/RegisterAttachment/RegisterAttachment.Handler.cs:30`; [`TransactionalAttachmentClaim.cs`](../src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Persistence/TransactionalAttachmentClaim.cs), `src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Persistence/TransactionalAttachmentClaim.cs:161`; [`IngestionProblems.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Http/IngestionProblems.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Http/IngestionProblems.cs:55` |
+| Recusas das rotas de anexos | [`ApiResults.cs`](../src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Http/ApiResults.cs), `src/Platform.Api/Modules/AttachmentManagement/Infrastructure/Http/ApiResults.cs:11` |
 | Política de classe, seleção de canal e plano admitido | [`ClassPolicyValidation.cs`](../src/Platform.Api/Modules/TemplateManagement/Domain/ClassPolicyValidation.cs), `src/Platform.Api/Modules/TemplateManagement/Domain/ClassPolicyValidation.cs:277`; [`PolicyStage.cs`](../src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/PolicyStage.cs), `src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/PolicyStage.cs:38`; [`CoreWorkerRole.cs`](../src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs), `src/Platform.Api/Modules/Notifications/CoreWorkerRole.cs:102`; [`ChannelSelectionRule.cs`](../src/Platform.Api/Modules/Notifications/Features/Pipeline/Rules/ChannelSelectionRule.cs), `src/Platform.Api/Modules/Notifications/Features/Pipeline/Rules/ChannelSelectionRule.cs:41`; [`AdmittedDeliveryPlan.cs`](../src/Platform.Api/Modules/Notifications/Domain/AdmittedDeliveryPlan.cs), `src/Platform.Api/Modules/Notifications/Domain/AdmittedDeliveryPlan.cs:29`; [`RouteStage.cs`](../src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/RouteStage.cs), `src/Platform.Api/Modules/Notifications/Features/Pipeline/Stages/RouteStage.cs:25` |
 | Fallback, avanço do plano e evento de fim | [`NotificationAttempt.cs`](../src/Platform.Api/Modules/Notifications/Domain/NotificationAttempt.cs), `src/Platform.Api/Modules/Notifications/Domain/NotificationAttempt.cs:185`; [`NotificationPlanOutcome.cs`](../src/Platform.Api/Modules/Notifications/Infrastructure/Persistence/NotificationPlanOutcome.cs), `src/Platform.Api/Modules/Notifications/Infrastructure/Persistence/NotificationPlanOutcome.cs:117`; [`FallbackRequestHandler.cs`](../src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs), `src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs:305`; [`FallbackRequestHandler.cs`](../src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs), `src/Platform.Api/Modules/Notifications/Features/Fallback/FallbackRequestHandler.cs:526`; [`DispatchMessageProcessor.cs`](../src/Platform.Api/Modules/Notifications/Features/Dispatching/DispatchMessageProcessor.cs), `src/Platform.Api/Modules/Notifications/Features/Dispatching/DispatchMessageProcessor.cs:331` |
 | Leitura da política e canais hospedados | [`GetClassPolicy.Endpoint.cs`](../src/Platform.Api/Modules/TemplateManagement/Features/ClassPolicies/GetClassPolicy/GetClassPolicy.Endpoint.cs), `src/Platform.Api/Modules/TemplateManagement/Features/ClassPolicies/GetClassPolicy/GetClassPolicy.Endpoint.cs:13`; [`DispatcherWorkerRole.cs`](../src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs), `src/Platform.Api/Modules/Notifications/DispatcherWorkerRole.cs:57` |

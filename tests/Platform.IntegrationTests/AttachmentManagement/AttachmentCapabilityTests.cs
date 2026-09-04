@@ -107,7 +107,10 @@ public sealed class AttachmentCapabilityTests(AttachmentManagementApiFixture fix
         AttachmentClaimOutcome refused = await ClaimAsync(
             enabled: false, NewKey(), [attachment.Reference]);
 
-        refused.Status.ShouldBe(AttachmentClaimStatus.NotClaimable);
+        // The word names the deployment and not the set. Answering the refusal
+        // every unclaimable set gets would tell the caller to stop sending this
+        // set, when the set is fine and what is missing is the capability.
+        refused.Status.ShouldBe(AttachmentClaimStatus.CapabilityNotEnabled);
         refused.Accepted.ShouldBeNull();
         (await ClaimableAttachments.HoldCountAsync(fixture, attachment.Id)).ShouldBe(
             0,
@@ -286,7 +289,7 @@ public sealed class AttachmentCapabilityTests(AttachmentManagementApiFixture fix
         }
 
         (await ClaimAsync(enabled: false, NewKey(), [attachment.Reference]))
-            .Status.ShouldBe(AttachmentClaimStatus.NotClaimable);
+            .Status.ShouldBe(AttachmentClaimStatus.CapabilityNotEnabled);
 
         DurableAttachment after = await DurableAsync(attachment);
         after.ShouldBe(before);

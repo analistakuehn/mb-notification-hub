@@ -86,5 +86,18 @@ internal static partial class RequestNotification
         /// </para>
         /// </summary>
         internal sealed record AttachmentsNotClaimable : Outcome;
+
+        /// <summary>
+        /// This deployment takes no new attachments at all, so no notification
+        /// was created; answer 422 with a word of its own.
+        /// <para>
+        /// It is separate from the refusal above because the two ask for
+        /// opposite next steps. That one says the set this request named may
+        /// not be had, so sending it again changes nothing; this one found
+        /// nothing wanting in the set, and the very same request is accepted
+        /// once whoever runs the service switches the capability on.
+        /// </para>
+        /// </summary>
+        internal sealed record AttachmentCapabilityNotEnabled : Outcome;
     }
 }

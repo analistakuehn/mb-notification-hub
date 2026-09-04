@@ -161,7 +161,7 @@ internal sealed class TransactionalAttachmentClaim(
         if (!capability.AcceptsNewAttachments)
         {
             logger.AttachmentClaimNotEnabled(request.NotificationId, references.Length);
-            return AttachmentClaimOutcome.Refused(AttachmentClaimStatus.NotClaimable);
+            return AttachmentClaimOutcome.Refused(AttachmentClaimStatus.CapabilityNotEnabled);
         }
 
         if (locked.Any(row => !string.Equals(

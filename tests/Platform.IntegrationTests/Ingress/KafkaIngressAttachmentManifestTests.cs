@@ -296,6 +296,58 @@ public sealed class KafkaIngressAttachmentManifestTests(KafkaIngressFixture fixt
     }
 
     /// <summary>
+    /// A deployment that takes no new attachments says exactly that, and the
+    /// dead-letter record carries the word instead of the one every set that
+    /// may not be had gets. The two ask a producer for opposite things: wait
+    /// for whoever runs the service to switch the capability on, or stop
+    /// sending this set. A record that carried the generic word would send a
+    /// producer looking for a defect in references that have none.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task A_manifest_published_to_a_deployment_that_takes_no_attachments_is_told_so()
+    {
+        var application = KafkaIngressApi.NewApplication();
+        (var templateKey, _) =
+            await KafkaIngressApi.CreatePublishedTemplateAsync(fixture, application, "transactional");
+        await fixture.SeedProducerGrantsAsync((Producer, application, "transactional"));
+        var recipientId = $"cus_{Guid.NewGuid():N}";
+        var closedKey = KafkaIngressApi.NewIdempotencyKey();
+        var openKey = KafkaIngressApi.NewIdempotencyKey();
+        SeededAttachment attachment = await ClaimableAttachments.ReleasedAsync(fixture, application);
+
+        await using ServiceProvider closed = fixture.BuildIngressProvider(
+            new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["Modules:AttachmentManagement:Capability:AcceptsNewAttachments"] = "false",
+            });
+        KafkaDisposition refused = await ProcessAsync(
+            closed,
+            recipientId,
+            WithManifest(
+                Event(application, templateKey, recipientId, closedKey),
+                Manifest(attachment.Reference)));
+
+        refused.ShouldBeOfType<KafkaDisposition.DeadLetter>()
+            .Reason.ShouldBe("attachment-capability-not-enabled");
+        await AssertNothingWasAcceptedAsync(application, closedKey, recipientId);
+
+        // The falsifying half: the same released reference, the same producer
+        // and the same shape of body, over a host that differs in the switch
+        // and in nothing else. Without it the refusal above would be satisfied
+        // by an attachment that was never claimable to begin with.
+        await using ServiceProvider open = fixture.BuildIngressProvider();
+        KafkaDisposition accepted = await ProcessAsync(
+            open,
+            recipientId,
+            WithManifest(
+                Event(application, templateKey, recipientId, openKey),
+                Manifest(attachment.Reference)));
+
+        accepted.ShouldBeOfType<KafkaDisposition.Processed>();
+        (await NotificationCountAsync(application, openKey)).ShouldBe(1);
+    }
+
+    /// <summary>
     /// The dead-letter record of one published event, read back from the
     /// topic. The read is repeated rather than budgeted once: each read joins
     /// a consumer group of its own, and a join slower than the idle cutoff
