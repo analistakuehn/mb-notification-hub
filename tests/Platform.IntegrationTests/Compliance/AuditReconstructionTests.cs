@@ -163,8 +163,13 @@ public sealed class AuditReconstructionTests(CorePipelineFixture fixture)
         JsonElement before = sent.Body.GetProperty("state").GetProperty("template");
         var hashWhenSent = before.GetProperty("contentHash").GetString();
 
+        // The sensitive declaration travels with the newer version because a
+        // version that dropped it would be refused: demoting a variable to an
+        // ordinary one is how masking would be taken away from a template that
+        // already had it. What this case needs is only that the published
+        // phrasing move on.
         var newerVersion = await DispatchApi.PublishVersionAsync(
-            fixture, sent.TemplateKey, "Texto totalmente diferente com o código {{ code }}.");
+            fixture, sent.TemplateKey, "Texto totalmente diferente com o código {{ code }}.", SensitiveCode);
         newerVersion.ShouldBeGreaterThan(sent.TemplateVersion);
 
         HttpClient auditor = fixture.CreateAuditorClient(AuditApi.AuditorSubject);
