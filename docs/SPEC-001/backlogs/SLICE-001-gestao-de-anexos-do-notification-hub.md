@@ -391,7 +391,7 @@ Estes itens governam tarefas dentro da única Delivery Slice. Eles não são dep
 | 31 | Implementar roteamento e fallback com terminação explícita | Implementation | Senior Dev | 5 | 24h | 27 | Done |
 | 32 | Implementar a reconciliação de falhas parciais e a convergência de órfãos | Implementation | Senior Dev | 8 | 40h | 21, 30 | Done |
 | 33 | Implementar o descarte seguro de abandonados | Implementation | Senior Dev | 5 | 24h | 17, 32 | Done |
-| 34 | Implementar a evidência operacional reconstruível | Implementation | Senior Dev | 5 | 24h | 30, 32 | To Do |
+| 34 | Implementar a evidência operacional reconstruível | Implementation | Senior Dev | 5 | 24h | 30, 32 | Done |
 | 35 | Esmagar as migrações numa inicial e regenerar o snapshot de modelo | Implementation | Senior Dev | 3 | 16h | 25 | To Do |
 | 36 | Implementar a habilitação progressiva e o rollback lógico | Implementation | Senior Dev | 5 | 24h | 24, 31, 34, 35 | To Do |
 | 37 | Executar o ensaio de habilitação e reversão | Test | Senior Dev | 5 | 24h | 36, 38 | To Do |
@@ -934,6 +934,16 @@ sem circuito aberto, então a tentativa **estaciona em desconhecido**.
 - **Pontos de história**: 5
 - **Estimativa**: 24h
 - **Depende de**: 30, 32
+- **Estado**: Done em 2026-09-04.
+- **Estender, não recriar**: o contrato de evidência, o leitor e a rota de divulgação já existiam. O trabalho foi acrescentar a dimensão de anexo seguindo as convenções que aquele contrato já tinha, inclusive a de declarar em comentário o que não viaja e por quê.
+- **Duas metades, mantidas separadas porque vêm de autoridades diferentes**: nome, tipo e comprimento saem do snapshot da notificação, que é a única autoridade sobre o que foi aceito; algoritmo, resumo, comprimento medido, tipo detectado, instante da captura, estado, detalhe da validação e a concessão e retirada da liberação daquela geração exata saem do módulo dono. A junção é o manipulador opaco que o snapshot já carrega, e **não existe segunda chave**.
+- **O digest viaja aqui e em nenhum outro lugar**, e isso não contradiz o resto da fatia: o contrato de despacho o exclui porque ali ele viajaria com todo envio e toda linha de log, enquanto a evidência é leitura única, autorizada e auditada. Por isso o tipo de evidência é próprio, e alargar o tipo do despacho foi recusado. O tipo novo também sobrescreve a renderização de texto, com mutação provando que a renderização padrão imprimiria o resumo inteiro.
+- **Ausência e vazio são respostas diferentes**: lista vazia afirma que a notificação não nomeou anexo algum, que é a resposta comum e a de toda linha anterior à coluna; ausência afirma ignorância, e uma palavra de vocabulário fechado nomeia a forma do defeito sem citar o documento. Ler a segunda como a primeira diria ao auditor que a notificação não tinha anexos quando o que houve é que ninguém consegue nomear os que ela tinha.
+- **Três exclusões, cada uma com razão**: loja, chave, geração do provedor e o identificador que deriva a chave ficam fora, por serem capacidade de alcançar bytes e não prova de quais bytes eram; o prazo de validade da liberação fica fora porque é comparação feita contra configuração no instante do envio, e publicá-lo convidaria o auditor a concluir vencimento a partir de um número que não é o que o envio comparou.
+- **O oráculo de ausência foi provado não vazio**, que era o risco central desta tarefa: a varredura procura os quatro detalhes de armazenamento mais os bytes em hexadecimal, base64 e prefixos, lidos das linhas duráveis **destes anexos exatos**, e cada ausência afirmada vem ao lado de uma presença que prova que a varredura enxerga.
+- **A reconstrução foi medida depois do recolhimento dos bytes**, com a rodada real de abandono: custódia responde ausente, o estado diz descartado, e o mesmo resumo continua respondendo. É o que a política de expurgo da tarefa anterior existia para preservar.
+- **Oito mutações de um eixo, oito vermelhos, nenhuma verde**, com reversão conferida por resumo criptográfico.
+- **O que os oráculos não provam, e é o achado mais desconfortável**: o resumo que agora vira prova para um auditor é tão imutável quanto a linha que o guarda, e essa linha **não é imutável de verdade**. O próprio módulo documenta que o mapeamento recusa duas das quatro formas de revisão e deixa passar a atualização por conjunto, que reescreve o valor durável em silêncio. Nada assina esta projeção, e o bloco de estado da resposta não é coberto pela cadeia de resumos da trilha. **A evidência ficou reconstruível; ela não ficou inviolável.**
 - **Aceitação**: Testes do leitor e do contrato comprovam que toda tentativa aceita pelo provedor é reconstruível a partir da autoridade da notificação, incluindo identidade e composição do snapshot aceito; nenhuma evidência comum contém conteúdo bruto nem detalhe de armazenamento.
 
 ### Tarefa 35: Escrever as migrações aditivas e regenerar o snapshot de modelo

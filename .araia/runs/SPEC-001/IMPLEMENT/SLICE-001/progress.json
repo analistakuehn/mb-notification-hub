@@ -1,6 +1,6 @@
 {
  "schema_version": 2,
- "updated_at": "2026-09-04T09:30:00Z",
+ "updated_at": "2026-09-04T12:40:00Z",
  "spec": {
   "id": "SPEC-001",
   "completed_stages": 3,
@@ -12,7 +12,7 @@
   "id": "SLICE-001",
   "title": "Gestão de anexos do Notification Hub",
   "status": "in_progress",
-  "completed_tasks": 33,
+  "completed_tasks": 34,
   "total_tasks": 38
  },
  "working_branch": "master",
@@ -23,24 +23,22 @@
   "reason": "evidence-contract"
  },
  "last_transition": {
-  "at": "2026-09-04T09:30:00Z",
-  "task": "Task 33",
-  "checkpoint": "safe-discard-accepted",
+  "at": "2026-09-04T12:40:00Z",
+  "task": "Task 34",
+  "checkpoint": "reconstructible-evidence-accepted",
   "status": "done",
   "reason_codes": [
-   "the-product-discard-gate-was-closed-as-configuration-with-no-default-that-closes",
-   "one-floor-is-derived-from-the-delivery-reconciliation-cycle-the-rest-are-declared-choices",
-   "the-amplification-orphan-is-now-collected-which-closes-the-gap-the-previous-task-declared",
-   "removing-the-bytes-is-what-reopens-the-upload-path-and-no-bytes-only-oracle-would-see-it",
-   "the-proposed-purge-rule-was-measured-and-refused-on-referential-integrity",
-   "the-record-outlives-the-bytes-and-the-state-is-what-says-the-content-is-gone",
-   "the-refusal-stays-inside-the-disposal-and-no-argument-can-turn-it-off",
-   "eleven-mutations-eleven-reds-none-green"
+   "the-digest-travels-on-the-authorized-disclosure-and-nowhere-else",
+   "coordinates-stay-out-because-they-are-reach-not-proof",
+   "absent-and-empty-are-different-answers-and-illegible-never-becomes-absence",
+   "the-absence-oracle-was-proved-non-vacuous-against-the-durable-rows-of-these-exact-attachments",
+   "reconstruction-was-measured-after-the-sweep-removed-the-bytes",
+   "the-evidence-is-reconstructible-but-not-tamper-evident-and-that-is-declared"
   ]
  },
  "task": {
-  "id": "Task 33",
-  "title": "Implementar o descarte seguro de abandonados",
+  "id": "Task 34",
+  "title": "Implementar a evidencia operacional reconstruivel",
   "status": "done",
   "task_state": "accepted",
   "attempt": 1
@@ -214,7 +212,7 @@
   {
    "id": "Task 34",
    "title": "Implementar a evidência operacional reconstruível",
-   "status": "pending"
+   "status": "completed"
   },
   {
    "id": "Task 35",
