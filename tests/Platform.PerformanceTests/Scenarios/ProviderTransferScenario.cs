@@ -193,7 +193,7 @@ internal static class ProviderTransferScenario
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
-        using Process process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         process.Refresh();
         var measuredFrom = run.Server.CallCount;
         var allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
@@ -313,7 +313,7 @@ internal static class ProviderTransferScenario
         string? spoolRoot,
         CancellationToken cancellationToken)
     {
-        using TransferInterrupter interrupter = TransferInterrupter.Idle(cancellationToken);
+        using var interrupter = TransferInterrupter.Idle(cancellationToken);
         var plan = new TransferPlan(
             run.ArmId,
             run.Envelope,

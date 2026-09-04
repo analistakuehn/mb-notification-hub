@@ -586,7 +586,7 @@ public sealed class AttachmentAbandonmentTests(AttachmentManagementApiFixture fi
                 AttachmentObjectCaptureStatus.Captured,
                 "o arranjo precisa dos bytes realmente na custódia; sem eles o caso mediria "
                 + "uma chave vazia antes e depois.");
-            AttachmentObjectGeneration generation = AttachmentObjectGeneration.Capture(
+            var generation = AttachmentObjectGeneration.Capture(
                 attachment.Id,
                 capture.Locator.ShouldNotBeNull(),
                 AttachmentContentProof.Sha256Of(SHA256.HashData(bytes), bytes.Length),

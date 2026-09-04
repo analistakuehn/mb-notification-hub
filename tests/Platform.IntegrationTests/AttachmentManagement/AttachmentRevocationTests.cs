@@ -212,7 +212,7 @@ public sealed class AttachmentRevocationTests(AttachmentManagementApiFixture fix
         Attachment released = await ReleasedAttachmentAsync();
         AttachmentRelease first = (await ReleasesAsync(released.Id)).ShouldHaveSingleItem();
         AttachmentObjectGeneration generation = await SingleGenerationAsync(released.Id);
-        AttachmentRelease second = AttachmentRelease.Grant(
+        var second = AttachmentRelease.Grant(
             released.Id,
             generation.Id,
             Now + TimeSpan.FromDays(1),

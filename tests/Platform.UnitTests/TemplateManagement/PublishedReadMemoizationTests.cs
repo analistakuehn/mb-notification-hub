@@ -715,7 +715,7 @@ public sealed class PublishedReadMemoizationTests
             Purpose = "authentication",
             LegalBasis = "execucao-de-contrato",
         }).Value!;
-        TemplateVersion version = TemplateVersion.CreateDraft(key, 1, "autora", Start);
+        var version = TemplateVersion.CreateDraft(key, 1, "autora", Start);
 
         // The schema is what a validation report is computed against, so the
         // memoized context has to carry one for the report to say anything.
@@ -742,7 +742,7 @@ public sealed class PublishedReadMemoizationTests
 
     private static LayoutVersion PinnedLayoutVersionOf()
     {
-        LayoutVersion version = LayoutVersion.CreateDraft(
+        var version = LayoutVersion.CreateDraft(
             LayoutKey.Trusted(LayoutKeyValue), PinnedVersion, "autora", Start);
         version.SetContent(new LayoutContentEdit(Email, PtBr, "<html>{{ content }}</html>", null), "autora")
             .IsSuccess.ShouldBeTrue();

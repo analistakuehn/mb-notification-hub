@@ -531,7 +531,7 @@ internal static class Program
 
         if (settings.UpdateBaseline)
         {
-            AttachmentTransferMethodBaseline recorded = AttachmentTransferMethodBaseline.From(
+            var recorded = AttachmentTransferMethodBaseline.From(
                 outcome,
                 $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
             await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
@@ -680,7 +680,7 @@ internal static class Program
                 + $"gravado em {run.RecordedAtUtc}, sha256 {Digest(text)}."));
         }
 
-        ProviderTransferBaseline baseline = ProviderTransferBaseline.From(
+        var baseline = ProviderTransferBaseline.From(
             runs,
             settings.ProviderBaselineReports,
             string.Create(
@@ -761,7 +761,7 @@ internal static class Program
             string.Equals(arm.ArmId, PublishedReadMemoizationScenario.ThroughputArm, StringComparison.Ordinal));
         if (settings.UpdateBaseline)
         {
-            MemoizationBaseline recorded = MemoizationBaseline.From(
+            var recorded = MemoizationBaseline.From(
                 throughput, $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
             await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
             Report($"Linha de base gravada em {settings.BaselinePath}.");
@@ -833,7 +833,7 @@ internal static class Program
             string.Equals(arm.ArmId, PublishedRenderCostScenario.SharedArm, StringComparison.Ordinal));
         if (settings.UpdateBaseline)
         {
-            RenderCostBaseline recorded = RenderCostBaseline.From(
+            var recorded = RenderCostBaseline.From(
                 shared, $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
             await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
             Report($"Linha de base gravada em {settings.BaselinePath}.");
@@ -909,7 +909,7 @@ internal static class Program
             string.Equals(arm.ArmId, ScribanParseMemoizationScenario.HotArm, StringComparison.Ordinal));
         if (settings.UpdateBaseline)
         {
-            ParseMemoizationBaseline recorded = ParseMemoizationBaseline.From(
+            var recorded = ParseMemoizationBaseline.From(
                 hot, $"{outcome.Host} / {outcome.Processors} núcleos / .NET {outcome.Runtime}");
             await recorded.SaveAsync(settings.BaselinePath, cancellationToken);
             Report($"Linha de base gravada em {settings.BaselinePath}.");

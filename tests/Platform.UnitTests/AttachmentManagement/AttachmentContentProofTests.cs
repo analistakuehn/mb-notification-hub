@@ -11,8 +11,8 @@ public sealed class AttachmentContentProofTests
     [Fact]
     public void Two_proofs_over_the_same_bytes_match()
     {
-        AttachmentContentProof recorded = AttachmentContentProof.Sha256Of(Digest, 13);
-        AttachmentContentProof measured = AttachmentContentProof.Sha256Of(
+        var recorded = AttachmentContentProof.Sha256Of(Digest, 13);
+        var measured = AttachmentContentProof.Sha256Of(
             SHA256.HashData(Encoding.UTF8.GetBytes("custody bytes")),
             13);
 
@@ -65,8 +65,8 @@ public sealed class AttachmentContentProofTests
         // a comparison by memory segment answers no to every line below.
         ReferenceEquals(first, second).ShouldBeFalse();
         Convert.ToHexString(first).ShouldBe(Convert.ToHexString(second));
-        AttachmentContentProof recorded = AttachmentContentProof.Sha256Of(first, 13);
-        AttachmentContentProof measured = AttachmentContentProof.Sha256Of(second, 13);
+        var recorded = AttachmentContentProof.Sha256Of(first, 13);
+        var measured = AttachmentContentProof.Sha256Of(second, 13);
 
         (recorded == measured).ShouldBeTrue();
         recorded.Equals(measured).ShouldBeTrue();
@@ -81,8 +81,8 @@ public sealed class AttachmentContentProofTests
     {
         var altered = (byte[])Digest.Clone();
         altered[^1] ^= 0x01;
-        AttachmentContentProof recorded = AttachmentContentProof.Sha256Of(Digest, 13);
-        AttachmentContentProof other = AttachmentContentProof.Sha256Of(altered, 13);
+        var recorded = AttachmentContentProof.Sha256Of(Digest, 13);
+        var other = AttachmentContentProof.Sha256Of(altered, 13);
 
         (recorded == other).ShouldBeFalse();
         recorded.Equals(other).ShouldBeFalse();

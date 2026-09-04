@@ -163,7 +163,7 @@ public sealed class ValidateClassPolicyVersionEndpointTests(TemplateManagementAp
             AuditEvent audit = await db.AuditEvents.AsNoTracking().SingleAsync(candidate =>
                 candidate.Action == "class_policy.version.published"
                 && candidate.EntityId == $"{application}:{ClassPolicyApi.DefaultClass}:{version}");
-            using JsonDocument details = JsonDocument.Parse(audit.DetailsJson);
+            using var details = JsonDocument.Parse(audit.DetailsJson);
             JsonElement validation = details.RootElement.GetProperty("validation");
             validation.GetProperty("passed").GetBoolean()
                 .ShouldBe(report.GetProperty("passed").GetBoolean());

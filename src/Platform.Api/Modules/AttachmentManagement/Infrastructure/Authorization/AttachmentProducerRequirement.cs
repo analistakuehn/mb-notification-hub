@@ -16,7 +16,7 @@ internal sealed class AttachmentProducerAuthorizationHandler(
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        AttachmentPrincipal? principal = AttachmentPrincipal.Resolve(context.User);
+        var principal = AttachmentPrincipal.Resolve(context.User);
         if (principal is null)
         {
             Deny(context, ErrorCodes.AccessDenied);

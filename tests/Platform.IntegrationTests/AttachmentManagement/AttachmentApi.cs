@@ -54,7 +54,7 @@ internal static class AttachmentApi
         HttpResponseMessage response)
     {
         var body = await response.Content.ReadAsStringAsync();
-        using JsonDocument document = JsonDocument.Parse(body);
+        using var document = JsonDocument.Parse(body);
         JsonElement root = document.RootElement;
         root.EnumerateObject()
             .Select(property => property.Name)

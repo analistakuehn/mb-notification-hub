@@ -160,7 +160,7 @@ internal sealed class SendGridMailContent(
         // that hands them over. What it measures is therefore the content this
         // body carries, and not the record that describes it: a digest taken
         // from that record would be the record compared with itself.
-        using IncrementalHash witness = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var witness = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         try
         {
             long read = 0;

@@ -129,7 +129,7 @@ public sealed class AttachmentContentIdentityTests
     [Fact]
     public void The_reference_of_an_attachment_names_no_generation()
     {
-        AttachmentReference reference = AttachmentReference.Generate();
+        var reference = AttachmentReference.Generate();
 
         AttachmentContentIdentity.GenerationOf(reference.Value).ShouldBeNull();
         AttachmentContentIdentity.Prefix.ShouldNotBe(AttachmentReference.Prefix);

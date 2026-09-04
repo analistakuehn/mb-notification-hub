@@ -50,7 +50,7 @@ internal static partial class RegisterAttachment
             dbContext.Attachments.Add(attachment);
             await saveOperation.SaveChangesAsync(dbContext, cancellationToken);
 
-            Response response = Response.From(attachment);
+            var response = Response.From(attachment);
             logger.AttachmentRegistered(
                 response.Reference,
                 attachment.Application,

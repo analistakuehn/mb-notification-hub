@@ -258,7 +258,7 @@ public sealed class AcceptedAttachmentManifestTests
     [Fact]
     public void The_written_document_names_the_envelope_and_nothing_else()
     {
-        using JsonDocument written = JsonDocument.Parse(AcceptedAttachmentManifest.Serialize(
+        using var written = JsonDocument.Parse(AcceptedAttachmentManifest.Serialize(
             AcceptedAttachmentSet.Of([Attachment("att_alpha")])));
 
         JsonElement root = written.RootElement;

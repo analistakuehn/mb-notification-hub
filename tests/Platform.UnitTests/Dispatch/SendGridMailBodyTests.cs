@@ -70,7 +70,7 @@ public sealed class SendGridMailBodyTests
         byte[][] contents = [Readable(300), Readable(31), Readable(1_024)];
         SendGridMailBody body = Composed(SetOf(contents));
 
-        using JsonDocument document = JsonDocument.Parse(Assemble(body, contents));
+        using var document = JsonDocument.Parse(Assemble(body, contents));
         JsonElement fields = document.RootElement.GetProperty("attachments");
 
         fields.GetArrayLength().ShouldBe(3);

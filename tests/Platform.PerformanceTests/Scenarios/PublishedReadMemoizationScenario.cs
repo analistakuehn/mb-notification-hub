@@ -59,7 +59,7 @@ internal static class PublishedReadMemoizationScenario
         ArgumentNullException.ThrowIfNull(report);
         ArgumentOutOfRangeException.ThrowIfLessThan(workers, 1);
 
-        using PublishedReadCacheHandle cache = PublishedReadCacheHandle.Create();
+        using var cache = PublishedReadCacheHandle.Create();
 
         // The key space sits just above the budget, so the arm lives on the
         // boundary: nearly every operation misses, writes, and meets the gate.
@@ -194,7 +194,7 @@ internal static class PublishedReadMemoizationScenario
             observer.Start();
         }
 
-        Thread[] threads = new Thread[workers];
+        var threads = new Thread[workers];
         for (var worker = 0; worker < workers; worker++)
         {
             var index = worker;

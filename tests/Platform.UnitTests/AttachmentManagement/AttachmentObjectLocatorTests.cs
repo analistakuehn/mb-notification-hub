@@ -110,7 +110,7 @@ public sealed class AttachmentObjectLocatorTests
     [Fact]
     public void A_complete_stored_row_is_rehydrated_exactly_as_stored()
     {
-        AttachmentObjectLocator locator = AttachmentObjectLocator.FromStoredRow(Store, Key, Version);
+        var locator = AttachmentObjectLocator.FromStoredRow(Store, Key, Version);
 
         locator.Store.ShouldBe(Store);
         locator.Key.ShouldBe(Key);
@@ -120,7 +120,7 @@ public sealed class AttachmentObjectLocatorTests
     [Fact]
     public void Rendering_a_locator_as_text_reveals_no_storage_coordinate()
     {
-        AttachmentObjectLocator locator = AttachmentObjectLocator.FromStoredRow(Store, Key, Version);
+        var locator = AttachmentObjectLocator.FromStoredRow(Store, Key, Version);
 
         var rendered = $"{locator}";
 

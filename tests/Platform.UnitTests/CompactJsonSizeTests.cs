@@ -69,7 +69,7 @@ public sealed class CompactJsonSizeTests
         // text and the reader accepts it. Without this the rest of the test
         // would prove nothing, because a payload that never parsed would reach
         // the measure in no shape at all.
-        using JsonDocument document = JsonDocument.Parse($$"""{"v":"{{LoneSurrogateEscape}}"}""");
+        using var document = JsonDocument.Parse($$"""{"v":"{{LoneSurrogateEscape}}"}""");
         document.RootElement.ValueKind.ShouldBe(JsonValueKind.Object);
 
         CompactJsonSize.Outcome measured = Should.NotThrow(
@@ -84,11 +84,11 @@ public sealed class CompactJsonSizeTests
         // Every position the transcoding walks: a value at depth, an array
         // element, and a property name. A guard that covered only one of them
         // would leave the others taking the caller down.
-        using JsonDocument inNestedValue = JsonDocument.Parse(
+        using var inNestedValue = JsonDocument.Parse(
             $$$"""{"order":{"note":"{{{LoneSurrogateEscape}}}"}}""");
-        using JsonDocument inArrayElement = JsonDocument.Parse(
+        using var inArrayElement = JsonDocument.Parse(
             $$"""{"items":["ok","{{LoneSurrogateEscape}}"]}""");
-        using JsonDocument inPropertyName = JsonDocument.Parse(
+        using var inPropertyName = JsonDocument.Parse(
             $$"""{"{{LoneSurrogateEscape}}":"ok"}""");
 
         CompactJsonSize.Measure(inNestedValue.RootElement).IsReadable.ShouldBeFalse();
@@ -102,9 +102,9 @@ public sealed class CompactJsonSizeTests
         // The falsifying half of the rule above: what is refused is an escape
         // that names no character, never an escaped character. A guard that
         // refused every escaped surrogate would refuse every emoji.
-        using JsonDocument escaped = JsonDocument.Parse(
+        using var escaped = JsonDocument.Parse(
             $$"""{"v":"{{PairedSurrogateEscape}}"}""");
-        using JsonDocument literal = JsonDocument.Parse("""{"v":"😀"}""");
+        using var literal = JsonDocument.Parse("""{"v":"😀"}""");
 
         CompactJsonSize.Outcome measured = CompactJsonSize.Measure(escaped.RootElement);
 

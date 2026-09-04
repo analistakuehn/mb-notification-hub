@@ -104,7 +104,7 @@ public sealed class PublishedRenderRefusalShapeTests
 
     private static JsonElement Payload(string json)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
         return document.RootElement.Clone();
     }
 
@@ -122,7 +122,7 @@ public sealed class PublishedRenderRefusalShapeTests
             LinkDomainsAllowed = [AllowedDomain],
         }).Value!;
 
-        TemplateVersion version = TemplateVersion.CreateDraft(key, Version, "autora", Start);
+        var version = TemplateVersion.CreateDraft(key, Version, "autora", Start);
         version.SetContent(
                 new ContentEdit(Sms, PtBr, null, "Código {{ code }} {{ link }}", null),
                 "autora")

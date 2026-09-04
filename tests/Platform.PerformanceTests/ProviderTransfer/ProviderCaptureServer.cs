@@ -211,7 +211,7 @@ internal sealed class ProviderCaptureServer : IAsyncDisposable
         {
             try
             {
-                using JsonDocument document = JsonDocument.Parse(body.ShrunkJson);
+                using var document = JsonDocument.Parse(body.ShrunkJson);
                 wellFormed = true;
                 subject = document.RootElement.TryGetProperty("subject", out JsonElement value)
                     ? value.GetString()

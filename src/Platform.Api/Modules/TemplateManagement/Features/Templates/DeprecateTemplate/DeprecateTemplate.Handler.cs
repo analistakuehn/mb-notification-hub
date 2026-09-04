@@ -51,7 +51,7 @@ internal static partial class DeprecateTemplate
             // placed after it stretches the serialization window of every
             // governed effect of the month.
             DateTimeOffset occurredAt = timeProvider.GetUtcNow();
-            LifecycleNote? note = LifecycleNote.For(
+            var note = LifecycleNote.For(
                 command.Note,
                 AuditEntityTypes.Template,
                 key.Value!.Value,

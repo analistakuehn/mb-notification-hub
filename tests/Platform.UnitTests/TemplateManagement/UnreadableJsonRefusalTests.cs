@@ -183,7 +183,7 @@ public sealed class UnreadableJsonRefusalTests
     [Fact]
     public void Verifying_a_policy_whose_stored_definition_stopped_reading_is_refused()
     {
-        ClassPolicyVersion version = ClassPolicyVersion.Rehydrate(new ClassPolicyVersionState
+        var version = ClassPolicyVersion.Rehydrate(new ClassPolicyVersionState
         {
             Application = "billing",
             Class = NotificationClasses.Create("transactional").Value,

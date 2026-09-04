@@ -113,7 +113,7 @@ public sealed class LifecycleNoteTrailTests(TemplateManagementApiFixture fixture
     [RequiresDockerFact]
     public async Task Erasing_a_reference_that_holds_no_words_records_nothing()
     {
-        Guid absent = Guid.CreateVersion7();
+        var absent = Guid.CreateVersion7();
         var before = await ErasureEventCountAsync();
 
         LifecycleNoteErasure outcome = await EraseAsync(absent, "privacy-lnt-3");

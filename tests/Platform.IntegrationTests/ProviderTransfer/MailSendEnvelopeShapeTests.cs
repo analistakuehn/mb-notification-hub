@@ -97,7 +97,7 @@ public sealed class MailSendEnvelopeShapeTests
                 "attachment"),
         ]));
 
-        using JsonDocument document = JsonDocument.Parse(body);
+        using var document = JsonDocument.Parse(body);
         JsonElement attachment = document.RootElement.GetProperty("attachments")[0];
         attachment.GetProperty("content").GetString().ShouldBe("QUJD");
         attachment.GetProperty("filename").GetString().ShouldBe("comprovante.pdf");

@@ -59,7 +59,7 @@ public sealed class SendGridMailContentTests
 
         written.LongLength.ShouldBe(body.DeclaredLength);
         custody.Opened.ShouldBe(["aci_0", "aci_1", "aci_2"]);
-        using JsonDocument document = JsonDocument.Parse(written);
+        using var document = JsonDocument.Parse(written);
         JsonElement fields = document.RootElement.GetProperty("attachments");
         for (var index = 0; index < contents.Length; index++)
         {

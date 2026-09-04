@@ -176,7 +176,7 @@ internal static class ClaimableAttachments
             .ShouldNotBeNull();
         attachment.MarkReceived(length, now).ShouldBe(AttachmentReceiveOutcome.Received);
 
-        AttachmentObjectLocator locator = AttachmentObjectLocator.FromStoredRow(
+        var locator = AttachmentObjectLocator.FromStoredRow(
             "attachment-store",
             $"attachments/{Guid.NewGuid():N}",
             $"generation-{Guid.NewGuid():N}");
@@ -202,7 +202,7 @@ internal static class ClaimableAttachments
             digest = SHA256.HashData(content);
         }
 
-        AttachmentObjectGeneration generation = AttachmentObjectGeneration.Capture(
+        var generation = AttachmentObjectGeneration.Capture(
             attachment.Id,
             locator,
             AttachmentContentProof.Sha256Of(digest, length),

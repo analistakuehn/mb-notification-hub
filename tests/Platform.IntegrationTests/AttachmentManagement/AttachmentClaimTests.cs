@@ -241,10 +241,10 @@ public sealed class AttachmentClaimTests(AttachmentManagementApiFixture fixture)
             (await lockRow.ExecuteScalarAsync()).ShouldNotBeNull();
         }
 
-        Task<AttachmentClaimOutcome> ascending = Task.Run(() => ClaimAsync(
+        var ascending = Task.Run(() => ClaimAsync(
             NewKey(), [sorted[0].Reference, sorted[1].Reference], commit: true));
         await Task.Delay(TimeSpan.FromMilliseconds(750));
-        Task<AttachmentClaimOutcome> descending = Task.Run(() => ClaimAsync(
+        var descending = Task.Run(() => ClaimAsync(
             NewKey(), [sorted[1].Reference, sorted[0].Reference], commit: true));
         await Task.Delay(TimeSpan.FromMilliseconds(750));
 

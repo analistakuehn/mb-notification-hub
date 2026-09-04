@@ -19,7 +19,7 @@ public sealed class PerformanceProbeCollectorTests
         var path = Path.Combine(ProbeDirectory(), "NotificationHub.PerformanceTests.runtimeconfig.json");
         File.Exists(path).ShouldBeTrue($"a configuração de runtime da sonda não está em {path}");
 
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
 
         document.RootElement
             .GetProperty("runtimeOptions")

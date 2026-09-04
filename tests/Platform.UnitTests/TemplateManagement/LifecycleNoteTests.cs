@@ -61,9 +61,9 @@ public sealed class LifecycleNoteTests
     [Fact]
     public void A_note_longer_than_the_ceiling_the_door_enforces_is_refused()
     {
-        LifecycleNoteText? atTheCeiling =
+        var atTheCeiling =
             LifecycleNoteText.Create(new string('a', LifecycleNoteText.MaxLength));
-        LifecycleNoteText? oneOver =
+        var oneOver =
             LifecycleNoteText.Create(new string('a', LifecycleNoteText.MaxLength + 1));
 
         Record(atTheCeiling).ShouldNotBeNull();
@@ -91,7 +91,7 @@ public sealed class LifecycleNoteTests
     [Fact]
     public void A_note_about_a_layout_carries_no_application()
     {
-        LifecycleNote? note = LifecycleNote.For(
+        var note = LifecycleNote.For(
             LifecycleNoteText.Create("identidade visual antiga"),
             AuditEntityTypes.Layout,
             "araia.wrapper.padrao",

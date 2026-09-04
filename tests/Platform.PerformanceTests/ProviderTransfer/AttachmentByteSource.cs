@@ -133,7 +133,7 @@ internal sealed class SyntheticAttachmentByteSource : IAttachmentByteSource
 
     private string Digest()
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var buffer = new byte[Math.Min(Length, 64 * 1_024)];
         long produced = 0;
         while (produced < Length)

@@ -301,7 +301,7 @@ public sealed class PublishedRenderRefusalLogTests
             LinkDomainsAllowed = [AllowedDomain],
         }).Value!;
 
-        TemplateVersion version = TemplateVersion.CreateDraft(key, Version, "autora", Start);
+        var version = TemplateVersion.CreateDraft(key, Version, "autora", Start);
         version.SetContent(
                 new ContentEdit(Sms, PtBr, null, "Seu código é {{ code }}. Detalhes em {{ link }}", null),
                 "autora")
@@ -331,7 +331,7 @@ public sealed class PublishedRenderRefusalLogTests
             DefaultLocale = PtBr,
         }).Value!;
 
-        TemplateVersion version = TemplateVersion.CreateDraft(key, Version, "autora", Start);
+        var version = TemplateVersion.CreateDraft(key, Version, "autora", Start);
         version.SetContent(new ContentEdit(Email, PtBr, "Assunto", body, null), "autora")
             .IsSuccess.ShouldBeTrue();
         return new PublishedTemplateContext(template, version);

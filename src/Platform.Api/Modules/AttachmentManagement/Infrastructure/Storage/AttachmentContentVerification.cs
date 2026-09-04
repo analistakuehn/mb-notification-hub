@@ -52,7 +52,7 @@ internal static class AttachmentContentVerification
                 : AttachmentContentReading.Unavailable();
         }
 
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
 
         // What the content starts with, kept while the pass runs so the table

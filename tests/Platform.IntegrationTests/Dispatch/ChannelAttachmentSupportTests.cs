@@ -57,7 +57,7 @@ public sealed class ChannelAttachmentSupportTests(DispatchPostgresFixture fixtur
             "o container entrega o adaptador decorado, e é o decorado que o envio usa; "
             + "medir a instância nua deixaria os dois decoradores fora do alcance desta regra.");
 
-        Dictionary<string, bool> answers = hosted.ToDictionary(
+        var answers = hosted.ToDictionary(
             provider => provider.ProviderKey,
             provider => provider.CarriesAttachments,
             StringComparer.Ordinal);

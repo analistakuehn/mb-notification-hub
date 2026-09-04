@@ -193,7 +193,7 @@ public sealed class AcceptanceClaimTransactionTests(NotificationsApiFixture fixt
         HttpResponseMessage first = await PostAsync(producer, body, winnerKey);
         first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         var payloadHash = await PayloadHashAsync(winnerKey);
-        Guid winnerNotificationId = Guid.CreateVersion7();
+        var winnerNotificationId = Guid.CreateVersion7();
 
         using WebApplicationFactory<Program> racing = fixture.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(AttachmentClaimDecoration.Wrap(inner =>
@@ -465,7 +465,7 @@ public sealed class AcceptanceClaimTransactionTests(NotificationsApiFixture fixt
 
     private async Task RemoveFastPathEntryAsync(string idempotencyKey)
     {
-        ConfigurationOptions options = ConfigurationOptions.Parse(fixture.RedisConnectionString);
+        var options = ConfigurationOptions.Parse(fixture.RedisConnectionString);
         options.AbortOnConnectFail = false;
         await using ConnectionMultiplexer connection = await ConnectionMultiplexer.ConnectAsync(options);
         await connection.GetDatabase().KeyDeleteAsync(

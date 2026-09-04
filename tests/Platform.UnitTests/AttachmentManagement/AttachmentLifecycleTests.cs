@@ -18,7 +18,7 @@ public sealed class AttachmentLifecycleTests
     [Fact]
     public void Public_reference_has_a_stable_prefix_and_round_trips_as_an_opaque_value()
     {
-        AttachmentReference reference = AttachmentReference.Generate();
+        var reference = AttachmentReference.Generate();
 
         reference.Value.ShouldStartWith("att_");
         reference.Value.Length.ShouldBe(36);
@@ -31,7 +31,7 @@ public sealed class AttachmentLifecycleTests
     [Fact]
     public void Registration_keeps_the_public_reference_separate_from_the_content_identity()
     {
-        DateTimeOffset now = DateTimeOffset.Parse(
+        var now = DateTimeOffset.Parse(
             "2026-08-31T12:00:00Z",
             CultureInfo.InvariantCulture);
 
@@ -138,7 +138,7 @@ public sealed class AttachmentLifecycleTests
     public void Matching_content_advances_once_to_received()
     {
         Attachment attachment = RegisteredAttachment(sizeBytes: 4);
-        DateTimeOffset receivedAt = DateTimeOffset.Parse(
+        var receivedAt = DateTimeOffset.Parse(
             "2026-08-31T12:01:00Z",
             CultureInfo.InvariantCulture);
 

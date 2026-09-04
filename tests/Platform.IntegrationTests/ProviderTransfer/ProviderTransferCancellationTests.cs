@@ -43,7 +43,7 @@ public sealed class ProviderTransferCancellationTests
             // attachment, and the case that matters is the one where a read is
             // live when the cancellation lands.
             var afterBytes = stage is TransferStage.HttpWrite ? 100_000 : 1;
-            using TransferInterrupter interrupter = TransferInterrupter.With(
+            using var interrupter = TransferInterrupter.With(
                 CancellationToken.None, TransferInterruption.CancelAt(stage, afterBytes));
             var plan = new TransferPlan(
                 armId, MailSendEnvelope.Default, [source], "probe-api-key", root, true, interrupter);
@@ -76,7 +76,7 @@ public sealed class ProviderTransferCancellationTests
         var root = NewSpoolRoot();
         try
         {
-            using TransferInterrupter interrupter = TransferInterrupter.With(
+            using var interrupter = TransferInterrupter.With(
                 CancellationToken.None, TransferInterruption.FaultAt(TransferStage.Encode, 1));
             var plan = new TransferPlan(
                 ProviderTransferArms.SpoolArm,
@@ -109,12 +109,12 @@ public sealed class ProviderTransferCancellationTests
         var root = NewSpoolRoot();
         try
         {
-            using TransferInterrupter unhindered = TransferInterrupter.Idle(CancellationToken.None);
+            using var unhindered = TransferInterrupter.Idle(CancellationToken.None);
             await ProviderTransferArms.SendAsync(
                 client, Plan(ProviderTransferArms.StreamingArm, source, root, unhindered), unhindered.Token);
 
             server.BodyReadDelay = TimeSpan.FromMilliseconds(2);
-            using TransferInterrupter slowed = TransferInterrupter.With(
+            using var slowed = TransferInterrupter.With(
                 CancellationToken.None,
                 TransferInterruption.BackpressureFrom(
                     TransferStage.HttpWrite, 0, TimeSpan.FromMilliseconds(2)));

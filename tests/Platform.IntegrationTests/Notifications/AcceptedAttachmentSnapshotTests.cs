@@ -279,7 +279,7 @@ public sealed class AcceptedAttachmentSnapshotTests : IAsyncLifetime
     /// </summary>
     private async Task<Guid> InsertWithoutTheColumnAsync()
     {
-        Guid id = Guid.CreateVersion7();
+        var id = Guid.CreateVersion7();
         var key = id.ToString();
         var emptyObject = EmptyJsonObject;
         await using NotificationsDbContext db = CreateContext();

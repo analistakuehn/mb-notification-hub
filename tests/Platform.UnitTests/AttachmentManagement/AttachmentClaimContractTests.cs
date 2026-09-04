@@ -321,7 +321,7 @@ public sealed class AttachmentClaimContractTests
     public void An_accepted_set_keeps_what_it_was_built_from_and_not_where_it_came_from()
     {
         AcceptedAttachment[] source = [Item("att_one")];
-        AcceptedAttachmentSet accepted = AcceptedAttachmentSet.Of(source);
+        var accepted = AcceptedAttachmentSet.Of(source);
 
         source[0] = Item("att_rewritten");
 
@@ -462,7 +462,7 @@ public sealed class AttachmentClaimContractTests
     [Fact]
     public void A_manifest_compares_by_what_it_carries_and_keeps_its_order()
     {
-        AttachmentReferences manifest = AttachmentReferences.Of(["att_one", "att_two"]);
+        var manifest = AttachmentReferences.Of(["att_one", "att_two"]);
 
         Same(manifest, AttachmentReferences.Of(["att_one", "att_two"])).ShouldBeTrue();
         manifest.GetHashCode().ShouldBe(AttachmentReferences.Of(["att_one", "att_two"]).GetHashCode());
@@ -476,7 +476,7 @@ public sealed class AttachmentClaimContractTests
     public void A_manifest_keeps_what_it_was_built_from_and_not_where_it_came_from()
     {
         string[] source = ["att_one"];
-        AttachmentReferences manifest = AttachmentReferences.Of(source);
+        var manifest = AttachmentReferences.Of(source);
 
         source[0] = "att_rewritten";
 
@@ -516,11 +516,11 @@ public sealed class AttachmentClaimContractTests
     {
         AcceptedAttachmentSet accepted = Set(Item("att_one"));
 
-        AttachmentClaimOutcome claimed = AttachmentClaimOutcome.Claimed(accepted);
+        var claimed = AttachmentClaimOutcome.Claimed(accepted);
         claimed.Status.ShouldBe(AttachmentClaimStatus.Claimed);
         Same(claimed.Accepted!, accepted).ShouldBeTrue();
 
-        AttachmentClaimOutcome refused =
+        var refused =
             AttachmentClaimOutcome.Refused(AttachmentClaimStatus.NotClaimable);
         refused.Status.ShouldBe(AttachmentClaimStatus.NotClaimable);
         refused.Accepted.ShouldBeNull();

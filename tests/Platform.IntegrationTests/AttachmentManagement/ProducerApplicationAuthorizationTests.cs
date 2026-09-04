@@ -592,14 +592,14 @@ internal static class AttachmentAuthorizationAssertions
                 .ShouldNotBeNull()
                 .ToString();
             var body = await response.Content.ReadAsStringAsync();
-            using JsonDocument document = JsonDocument.Parse(body);
+            using var document = JsonDocument.Parse(body);
             JsonElement root = document.RootElement;
             root.EnumerateObject()
                 .Select(property => property.Name)
                 .Order(StringComparer.Ordinal)
                 .ShouldBe(["detail", "status", "title", "traceId", "type"]);
             root.GetProperty("traceId").GetString().ShouldNotBeNullOrWhiteSpace();
-            Dictionary<string, string> comparableBody = root.EnumerateObject()
+            var comparableBody = root.EnumerateObject()
                 .Where(property => property.Name != "traceId")
                 .ToDictionary(
                     property => property.Name,

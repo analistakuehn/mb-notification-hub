@@ -132,7 +132,7 @@ internal sealed class TransactionalAttachmentClaim(
             return AttachmentClaimOutcome.Refused(AttachmentClaimStatus.NotClaimable);
         }
 
-        Dictionary<string, LockedAttachment> byReference =
+        var byReference =
             locked.ToDictionary(row => row.Reference, StringComparer.Ordinal);
         Guid[] requested = [.. references.Select(reference => byReference[reference].Id)];
 

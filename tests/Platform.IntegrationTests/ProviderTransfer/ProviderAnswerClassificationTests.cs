@@ -95,7 +95,7 @@ public sealed class ProviderAnswerClassificationTests
         Directory.CreateDirectory(root);
         try
         {
-            using TransferInterrupter interrupter = TransferInterrupter.Idle(CancellationToken.None);
+            using var interrupter = TransferInterrupter.Idle(CancellationToken.None);
             var plan = new TransferPlan(
                 ProviderTransferArms.StreamingArm,
                 MailSendEnvelope.Default,

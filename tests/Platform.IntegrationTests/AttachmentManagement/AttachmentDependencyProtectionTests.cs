@@ -373,7 +373,7 @@ public sealed class AttachmentDependencyProtectionTests(AttachmentManagementApiF
         using IServiceScope holdScope = fixture.Services.CreateScope();
         using IServiceScope disposalScope = fixture.Services.CreateScope();
         AttachmentDependencyRegistry registry = RegistryWith(holdScope, clock);
-        Task<AttachmentDependencyOutcome> holding = Task.Run(() => registry.HoldAsync(
+        var holding = Task.Run(() => registry.HoldAsync(
             attachment.Reference,
             AttachmentDependencyReasons.ClaimConfirmed,
             holder,

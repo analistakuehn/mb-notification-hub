@@ -138,7 +138,7 @@ internal sealed class RecordedAttachmentEvidence(AttachmentManagementDbContext d
                 .Select(revocation => new RevocationRow(
                     revocation.ReleaseId, revocation.RevokedAt, revocation.Reason))
                 .ToListAsync(cancellationToken);
-        Dictionary<Guid, RevocationRow> takenBack = withdrawals.ToDictionary(
+        var takenBack = withdrawals.ToDictionary(
             revocation => revocation.ReleaseId);
 
         var grants = new Dictionary<Guid, GrantRow>();

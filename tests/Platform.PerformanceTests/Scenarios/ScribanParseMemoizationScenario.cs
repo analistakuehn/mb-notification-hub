@@ -103,7 +103,7 @@ internal static class ScribanParseMemoizationScenario
     /// <summary>The catalogue alone, in a store that has room for all of it.</summary>
     private static ParseMemoizationArm Hot(ArmPlan plan, Action<string> report)
     {
-        using ScribanParseCacheHandle cache = ScribanParseCacheHandle.Create();
+        using var cache = ScribanParseCacheHandle.Create();
         return Measure(plan, cache, report);
     }
 
@@ -114,7 +114,7 @@ internal static class ScribanParseMemoizationScenario
     /// </summary>
     private static ParseMemoizationArm Loaded(ArmPlan plan, Action<string> report)
     {
-        using ScribanParseCacheHandle cache = ScribanParseCacheHandle.Create();
+        using var cache = ScribanParseCacheHandle.Create();
         var before = cache.ResidentBytes;
         cache.Load(Dense(BallastChars, 0));
         var weight = cache.ResidentBytes - before;
@@ -259,7 +259,7 @@ internal static class ScribanParseMemoizationScenario
     {
         using var stopping = new CancellationTokenSource(duration);
         var performed = new long[workers];
-        Thread[] threads = new Thread[workers];
+        var threads = new Thread[workers];
         for (var worker = 0; worker < workers; worker++)
         {
             var index = worker;

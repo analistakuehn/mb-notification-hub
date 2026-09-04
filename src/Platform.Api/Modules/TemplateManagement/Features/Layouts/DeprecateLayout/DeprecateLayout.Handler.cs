@@ -51,7 +51,7 @@ internal static partial class DeprecateLayout
             // placed after it stretches the serialization window of every
             // governed effect of the month.
             DateTimeOffset occurredAt = timeProvider.GetUtcNow();
-            LifecycleNote? note = LifecycleNote.For(
+            var note = LifecycleNote.For(
                 command.Note,
                 AuditEntityTypes.Layout,
                 key.Value!.Value,

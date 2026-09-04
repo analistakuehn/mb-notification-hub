@@ -35,7 +35,7 @@ public sealed class RuntimeGlobalizationTests
         // The other half of the setting, and the reason it is not the same as
         // turning globalization off: real cultures keep working, and they keep
         // coming from ICU.
-        CultureInfo culture = CultureInfo.GetCultureInfo("pt-BR");
+        var culture = CultureInfo.GetCultureInfo("pt-BR");
 
         culture.Name.ShouldBe("pt-BR");
         culture.NumberFormat.NumberDecimalSeparator.ShouldBe(",");

@@ -96,7 +96,7 @@ public sealed class ScribanParseProvenanceTests
 
     private static JsonElement Payload()
     {
-        using JsonDocument document = JsonDocument.Parse(
+        using var document = JsonDocument.Parse(
             """{"user":{"name":"Ana"},"order":{"id":"A-1"}}""");
         return document.RootElement.Clone();
     }

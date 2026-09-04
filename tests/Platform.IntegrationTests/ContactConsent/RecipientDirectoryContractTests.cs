@@ -183,7 +183,7 @@ public sealed class RecipientDirectoryContractTests(ContactConsentApiFixture fix
     /// </summary>
     private Task<int> AppendLegacyGrantAsync(Guid contactPointId, string purpose)
     {
-        Guid id = Guid.CreateVersion7();
+        var id = Guid.CreateVersion7();
         DateTimeOffset recordedAt = DateTimeOffset.UtcNow.AddDays(-1);
         return fixture.QueryContactConsentDbAsync(db => db.Database.ExecuteSqlAsync(
             $"""

@@ -22,7 +22,7 @@ public sealed class ChannelSerializationTests
     [InlineData("whatsapp")]
     public void A_channel_writes_the_canonical_word_and_reads_back_the_instance(string word)
     {
-        Channel canonical = Channel.Trusted(word);
+        var canonical = Channel.Trusted(word);
 
         var document = JsonSerializer.Serialize(canonical, Options);
 

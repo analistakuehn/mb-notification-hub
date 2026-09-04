@@ -417,7 +417,7 @@ public sealed class KafkaIngressAttachmentManifestTests(KafkaIngressFixture fixt
 
     private async Task RemoveFastPathEntryAsync(string application, string idempotencyKey)
     {
-        ConfigurationOptions options = ConfigurationOptions.Parse(fixture.RedisConnectionString);
+        var options = ConfigurationOptions.Parse(fixture.RedisConnectionString);
         options.AbortOnConnectFail = false;
         await using ConnectionMultiplexer connection = await ConnectionMultiplexer.ConnectAsync(options);
         await connection.GetDatabase().KeyDeleteAsync(

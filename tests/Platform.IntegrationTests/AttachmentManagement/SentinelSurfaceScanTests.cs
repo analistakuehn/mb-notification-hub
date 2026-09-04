@@ -142,7 +142,7 @@ public sealed class SentinelSurfaceScanTests(
         {
             await OutboxRelayFixture.DeleteOutboxRowsAsync(kafkaRelay, [missingKafkaOutboxId]);
         }
-        List<ConsumeResult<string, byte[]>> brokerRecords = ingressFixture
+        var brokerRecords = ingressFixture
             .ReadAll(OutgoingTopic, BrokerReadBudget)
             .Where(record => record.Message.Key == restRecipient || record.Message.Key == busRecipient)
             .ToList();

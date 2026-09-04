@@ -154,7 +154,7 @@ internal static partial class UploadAttachment
                 return attempt.Refusal;
             }
 
-            Response response = Response.From(attachment);
+            var response = Response.From(attachment);
             logger.AttachmentReceived(
                 response.Reference,
                 attachment.Application,

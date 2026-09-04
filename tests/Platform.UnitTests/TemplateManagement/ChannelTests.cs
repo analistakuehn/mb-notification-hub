@@ -52,7 +52,7 @@ public sealed class ChannelTests
     [InlineData("whatsapp")]
     public void Rehydrates_a_persisted_channel_to_its_canonical_value(string value)
     {
-        Channel rehydrated = Channel.Trusted(value);
+        var rehydrated = Channel.Trusted(value);
 
         rehydrated.Value.ShouldBe(value);
         Channel.All.Select(channel => channel.Value).ShouldContain(value);

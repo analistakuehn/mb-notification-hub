@@ -332,7 +332,7 @@ public sealed class TemplateLayoutIntegrationEndpointTests(TemplateManagementApi
             $"/v1/templates/{key}/versions/{version}/validate", content: null);
 
         JsonElement report = await TemplateApi.ReadJsonAsync(validation);
-        List<string?> failed = report.GetProperty("checks").EnumerateArray()
+        var failed = report.GetProperty("checks").EnumerateArray()
             .Where(check => check.GetProperty("status").GetString() == "failed")
             .Select(check => check.GetProperty("name").GetString())
             .ToList();

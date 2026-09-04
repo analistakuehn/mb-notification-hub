@@ -346,7 +346,7 @@ public sealed class PublishedContractEqualityTests
         if (type.IsArray)
         {
             Type element = type.GetElementType()!;
-            Array buffer = Array.CreateInstance(element, 1);
+            var buffer = Array.CreateInstance(element, 1);
             buffer.SetValue(BuildValue(element, depth + 1), 0);
             return buffer;
         }
@@ -387,7 +387,7 @@ public sealed class PublishedContractEqualityTests
 
         if (definition == typeof(ReadOnlyMemory<>) || definition == typeof(Memory<>))
         {
-            Array buffer = Array.CreateInstance(arguments[0], 1);
+            var buffer = Array.CreateInstance(arguments[0], 1);
             buffer.SetValue(BuildValue(arguments[0], depth + 1), 0);
             return Activator.CreateInstance(type, [buffer])!;
         }

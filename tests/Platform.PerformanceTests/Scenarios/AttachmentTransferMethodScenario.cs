@@ -125,7 +125,7 @@ internal static class AttachmentTransferMethodScenario
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
-        using Process process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         process.Refresh();
         var heapBefore = GC.GetTotalMemory(forceFullCollection: false);
         var workingSetBefore = process.WorkingSet64;
@@ -263,7 +263,7 @@ internal static class AttachmentTransferMethodScenario
 
     private static string TransferThroughStreaming(byte[] payload, byte[] envelope)
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(envelope);
         foreach (ReadOnlyMemory<byte> chunk in Chunks(payload))
         {
@@ -299,7 +299,7 @@ internal static class AttachmentTransferMethodScenario
                 destination.Flush(flushToDisk: true);
             }
 
-            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             using var source = new FileStream(
                 path,
                 FileMode.Open,
@@ -344,7 +344,7 @@ internal static class AttachmentTransferMethodScenario
 
     private static string Digest(byte[] envelope, byte[] payload)
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(envelope);
         hash.AppendData(payload);
         return Convert.ToHexString(hash.GetHashAndReset());

@@ -524,7 +524,7 @@ internal static class AcceptedAttachmentFlow
         AttachmentManagementDbContext db = scope.ServiceProvider
             .GetRequiredService<AttachmentManagementDbContext>();
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        AttachmentObjectGeneration generation = AttachmentObjectGeneration.Capture(
+        var generation = AttachmentObjectGeneration.Capture(
             attachment.Id,
             AttachmentObjectLocator.FromStoredRow(
                 "attachment-store",
