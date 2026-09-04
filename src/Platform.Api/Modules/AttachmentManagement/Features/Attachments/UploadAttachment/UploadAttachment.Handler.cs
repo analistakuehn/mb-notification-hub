@@ -59,6 +59,18 @@ internal static partial class UploadAttachment
                 return Result.BusinessRuleViolation<Response>(ErrorCodes.AlreadyReceived);
             }
 
+            // An attachment whose content was discarded is refused here, and
+            // it has to be refused by a state because nothing else refuses it
+            // any more. What kept a repeat out of a settled attachment was the
+            // conditional write meeting an occupied key, and the removal of
+            // those bytes is exactly what frees the key again; without this
+            // the upload would go through and put a registration that had
+            // already ended back into the flow.
+            if (attachment.State == AttachmentStates.Discarded)
+            {
+                return Result.BusinessRuleViolation<Response>(ErrorCodes.Discarded);
+            }
+
             if (command.DeclaredSizeBytes is not { } declared
                 || declared != attachment.SizeBytes)
             {

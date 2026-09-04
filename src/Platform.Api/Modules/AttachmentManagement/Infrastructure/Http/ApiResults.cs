@@ -37,6 +37,8 @@ internal static class ApiResults
                 "O conteúdo do anexo ainda não foi recebido, portanto não há o que validar.",
             [ErrorCodes.NotReleased] = "O anexo não tem liberação vigente para revogar.",
             [ErrorCodes.Revoked] = "A liberação do anexo foi revogada.",
+            [ErrorCodes.Discarded] =
+                "O conteúdo do anexo foi descartado; registre um novo anexo.",
 
             // One line for the whole family of transitions that could not be
             // carried through. Which of them it was stays on the record, for

@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using NotificationHub.Api.Composition;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reconciliation;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Retention;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Validation;
 
@@ -37,7 +38,16 @@ public sealed class AttachmentMaintenanceWorkerRole : IWorkerRoleModule
 
         services.AddAttachmentValidation(configuration);
         services.AddAttachmentReconciliation(configuration);
+        services.AddAttachmentRetention(configuration);
+
+        // The operation that removes the bytes of one attachment and refuses
+        // while anything depends on it. It is composed here because the sweep
+        // of abandoned attachments is its first caller that is not a request,
+        // and because this role is the only one allowed to reach it: a host
+        // scaled by traffic would run the sweep once per replica.
+        services.TryAddScoped<AttachmentDisposal>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddHostedService<AttachmentReconciliationService>();
+        services.AddHostedService<AttachmentAbandonmentService>();
     }
 }

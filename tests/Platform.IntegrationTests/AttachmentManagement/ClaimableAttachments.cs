@@ -220,7 +220,7 @@ internal static class ClaimableAttachments
 
         if (state == AttachmentStates.Revoked)
         {
-            attachment.Revoke().ShouldBe(AttachmentRevocationTransition.Applied);
+            attachment.Revoke(now).ShouldBe(AttachmentRevocationTransition.Applied);
         }
 
         attachment.State.ShouldBe(state);

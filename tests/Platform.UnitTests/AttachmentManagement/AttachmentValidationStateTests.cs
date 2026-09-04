@@ -33,7 +33,7 @@ public sealed class AttachmentValidationStateTests
         Attachment waiting = ReceivedAttachment();
 
         released.Release().ShouldBe(AttachmentValidationTransition.Applied);
-        refused.Reject("content-type-not-admitted")
+        refused.Reject("content-type-not-admitted", Now)
             .ShouldBe(AttachmentValidationTransition.Applied);
         waiting.HoldInconclusive("verifier-did-not-answer", Now, Window)
             .ShouldBe(AttachmentValidationTransition.Applied);
@@ -56,7 +56,7 @@ public sealed class AttachmentValidationStateTests
         Attachment refused = WaitingAttachment();
 
         released.Release().ShouldBe(AttachmentValidationTransition.Applied);
-        refused.Reject("content-type-not-admitted")
+        refused.Reject("content-type-not-admitted", Now)
             .ShouldBe(AttachmentValidationTransition.Applied);
 
         released.State.ShouldBe(AttachmentStates.Released);
@@ -75,7 +75,7 @@ public sealed class AttachmentValidationStateTests
 
         attachment.VerdictRefusal().ShouldBe(AttachmentValidationTransition.NotReceived);
         attachment.Release().ShouldBe(AttachmentValidationTransition.NotReceived);
-        attachment.Reject("content-not-inspectable")
+        attachment.Reject("content-not-inspectable", Now)
             .ShouldBe(AttachmentValidationTransition.NotReceived);
         attachment.HoldInconclusive("verifier-did-not-answer", Now, Window)
             .ShouldBe(AttachmentValidationTransition.NotReceived);
@@ -95,7 +95,7 @@ public sealed class AttachmentValidationStateTests
 
         attachment.VerdictRefusal().ShouldBe(AttachmentValidationTransition.AlreadyDecided);
         attachment.Release().ShouldBe(AttachmentValidationTransition.AlreadyDecided);
-        attachment.Reject("content-not-inspectable")
+        attachment.Reject("content-not-inspectable", Now)
             .ShouldBe(AttachmentValidationTransition.AlreadyDecided);
         attachment.HoldInconclusive("verifier-did-not-answer", Now, Window)
             .ShouldBe(AttachmentValidationTransition.AlreadyDecided);
@@ -121,7 +121,7 @@ public sealed class AttachmentValidationStateTests
         refused.ReconciliationLiability.ShouldBe(AttachmentLiabilities.VerdictOpen);
 
         released.Release().ShouldBe(AttachmentValidationTransition.Applied);
-        refused.Reject("inconclusive-window-elapsed")
+        refused.Reject("inconclusive-window-elapsed", Now)
             .ShouldBe(AttachmentValidationTransition.Applied);
 
         released.ReconciliationLiability.ShouldBeNull();
@@ -215,7 +215,7 @@ public sealed class AttachmentValidationStateTests
         Attachment refused = ReceivedAttachment();
         Attachment waiting = ReceivedAttachment();
 
-        Should.Throw<ArgumentException>(() => refused.Reject("  "));
+        Should.Throw<ArgumentException>(() => refused.Reject("  ", Now));
         Should.Throw<ArgumentException>(() => waiting.HoldInconclusive("  ", Now, Window));
 
         refused.State.ShouldBe(AttachmentStates.Received);
@@ -240,7 +240,7 @@ public sealed class AttachmentValidationStateTests
         Attachment attachment = ReceivedAttachment();
         if (state == AttachmentStates.Rejected)
         {
-            attachment.Reject("content-type-not-admitted");
+            attachment.Reject("content-type-not-admitted", Now);
         }
         else
         {
@@ -253,7 +253,7 @@ public sealed class AttachmentValidationStateTests
         // first one an authority had already withdrawn.
         if (state == AttachmentStates.Revoked)
         {
-            attachment.Revoke();
+            attachment.Revoke(Now);
         }
 
         attachment.State.ShouldBe(state);

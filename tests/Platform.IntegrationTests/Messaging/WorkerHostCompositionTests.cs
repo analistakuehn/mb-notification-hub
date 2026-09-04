@@ -5,6 +5,7 @@ using NotificationHub.Api.Infrastructure.Messaging;
 using NotificationHub.Api.Infrastructure.Messaging.Consuming;
 using NotificationHub.Api.Infrastructure.Messaging.Relay;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reconciliation;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Retention;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Storage;
 using NotificationHub.Api.Modules.ContactConsent.Infrastructure.Consuming;
 using NotificationHub.Api.Modules.ContactConsent.Integration.V1;
@@ -229,19 +230,25 @@ public sealed class WorkerHostCompositionTests
     }
 
     /// <summary>
-    /// The attachment maintenance role composes the repair round and nothing
-    /// that answers a caller.
+    /// The attachment maintenance role composes the two jobs that act on
+    /// durable bytes and nothing that answers a caller.
     /// <para>
-    /// The whole round resolving is the proof the role composed the surfaces
-    /// it needs: the module's own store, the custody it removes through, the
-    /// inventory it discovers unaccounted generations through, and the
-    /// validation that owns the state machine a waiting verdict ends in. A
-    /// role that composed three of the four would fail on the first round in
-    /// production and never here.
+    /// The whole of each job resolving is the proof the role composed the
+    /// surfaces it needs: the module's own store, the custody it removes
+    /// through, the inventory it discovers unaccounted generations through,
+    /// the validation that owns the state machine a waiting verdict ends in,
+    /// and the disposal that refuses while anything still depends on an
+    /// attachment. A role that composed all but one would fail on the first
+    /// round in production and never here.
+    /// </para>
+    /// <para>
+    /// Both jobs live here and in no other role for the same reason: they
+    /// remove bytes nobody can bring back, and a host scaled by traffic would
+    /// run them once per replica.
     /// </para>
     /// </summary>
     [Fact]
-    public void The_attachment_maintenance_role_hosts_the_repair_round_and_nothing_that_answers_a_caller()
+    public void The_attachment_maintenance_role_hosts_the_two_rounds_and_nothing_that_answers_a_caller()
     {
         HostApplicationBuilder builder = CreateBuilder(new Dictionary<string, string?>
         {
@@ -255,13 +262,16 @@ public sealed class WorkerHostCompositionTests
 
         IHostedService[] hosted = [.. host.Services.GetServices<IHostedService>()];
         hosted.OfType<AttachmentReconciliationService>().ShouldHaveSingleItem();
+        hosted.OfType<AttachmentAbandonmentService>().ShouldHaveSingleItem();
         hosted
-            .Where(service => service is not AttachmentReconciliationService)
+            .Where(service => service is not AttachmentReconciliationService
+                and not AttachmentAbandonmentService)
             .ShouldAllBe(service => service.GetType().Namespace!
                 .StartsWith("Microsoft.", StringComparison.Ordinal));
 
         using IServiceScope scope = host.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<AttachmentReconciliationScan>().ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<AttachmentAbandonmentScan>().ShouldNotBeNull();
 
         // No object store is configured here, and the composition answers with
         // a custody that claims nothing and an inventory that lists nothing,

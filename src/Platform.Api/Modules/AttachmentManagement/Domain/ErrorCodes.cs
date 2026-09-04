@@ -66,6 +66,16 @@ public static class ErrorCodes
     public const string Revoked = "attachment-revoked";
 
     /// <summary>
+    /// The content of the attachment was discarded, so there is nothing left
+    /// to upload to, to validate or to use. It is a word of its own beside the
+    /// refusal and the withdrawal, because those two say what happened to the
+    /// approval and this one says the content is gone, and only this one tells
+    /// a producer that the reference is spent and a new registration is the
+    /// next step.
+    /// </summary>
+    public const string Discarded = "attachment-discarded";
+
+    /// <summary>
     /// The module could not carry a lifecycle transition through, and wrote
     /// nothing. One word covers the whole family, as the refusal of content
     /// does: a policy that did not decide, an identity the module cannot name,

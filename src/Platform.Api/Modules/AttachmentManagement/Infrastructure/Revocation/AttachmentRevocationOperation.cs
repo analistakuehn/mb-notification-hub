@@ -125,8 +125,12 @@ internal sealed class AttachmentRevocationOperation(
 
         // The state was read under the row lock a few lines above and nothing
         // since then reloads it, so this transition always applies.
-        _ = attachment.Revoke();
+        //
+        // The instant is read once and written twice, on the attachment and on
+        // the row. Two readings would let the record of the withdrawal and the
+        // clock its retention is counted from disagree about when it happened.
         DateTimeOffset revokedAt = timeProvider.GetUtcNow();
+        _ = attachment.Revoke(revokedAt);
         dbContext.Revocations.Add(AttachmentRevocation.Record(
             attachmentId,
             grant,

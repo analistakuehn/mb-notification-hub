@@ -87,12 +87,14 @@ internal static partial class ValidateAttachment
                     Result.BusinessRuleViolation<Response>(ErrorCodes.ContentRefused),
                 AttachmentStates.Revoked =>
                     Result.BusinessRuleViolation<Response>(ErrorCodes.Revoked),
+                AttachmentStates.Discarded =>
+                    Result.BusinessRuleViolation<Response>(ErrorCodes.Discarded),
 
                 // Unreachable: the machine answers that it decided nothing
-                // only for the three states above, and the row it read them
+                // only for the four states above, and the row it read them
                 // from was held for the whole of its transaction. It has no
                 // runtime falsifier and is not presented as a proven branch.
-                // It stays because the day a fourth settled state exists, an
+                // It stays because the day a fifth settled state exists, an
                 // answer that fell through to a release would be the worst one
                 // this switch could give.
                 _ => Result.IntegrationFailure<Response>(ErrorCodes.LifecycleUnavailable),

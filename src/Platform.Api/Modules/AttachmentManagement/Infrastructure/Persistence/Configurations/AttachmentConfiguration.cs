@@ -60,6 +60,13 @@ internal sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachm
         builder.Property(attachment => attachment.InconclusiveUntil)
             .HasColumnName("inconclusive_until");
 
+        // The instant the attachment ended. It sits here and not on the row of
+        // the withdrawal because a refusal has no row of its own, and because
+        // what the sweep of abandoned content reads is one column on one table
+        // rather than a join it would have to do for every candidate.
+        builder.Property(attachment => attachment.EndedAt)
+            .HasColumnName("ended_at");
+
         // Nullable and a word, not a flag. The round has to know which repair
         // it is running before it acts, and a flag would send it back to the
         // store, the record and the clock to work that out for every row it
@@ -90,6 +97,30 @@ internal sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachm
             .HasDatabaseName("ix_attachment_reconciliation_liability")
             .HasFilter("reconciliation_liability IS NOT NULL");
 
+        // The index of the states content can still be taken from. The filter
+        // is what keeps it small over time: an attachment leaves it for good
+        // the moment its content is discarded or released, so what stays is
+        // the working set of the sweep and never the history of the table.
+        //
+        // The list is built from the vocabulary rather than spelled out, so a
+        // state renamed in one place cannot leave the filter pointing at a
+        // word the column no longer holds.
+        //
+        // The key is the creation instant, which is the order the sweep drains
+        // the backlog in. It is not what any of the four conditions compares:
+        // each state counts from an instant of its own, and one index cannot
+        // answer four different comparisons, so the comparison is rechecked on
+        // the rows the filter leaves.
+        //
+        // It is named because it shares that key with the index above, and two
+        // indexes over the same property are one index to the model builder
+        // unless the second is named. Without the name this declaration
+        // rewrote the filter and the database name of the other one, and the
+        // only thing that reported it was a test over the mapping.
+        builder.HasIndex(attachment => attachment.CreatedAt, "ix_attachment_abandonment")
+            .HasDatabaseName("ix_attachment_abandonment")
+            .HasFilter(DiscardableStatesFilter());
+
         builder.ToTable(table => table.HasCheckConstraint(
             "ck_attachment_size_positive",
             "size_bytes > 0"));
@@ -97,4 +128,15 @@ internal sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachm
         builder.Property<uint>("xmin")
             .IsRowVersion();
     }
+
+    /// <summary>
+    /// The states the index above holds, written from the vocabulary itself.
+    /// A list transcribed here would go on filtering by a word the column had
+    /// stopped holding, and nothing about that failing is visible: the index
+    /// would simply stop being read.
+    /// </summary>
+    private static string DiscardableStatesFilter()
+        => "state IN ("
+            + string.Join(", ", AttachmentStates.Discardable.Select(state => $"'{state}'"))
+            + ")";
 }

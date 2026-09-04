@@ -332,7 +332,7 @@ public sealed class AttachmentClaimTests(AttachmentManagementApiFixture fixture)
         Attachment attachment = await dbContext.Attachments
             .Where(candidate => candidate.Id == attachmentId)
             .SingleAsync();
-        attachment.Revoke();
+        attachment.Revoke(DateTimeOffset.UtcNow);
         await dbContext.SaveChangesAsync();
     }
 }

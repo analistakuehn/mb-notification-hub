@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using NotificationHub.Api.Modules.AttachmentManagement.Domain;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Persistence;
 using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Reconciliation;
+using NotificationHub.Api.Modules.AttachmentManagement.Infrastructure.Retention;
 using NotificationHub.IntegrationTests.Notifications;
 using NotificationHub.IntegrationTests.TemplateManagement;
 using Testcontainers.PostgreSql;
@@ -14,7 +15,9 @@ using Testcontainers.PostgreSql;
 namespace NotificationHub.IntegrationTests.AttachmentManagement;
 
 /// <summary>
-/// What the planner does with the statement the repair round actually sends.
+/// What the planner does with the statements the two maintenance rounds
+/// actually send: the repair of outstanding liabilities, and the sweep of
+/// attachments whose content has been abandoned.
 /// <para>
 /// The round is justified by arithmetic: almost no attachment owes a repair,
 /// so reading the ones that do costs the size of the backlog and not the size
@@ -42,6 +45,18 @@ public sealed class AttachmentLiabilityPlanTests : IAsyncLifetime
 
     private const string AttachmentTable = "attachment";
     private const string LiabilityIndex = "ix_attachment_reconciliation_liability";
+    private const string AbandonmentIndex = "ix_attachment_abandonment";
+
+    /// <summary>
+    /// Windows that leave a small minority of the seeded rows abandoned, which
+    /// is the mixture the sweep meets in production: the backlog is whatever
+    /// crossed its deadline since the last round, and never the table.
+    /// </summary>
+    private static readonly AttachmentRetentionWindows Windows = new(
+        UnstartedUpload: TimeSpan.FromHours(11),
+        UnvalidatedContent: TimeSpan.FromHours(11),
+        RefusedContent: TimeSpan.FromHours(11),
+        WithdrawnRelease: TimeSpan.FromHours(11));
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("postgres:17-alpine")
@@ -126,6 +141,79 @@ public sealed class AttachmentLiabilityPlanTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// The sweep of abandoned content reads the same kind of structure, for
+    /// the same reason: what it has to reach is whatever crossed a deadline,
+    /// and the filter is what keeps an attachment out of the index for good
+    /// once its content is gone or released.
+    /// <para>
+    /// The order is answered by the index too. Without that, draining a
+    /// backlog oldest first would mean sorting every attachment that can still
+    /// be abandoned in order to take a hundred of them.
+    /// </para>
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task The_planner_answers_the_abandonment_selection_with_the_partial_index()
+    {
+        CapturedCommand captured = await CaptureAbandonmentAsync();
+
+        IReadOnlyList<string> withIndex = await ExplainAsync(captured);
+        withIndex.ShouldContain(
+            line => line.Contains("Index Scan", StringComparison.Ordinal)
+                && line.Contains(AbandonmentIndex, StringComparison.Ordinal),
+            Plan(withIndex));
+        withIndex.ShouldNotContain(
+            line => line.Contains("Sort", StringComparison.Ordinal),
+            Plan(withIndex));
+        withIndex.ShouldNotContain(
+            line => line.Contains("Seq Scan", StringComparison.Ordinal)
+                && line.Contains(AttachmentTable, StringComparison.Ordinal),
+            Plan(withIndex));
+    }
+
+    /// <summary>
+    /// The assertion above with its floor measured: without the index the same
+    /// statement walks the table, so the green one is reporting the index and
+    /// not the shape of a query that would be cheap either way.
+    /// </summary>
+    [RequiresDockerFact]
+    public async Task Without_the_partial_index_the_abandonment_selection_walks_the_table()
+    {
+        CapturedCommand captured = await CaptureAbandonmentAsync();
+        var definition = await IndexDefinitionAsync(AbandonmentIndex);
+        definition.ShouldNotBeNullOrWhiteSpace(
+            $"o índice '{AbandonmentIndex}' não existe, portanto o teste mediria a ausência "
+            + "dele em vez do plano.");
+
+        // Read off the catalog rather than off the model, because what has to
+        // be partial is the structure the database built, and because the
+        // filter is the whole of what keeps a discarded attachment out of it.
+        definition.ShouldContain("awaiting-upload", Case.Sensitive);
+        definition.ShouldContain("revoked", Case.Sensitive);
+        definition.ShouldNotContain("discarded", Case.Sensitive);
+        definition.ShouldNotContain("released", Case.Sensitive);
+
+        await ExecuteAsync($"DROP INDEX attachmentmanagement.{AbandonmentIndex}");
+        try
+        {
+            IReadOnlyList<string> withoutIndex = await ExplainAsync(captured);
+            withoutIndex.ShouldContain(
+                line => line.Contains("Seq Scan", StringComparison.Ordinal)
+                    && line.Contains(AttachmentTable, StringComparison.Ordinal),
+                Plan(withoutIndex));
+        }
+        finally
+        {
+            await ExecuteAsync(definition);
+        }
+
+        IReadOnlyList<string> restored = await ExplainAsync(captured);
+        restored.ShouldContain(
+            line => line.Contains("Index Scan", StringComparison.Ordinal)
+                && line.Contains(AbandonmentIndex, StringComparison.Ordinal),
+            Plan(restored));
+    }
+
+    /// <summary>
     /// One command exactly as the query pipeline built it: the text and every
     /// bound value. Rebuilding it by hand is the thing this test exists not to
     /// do, because a plan read over a transcription grades the transcription.
@@ -143,6 +231,19 @@ public sealed class AttachmentLiabilityPlanTests : IAsyncLifetime
         // command when it runs, and the answer it returns is irrelevant here.
         await AttachmentReconciliationScan
             .OutstandingQuery(db, DateTimeOffset.UtcNow, 100)
+            .ToListAsync();
+
+        return interceptor.Captured.ShouldNotBeNull(
+            "nenhum comando foi capturado; sem ele o teste não mede o statement real.");
+    }
+
+    private async Task<CapturedCommand> CaptureAbandonmentAsync()
+    {
+        var interceptor = new CommandCapture();
+        await using AttachmentManagementDbContext db = CreateContext(interceptor);
+
+        await AttachmentAbandonmentScan
+            .AbandonedQuery(db, DateTimeOffset.UtcNow, Windows, 100)
             .ToListAsync();
 
         return interceptor.Captured.ShouldNotBeNull(

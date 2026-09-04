@@ -98,12 +98,23 @@ public sealed class AttachmentPersistenceModelTests
         // which is the one shape the freeze on an append-only line exists to
         // prevent. What the state carries is the word "revoked", and the word
         // is a value of a column that already existed.
+        //
+        // "ended_at" holds the instant the attachment reached the state that
+        // ended it, and it is here because neither instant it records exists
+        // anywhere else. A refusal writes only a state and a detail, and a
+        // withdrawal writes a row that dates the grant it took back rather
+        // than the attachment; and neither can be derived from the instants
+        // beside it, because the receipt is as far from the refusal as the
+        // producer's next call is. It is what the retention of a refusal and
+        // of a withdrawal is counted from, and it carries no storage
+        // coordinate, content type or digest either.
         columns.ShouldBe(
         [
             "application",
             "content_id",
             "content_type",
             "created_at",
+            "ended_at",
             "file_name",
             "id",
             "inconclusive_until",
@@ -180,6 +191,45 @@ public sealed class AttachmentPersistenceModelTests
     }
 
     /// <summary>
+    /// The index the sweep of abandoned attachments reads, and the two things
+    /// that make it worth having: a filter that lets an attachment leave the
+    /// structure for good once its content is discarded or released, and a key
+    /// that is the order the sweep drains the backlog in.
+    /// <para>
+    /// It is a second index over the same property as the one above, which the
+    /// model builder treats as one index unless the second is named. The two
+    /// are held apart here, because a collision leaves one of them silently
+    /// rewritten and nothing else reports it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_index_over_abandonable_states_is_filtered_on_the_states_that_can_be_swept()
+    {
+        IIndex index = Model
+            .FindEntityType(typeof(Attachment))
+            .ShouldNotBeNull()
+            .GetIndexes()
+            .Single(candidate => candidate.GetDatabaseName() == "ix_attachment_abandonment");
+
+        // Built from the vocabulary and not transcribed, so the filter cannot
+        // go on naming a word the column stopped holding. The assertion spells
+        // the states out because a comparison against the same expression the
+        // configuration builds would agree with itself for any rule at all.
+        index.GetFilter().ShouldBe(
+            "state IN ('awaiting-upload', 'received', 'rejected', 'revoked')");
+        index.Properties.Select(property => property.Name)
+            .ShouldBe([nameof(Attachment.CreatedAt)]);
+
+        Model
+            .FindEntityType(typeof(Attachment))
+            .ShouldNotBeNull()
+            .GetIndexes()
+            .Count(candidate => candidate.Properties.Select(property => property.Name)
+                .SequenceEqual([nameof(Attachment.CreatedAt)]))
+            .ShouldBe(2);
+    }
+
+    /// <summary>
     /// The measured constraint on naming a durable detail, read the same way
     /// the state names are read: from the mapping, never from a number written
     /// twice. A detail longer than the column would only fail when a real
@@ -242,15 +292,40 @@ public sealed class AttachmentPersistenceModelTests
         // tell "the content never passed" from "someone took it back", and it
         // would answer a producer that the content was refused when no check
         // ever refused it.
+        //
+        // A second name was added the same way. "discarded" is the state an
+        // attachment carries once its content has been removed, and it is a
+        // word of its own rather than a second spelling of a refusal because
+        // the two answer different questions: a refused attachment was never
+        // approved and its bytes may still be there, and a discarded one says
+        // nothing about the verdict and everything about the content being
+        // gone. Folding them would tell a producer that a check refused
+        // content that no check ever looked at, and it would leave the sweep
+        // that removes the bytes with no way to say it had already been there.
         names.Order(StringComparer.Ordinal).ShouldBe(
         [
             "awaiting-upload",
+            "discarded",
             "received",
             "rejected",
             "released",
             "revoked",
             "validation-inconclusive",
         ]);
+
+        // The published subset the sweep and the schema both read. It is held
+        // against the walk above, so a state declared and left out of it
+        // cannot reach the index that is built on it, and the aggregate is
+        // asked directly whether each name belongs, so the list is never just
+        // a copy of itself.
+        AttachmentStates.Discardable.Order(StringComparer.Ordinal).ShouldBe(
+        [
+            "awaiting-upload",
+            "received",
+            "rejected",
+            "revoked",
+        ]);
+        AttachmentStates.Discardable.ShouldAllBe(state => names.Contains(state));
 
         var ceiling = Model
             .FindEntityType(typeof(Attachment))

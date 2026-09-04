@@ -43,6 +43,37 @@ public static class AttachmentStates
     /// </para>
     /// </summary>
     public const string Revoked = "revoked";
+
+    /// <summary>
+    /// The content is gone. It is written by the sweep that removes the bytes
+    /// of an attachment nothing is doing anything with, and only after the
+    /// store has confirmed that nothing is left under the key, so the record
+    /// outlives the content and says so instead of going silent.
+    /// <para>
+    /// It is the one state that says nothing about a verdict. Four states
+    /// reach it, and the act that ended each of them keeps its own trace: the
+    /// durable detail, the instant of the ending and the record of what was
+    /// stored are all left exactly as they were, because they are the only
+    /// remaining answer to what this attachment was.
+    /// </para>
+    /// </summary>
+    public const string Discarded = "discarded";
+
+    /// <summary>
+    /// The states whose content can be abandoned, and the only ones a sweep
+    /// may take bytes from. It is the published form of the rule the aggregate
+    /// applies: the aggregate answers when the content of one attachment stops
+    /// being kept, and this is the same question asked of the state alone, so
+    /// a reader of the schema and a reader of the aggregate see one list.
+    /// <para>
+    /// The three that are missing are missing on purpose. A release is what
+    /// the whole flow exists to produce, a wait for a verdict has an owner and
+    /// a deadline of its own, and an attachment whose content is already gone
+    /// has nothing left to take.
+    /// </para>
+    /// </summary>
+    public static readonly string[] Discardable =
+        [AwaitingUpload, Received, Rejected, Revoked];
 }
 
 public enum AttachmentReceiveOutcome
@@ -77,6 +108,21 @@ public enum AttachmentValidationTransition
     /// </para>
     /// </summary>
     AlreadyDecided,
+}
+
+/// <summary>What a discard did, or why it did nothing.</summary>
+public enum AttachmentDiscardTransition
+{
+    /// <summary>The attachment now says its content is gone.</summary>
+    Applied,
+
+    /// <summary>
+    /// Nothing here is abandoned. Either the state is one nobody may discard
+    /// from, or the window this module keeps that state for has not run out.
+    /// It is the same answer for both, because a caller acts on neither: what
+    /// it may do is offer the attachment again later.
+    /// </summary>
+    NotAbandoned,
 }
 
 /// <summary>What a revocation did, or why it did nothing.</summary>
@@ -164,6 +210,28 @@ public sealed class Attachment
     /// restarted would be a deadline that never arrives.
     /// </summary>
     public DateTimeOffset? InconclusiveUntil { get; private set; }
+
+    /// <summary>
+    /// When the attachment reached the state that ended it. The refusal and
+    /// the withdrawal write it, because those are the two acts nothing
+    /// reopens, and it is the clock the retention of both is counted from.
+    /// <para>
+    /// A column of its own because neither instant exists anywhere else, and
+    /// neither can be inferred from the ones that do. A refusal writes the
+    /// state and the detail and nothing else; the withdrawal writes a row that
+    /// dates the grant it took back rather than the attachment. And the
+    /// receipt is as far from the refusal as the producer's next call is, so a
+    /// retention counted from it would end an attachment that was refused a
+    /// minute ago.
+    /// </para>
+    /// <para>
+    /// The discard leaves it as it found it. Overwriting it there would erase
+    /// the instant that made the attachment discardable in the first place,
+    /// and the reading that asks why the content is gone would find the answer
+    /// replaced by the act that removed it.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? EndedAt { get; private set; }
 
     /// <summary>
     /// The repair this attachment is owed, or nothing when it owes none. It is
@@ -288,7 +356,7 @@ public sealed class Attachment
     }
 
     /// <summary>Ends the attachment for good, naming the check that refused it.</summary>
-    public AttachmentValidationTransition Reject(string detail)
+    public AttachmentValidationTransition Reject(string detail, DateTimeOffset endedAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(detail);
         if (VerdictRefusal() is { } refusal)
@@ -298,6 +366,11 @@ public sealed class Attachment
 
         State = AttachmentStates.Rejected;
         ValidationDetail = detail;
+
+        // The instant the attachment ended, written by the act that ends it
+        // and by nothing later. Whoever ends it is the only one who knows
+        // when, and the retention of a refusal is counted from here.
+        EndedAt = endedAt;
         ReconciliationLiability = null;
         return AttachmentValidationTransition.Applied;
     }
@@ -360,7 +433,7 @@ public sealed class Attachment
     /// refused bytes that no check ever looked at again.
     /// </para>
     /// </summary>
-    public AttachmentRevocationTransition Revoke()
+    public AttachmentRevocationTransition Revoke(DateTimeOffset endedAt)
     {
         if (RevocationRefusal() is { } refusal)
         {
@@ -368,7 +441,87 @@ public sealed class Attachment
         }
 
         State = AttachmentStates.Revoked;
+
+        // The same instant the row of the withdrawal carries. The row dates
+        // the grant that was taken back and this dates the attachment, and the
+        // retention of a withdrawal is counted from here rather than from a
+        // row that a reading would have to go and find.
+        EndedAt = endedAt;
         return AttachmentRevocationTransition.Applied;
+    }
+
+    /// <summary>
+    /// When the content of this attachment stops being kept, or nothing when
+    /// nothing about it is abandoned.
+    /// <para>
+    /// Four states can be abandoned and each one counts from the last event
+    /// that could still have changed it: the registration for an upload that
+    /// never started, the arrival of the bytes for content nobody ever asked a
+    /// verdict about, and the ending itself for a refusal and for a withdrawal.
+    /// None of them counts from the creation, which would put a ceiling on the
+    /// life of an attachment that is being used exactly as intended.
+    /// </para>
+    /// <para>
+    /// Three states are absent and each absence is a decision. A release is
+    /// what the whole flow exists to produce, and its expiry is computed from
+    /// a validity read at comparison time, so a discard keyed on it would
+    /// destroy bytes that the next change to that value would make usable
+    /// again. A wait for a verdict that did not conclude already has an owner
+    /// and a deadline of its own, and it lands in a refusal, where this clock
+    /// starts. And an attachment whose content is already gone has nothing
+    /// left to take.
+    /// </para>
+    /// <para>
+    /// A window nobody set is not a window of zero. Zero would mean the
+    /// content is abandoned the instant the state is reached, which is a
+    /// decision about the product taken by an omission, so it answers that
+    /// nothing is discardable and the startup guard refuses the value long
+    /// before anything reaches here.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? DiscardableFrom(AttachmentRetentionWindows windows)
+        => State switch
+        {
+            AttachmentStates.AwaitingUpload =>
+                Deadline(CreatedAt, windows.UnstartedUpload),
+            AttachmentStates.Received =>
+                Deadline(ReceivedAt, windows.UnvalidatedContent),
+            AttachmentStates.Rejected =>
+                Deadline(EndedAt, windows.RefusedContent),
+            AttachmentStates.Revoked =>
+                Deadline(EndedAt, windows.WithdrawnRelease),
+            _ => null,
+        };
+
+    /// <summary>
+    /// Records that the content of an abandoned attachment is gone. It says
+    /// nothing about who removed it and it removes nothing itself: the caller
+    /// has already had the store confirm every removal under the key, and this
+    /// is the durable statement that it happened.
+    /// <para>
+    /// Nothing here consults the dependencies. What protects an attachment
+    /// something still depends on is the operation that removes the bytes, and
+    /// a second reading of the same rule here would be a second place for it
+    /// to be wrong.
+    /// </para>
+    /// </summary>
+    public AttachmentDiscardTransition Discard(
+        DateTimeOffset now,
+        AttachmentRetentionWindows windows)
+    {
+        if (DiscardableFrom(windows) is not { } deadline || now < deadline)
+        {
+            return AttachmentDiscardTransition.NotAbandoned;
+        }
+
+        State = AttachmentStates.Discarded;
+
+        // A reclaim owed over a key whose content has just been removed is a
+        // reclaim that has been carried out. Left behind, it would send the
+        // repair round back to a key it has nothing to take from, round after
+        // round, for an attachment nobody can upload to any more.
+        ReconciliationLiability = null;
+        return AttachmentDiscardTransition.Applied;
     }
 
     /// <summary>
@@ -386,6 +539,14 @@ public sealed class Attachment
     /// </summary>
     internal static bool IsUsableDetail(string? value)
         => !string.IsNullOrWhiteSpace(value) && value.Length <= MaxValidationDetailLength;
+
+    /// <summary>
+    /// The instant a window that started at <paramref name="from"/> runs out,
+    /// or nothing when either half is missing. A window of zero or less is a
+    /// window nobody set, and it never runs out.
+    /// </summary>
+    private static DateTimeOffset? Deadline(DateTimeOffset? from, TimeSpan window)
+        => from is { } start && window > TimeSpan.Zero ? start + window : null;
 
     internal static bool IsValidMediaType(string? value)
         => !string.IsNullOrWhiteSpace(value)

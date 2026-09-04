@@ -31,7 +31,7 @@ public sealed class AttachmentRevocationStateTests
     {
         Attachment attachment = ReleasedAttachment();
 
-        attachment.Revoke().ShouldBe(AttachmentRevocationTransition.Applied);
+        attachment.Revoke(Now).ShouldBe(AttachmentRevocationTransition.Applied);
 
         attachment.State.ShouldBe(AttachmentStates.Revoked);
 
@@ -54,9 +54,9 @@ public sealed class AttachmentRevocationStateTests
     {
         Attachment attachment = ReleasedAttachment();
 
-        attachment.Revoke().ShouldBe(AttachmentRevocationTransition.Applied);
-        attachment.Revoke().ShouldBe(AttachmentRevocationTransition.AlreadyRevoked);
-        attachment.Revoke().ShouldBe(AttachmentRevocationTransition.AlreadyRevoked);
+        attachment.Revoke(Now).ShouldBe(AttachmentRevocationTransition.Applied);
+        attachment.Revoke(Now).ShouldBe(AttachmentRevocationTransition.AlreadyRevoked);
+        attachment.Revoke(Now).ShouldBe(AttachmentRevocationTransition.AlreadyRevoked);
 
         attachment.State.ShouldBe(AttachmentStates.Revoked);
         attachment.RevocationRefusal().ShouldBe(AttachmentRevocationTransition.AlreadyRevoked);
@@ -72,7 +72,7 @@ public sealed class AttachmentRevocationStateTests
         Attachment attachment = AttachmentIn(state);
 
         attachment.RevocationRefusal().ShouldBe(AttachmentRevocationTransition.NotReleased);
-        attachment.Revoke().ShouldBe(AttachmentRevocationTransition.NotReleased);
+        attachment.Revoke(Now).ShouldBe(AttachmentRevocationTransition.NotReleased);
 
         attachment.State.ShouldBe(state);
     }
@@ -87,11 +87,11 @@ public sealed class AttachmentRevocationStateTests
     public void A_revoked_attachment_takes_no_verdict_at_all()
     {
         Attachment attachment = ReleasedAttachment();
-        attachment.Revoke().ShouldBe(AttachmentRevocationTransition.Applied);
+        attachment.Revoke(Now).ShouldBe(AttachmentRevocationTransition.Applied);
 
         attachment.VerdictRefusal().ShouldBe(AttachmentValidationTransition.AlreadyDecided);
         attachment.Release().ShouldBe(AttachmentValidationTransition.AlreadyDecided);
-        attachment.Reject("content-type-not-admitted")
+        attachment.Reject("content-type-not-admitted", Now)
             .ShouldBe(AttachmentValidationTransition.AlreadyDecided);
         attachment.HoldInconclusive("verifier-did-not-answer", Now, Window)
             .ShouldBe(AttachmentValidationTransition.AlreadyDecided);
@@ -112,7 +112,7 @@ public sealed class AttachmentRevocationStateTests
         Attachment waiting = WaitingAttachment();
 
         waiting.VerdictRefusal().ShouldBeNull();
-        waiting.Revoke().ShouldBe(AttachmentRevocationTransition.NotReleased);
+        waiting.Revoke(Now).ShouldBe(AttachmentRevocationTransition.NotReleased);
 
         waiting.State.ShouldBe(AttachmentStates.Inconclusive);
         waiting.InconclusiveUntil.ShouldBe(Now + Window);
@@ -135,7 +135,7 @@ public sealed class AttachmentRevocationStateTests
     private static Attachment RefusedAttachment()
     {
         Attachment attachment = ReceivedAttachment();
-        attachment.Reject("content-type-not-admitted")
+        attachment.Reject("content-type-not-admitted", Now)
             .ShouldBe(AttachmentValidationTransition.Applied);
         return attachment;
     }

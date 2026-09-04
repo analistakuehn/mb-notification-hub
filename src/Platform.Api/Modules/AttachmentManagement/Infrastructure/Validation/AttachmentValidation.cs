@@ -118,7 +118,7 @@ internal sealed class AttachmentValidation(
             // The wait ends against the attachment without anyone being
             // consulted. A verdict that arrived after the deadline would be a
             // verdict that made the deadline optional.
-            return await CloseAsync(attachment, transaction, cancellationToken);
+            return await CloseAsync(attachment, now, transaction, cancellationToken);
         }
 
         if (attachment.VerdictRefusal() is { } admissibility)
@@ -163,7 +163,7 @@ internal sealed class AttachmentValidation(
         AttachmentValidationTransition transition = verdict.Decision switch
         {
             AttachmentPolicyDecision.Approved => attachment.Release(),
-            AttachmentPolicyDecision.Refused => attachment.Reject(verdict.Detail),
+            AttachmentPolicyDecision.Refused => attachment.Reject(verdict.Detail, now),
             _ => attachment.HoldInconclusive(verdict.Detail, now, settings.InconclusiveWindow),
         };
 
@@ -202,6 +202,7 @@ internal sealed class AttachmentValidation(
     /// </summary>
     private async Task<AttachmentValidationOutcome> CloseAsync(
         Attachment attachment,
+        DateTimeOffset now,
         IDbContextTransaction transaction,
         CancellationToken cancellationToken)
     {
@@ -209,7 +210,7 @@ internal sealed class AttachmentValidation(
 
         // The window only elapses in the waiting state, and that is a state a
         // verdict may act on, so this transition always applies.
-        _ = attachment.Reject(detail);
+        _ = attachment.Reject(detail, now);
         await saveOperation.SaveChangesAsync(dbContext, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         logger.AttachmentRejected(attachment.Reference.Value, detail);

@@ -501,7 +501,7 @@ internal static class AcceptedAttachmentFlow
             .GetRequiredService<AttachmentManagementDbContext>();
         Attachment attachment = await db.Attachments.SingleAsync(
             candidate => candidate.Id == attachmentId);
-        attachment.Revoke().ShouldBe(AttachmentRevocationTransition.Applied);
+        attachment.Revoke(DateTimeOffset.UtcNow).ShouldBe(AttachmentRevocationTransition.Applied);
         await db.SaveChangesAsync();
     }
 

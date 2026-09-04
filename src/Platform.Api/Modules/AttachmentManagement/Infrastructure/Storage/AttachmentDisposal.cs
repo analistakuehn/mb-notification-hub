@@ -72,6 +72,36 @@ internal sealed class AttachmentDisposal(
                 LiveDependencies: 0);
         }
 
+        AttachmentDisposalOutcome outcome = await DiscardHeldAsync(
+            attachmentId,
+            reference,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return outcome;
+    }
+
+    /// <summary>
+    /// The same disposal, for a caller that already holds the attachment row
+    /// and owns the transaction it is held in.
+    /// <para>
+    /// It exists because deciding that an attachment is abandoned and removing
+    /// its bytes have to happen under one lock. A caller that read the state,
+    /// let go, and called the method above would be acting on a reading that
+    /// an upload could have made false in between, and it would remove the
+    /// bytes of the upload that made it false.
+    /// </para>
+    /// <para>
+    /// What the caller does not get is the refusal. The dependency is read
+    /// here, in the transaction the caller holds the row in, and no argument
+    /// of this method can turn it off: a second reading of that rule anywhere
+    /// else would be a second place for it to be wrong.
+    /// </para>
+    /// </summary>
+    internal async Task<AttachmentDisposalOutcome> DiscardHeldAsync(
+        Guid attachmentId,
+        AttachmentReference reference,
+        CancellationToken cancellationToken)
+    {
         // A dependency is live while nothing released it. The reason it names
         // is not consulted, and neither is how long it has been there: an
         // outcome nobody reported is exactly the case this protection exists
@@ -111,7 +141,6 @@ internal sealed class AttachmentDisposal(
             }
         }
 
-        await transaction.CommitAsync(cancellationToken);
         var unconfirmed = generations.Count - discarded;
         if (unconfirmed > 0)
         {
